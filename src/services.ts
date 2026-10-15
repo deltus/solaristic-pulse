@@ -10,6 +10,7 @@ import { dueQuestions } from './logic/schedule';
 import { followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
 import type { RosterRow, TimetableRow } from './logic/importers';
 import { today as todayISO } from './lib/dates';
+import { blitzTopic, type BlitzMark } from './logic/blitz';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -460,4 +461,33 @@ export async function currentWeight(studentId: string, date: string = todayISO()
     db.categories.toArray()
   ]);
   return computePriority(student, obs, chks.filter((c) => c.date <= date), questions, categories, date).weight;
+}
+
+/* ---------------- Blitz (whole class, one topic) ---------------- */
+
+const blitzObsId = (date: string, topic: string, studentId: string) => `blitz|${date}|${topic}|${studentId}`;
+
+/** Existing marks for a class/topic/day, so a Blitz can be reopened and corrected. */
+export async function loadBlitz(classId: string, date: string, topic: string): Promise<Record<string, BlitzMark>> {
+  const obs = await db.observations.where('checkinId').equals(`blitz|${date}|${classId}`).filter((o) => o.blitz === topic).toArray();
+  return Object.fromEntries(obs.map((o) => [o.studentId, o.level === null ? 'absent' : o.level ? 'no' : 'yes']));
+}
+
+/**
+ * Saves a Blitz. Marks are stored as observations flagged `blitz` (separate from check-ins,
+ * so they don't count as a check-in) but in the matching area, so they feed trends and reports.
+ */
+export async function saveBlitz(classId: string, date: string, topicId: string, marks: Record<string, BlitzMark>) {
+  const topic = blitzTopic(topicId);
+  if (!topic) throw new Error('Unknown Blitz topic');
+  const checkinId = `blitz|${date}|${classId}`;
+  await db.transaction('rw', db.observations, async () => {
+    await db.observations.where('checkinId').equals(checkinId).filter((o) => o.blitz === topicId).delete();
+    const now = Date.now();
+    await db.observations.bulkPut(Object.entries(marks).map(([studentId, m], i) => ({
+      id: blitzObsId(date, topicId, studentId), checkinId, studentId, classId, date, createdAt: now + i,
+      questionId: `blitz-${topicId}`, categoryId: topic.categoryId, blitz: topicId,
+      response: m === 'yes' ? 'Yes' : m === 'no' ? 'No' : 'Absent', level: m === 'absent' ? null : m === 'no' ? 1 : 0
+    })));
+  });
 }

@@ -8,6 +8,7 @@ import { saveSample } from '../../samples';
 import { DAY_NAMES, today } from '../../lib/dates';
 import { computePriority } from '../../logic/priority';
 import { WeightBadge } from './Students';
+import { ClassOverview } from './ClassOverview';
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, toast } from '../components';
 
@@ -232,6 +233,7 @@ export function ClassDetail({ id }: { id: string }) {
         <button class="icon-btn" aria-label="Edit class" onClick={() => setSheet('edit')}><Icon name="edit" /></button>
       </PageHead>
       {cls.archived && <div class="notice">This class is archived. It is hidden from Today and the rotation; its records are kept.</div>}
+      {!cls.archived && <ClassOverview classId={cls.id} onBlitz={() => go(`classes/${cls.id}/blitz`)} />}
 
       <div class="row wrap" style="margin-bottom:12px">
         <button class="btn primary small" onClick={() => setSheet('student')}><Icon name="plus" /> Add student</button>

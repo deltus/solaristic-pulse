@@ -7,6 +7,7 @@ import { allOpenFollowUps } from './logic/followups';
 import { categoryTrend } from './logic/trends';
 import { compareBeforeAfter, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from './logic/icp';
 import { makeScrubber, pseudonymMap } from './logic/deidentify';
+import { blitzTopic } from './logic/blitz';
 import { addDays, daysBetween, formatDate, parseISODate, toISODate, today } from './lib/dates';
 
 export type Cell = string | number | null;
@@ -65,7 +66,8 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
   ]);
   const inRange = (d: string) => (!o.from || d >= o.from) && (!o.to || d <= o.to);
   const cats = new Set(o.categoryIds);
-  const observations = observationsAll.filter((x) => inRange(x.date) && cats.has(x.categoryId));
+  const observations = observationsAll.filter((x) => !x.blitz && inRange(x.date) && cats.has(x.categoryId));
+  const blitzObs = observationsAll.filter((x) => !!x.blitz && inRange(x.date) && cats.has(x.categoryId));
   const checkins = checkinsAll.filter((x) => inRange(x.date));
   const notes = notesAll.filter((x) => inRange(x.date));
   const icpChecks = icpAll.filter((x) => inRange(x.date));
@@ -129,6 +131,14 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     ? [{ name: 'Teacher notes', rows: [[...studentHead, 'Date', 'Note'], ...list.sort((a, b) => a.date.localeCompare(b.date)).map((n) => [...studentCols(students.find((s) => s.id === n.studentId)!), formatDate(n.date), scrub(n.text)])] }]
     : [];
 
+  // Blitz marks: whole-class, one topic, kept apart from check-ins but in the same areas.
+  const blitzSheet = (): Sheet[] => blitzObs.length
+    ? [{ name: 'Blitz', rows: [[...studentHead, 'Class', 'Date', 'Topic', 'Area', 'Result'], ...[...blitzObs].sort((a, b) => a.date.localeCompare(b.date)).map((x) => {
+        const s = students.find((st) => st.id === x.studentId)!;
+        return [...studentCols(s), cls(x.classId), formatDate(x.date), blitzTopic(x.blitz!)?.label ?? x.blitz!, catName(x.categoryId), x.response];
+      })] }]
+    : [];
+
   const about: Sheet = {
     name: 'About this report',
     layout: 'pairs',
@@ -170,11 +180,11 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       const s = students.find((st) => st.id === c.studentId)!;
       chkRows.push([...studentCols(s), cls(c.classId), formatDate(c.date), c.status, c.source === 'daily' ? 'Daily rotation' : c.source === 'extra' ? 'Check More Students' : 'Teacher', c.weight ?? '']);
     }
-    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...notesSheet(notes), ...icpSheets(), about];
+    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...blitzSheet(), ...notesSheet(notes), ...icpSheets(), about];
   } else {
     sheets = buildStudentSheets(students[0], {
       o, date, observations, observationsAll, checkins, notes, adjustments, icpChecks, usedCats, categories,
-      p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, studentHead
+      p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, blitzSheet, studentHead
     });
     sheets.push(about);
   }
@@ -191,7 +201,7 @@ function buildStudentSheets(s: Student, c: {
   p: { priority: ReturnType<typeof computePriority>; open: ReturnType<typeof allOpenFollowUps> };
   nameOf: (s: Student) => string; cls: (id: string) => string; text: (t?: string) => string; scrub: (t?: string) => string;
   catName: (id: string) => string; obsRows: (l: Observation[]) => Cell[][]; icpSheets: () => Sheet[];
-  notesSheet: (l: StudentNote[]) => Sheet[]; studentHead: string[];
+  notesSheet: (l: StudentNote[]) => Sheet[]; blitzSheet: () => Sheet[]; studentHead: string[];
 }): Sheet[] {
   const { o, date, observations, observationsAll, checkins, usedCats, p } = c;
   const end = o.to && o.to < date ? o.to : date;
@@ -234,6 +244,7 @@ function buildStudentSheets(s: Student, c: {
   const sheets: Sheet[] = [
     { name: 'Summary', rows: sum, layout: 'pairs' },
     { name: 'Observations', rows: c.obsRows(observations) },
+    ...c.blitzSheet(),
     { name: 'Follow-ups', rows: fu },
     { name: 'Changes over time', rows: changes },
     ...c.notesSheet(c.notes)

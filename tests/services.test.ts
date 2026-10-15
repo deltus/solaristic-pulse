@@ -169,3 +169,28 @@ describe('draw weight history', () => {
     expect((await db.students.filter((x) => x.firstName === 'Ben').first())!.priorityAdjust).toBe(1);
   });
 });
+
+import { recentStatus } from '../src/logic/summary';
+import { computePriority } from '../src/logic/priority';
+import { CORE_CATEGORIES, CORE_QUESTIONS } from '../src/db';
+
+describe('Blitz', () => {
+  it('saves whole-class marks separately from check-ins, feeds the area, and can be corrected', async () => {
+    const c = await classWithStudents('Blitzers', 3);
+    const [a, b, x] = await db.students.where('classId').equals(c.id).toArray();
+    const d = today();
+    await svc.saveBlitz(c.id, d, 'homework', { [a.id]: 'no', [b.id]: 'yes', [x.id]: 'absent' });
+    expect(await svc.loadBlitz(c.id, d, 'homework')).toEqual({ [a.id]: 'no', [b.id]: 'yes', [x.id]: 'absent' });
+    expect(await db.checkins.count()).toBe(0); // not a check-in
+    const obsA = await db.observations.where('studentId').equals(a.id).toArray();
+    expect(obsA[0]).toMatchObject({ categoryId: 'homework', blitz: 'homework', level: 1 });
+    expect(recentStatus(obsA, 'homework')).toMatchObject({ count: 1, support: 1 });
+    // A second "No" (another blitz topic in the same area) nudges the draw weight.
+    await svc.saveBlitz(c.id, d, 'uniform', { [a.id]: 'no' });
+    const all = await db.observations.where('studentId').equals(a.id).toArray();
+    expect(computePriority(a, all, [], CORE_QUESTIONS, CORE_CATEGORIES, d).weight).toBeGreaterThan(1);
+    // Correcting replaces that day's marks for the topic.
+    await svc.saveBlitz(c.id, d, 'homework', { [a.id]: 'yes' });
+    expect(await svc.loadBlitz(c.id, d, 'homework')).toEqual({ [a.id]: 'yes' });
+  });
+});

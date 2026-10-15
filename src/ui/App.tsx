@@ -6,6 +6,7 @@ import { Setup } from './Setup';
 import { Tour } from './Tour';
 import { TodayScreen } from './screens/Today';
 import { HomeScreen } from './screens/Home';
+import { BlitzScreen } from './screens/Blitz';
 import { ClassesScreen, ClassDetail } from './screens/Classes';
 import { StudentsScreen, StudentProfile } from './screens/Students';
 import { IcpScreen } from './screens/Icp';
@@ -71,7 +72,7 @@ export function App() {
   const currentClass = classes?.find((c) => c.id === settings.currentClassId) ?? classes?.[0];
   let screen;
   switch (page) {
-    case 'classes': screen = id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
+    case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} /> : id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
     case 'students': screen = id ? <StudentProfile id={id} /> : <StudentsScreen />; break;
     case 'icp': screen = <IcpScreen studentId={id} mode={sub} />; break;
     case 'reports': screen = <ReportsScreen studentId={id} />; break;

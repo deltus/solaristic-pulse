@@ -5,6 +5,9 @@ import * as svc from '../../services';
 import { computePriority, lastCheckedDate, ADJUST_MAX, ADJUST_MIN, WEIGHT_MAX, WEIGHT_MIN } from '../../logic/priority';
 import { allOpenFollowUps } from '../../logic/followups';
 import { categoryTrend } from '../../logic/trends';
+import { rollingShare } from '../../logic/insights';
+import { TrendLine } from '../TrendLine';
+import { blitzTopic } from '../../logic/blitz';
 import { icpDueStatus, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from '../../logic/icp';
 import { daysBetween, formatDate, formatShort, relativeDay, today } from '../../lib/dates';
 import { go, useLive } from '../hooks';
@@ -153,7 +156,7 @@ export function StudentProfile({ id }: { id: string }) {
       el: (
         <div class={`tl-item ${o.level === 2 ? 'sig' : o.level === 1 ? 'difficulty' : ''}`}>
           <span class="label-tag">{catName(o.categoryId)}</span>
-          <span class={`badge ${levelBadge(o.level)}`}>{o.followUp ? `Follow-up: ${o.response}` : o.response}</span>
+          <span class={`badge ${levelBadge(o.level)}`}>{o.blitz ? `Blitz · ${blitzTopic(o.blitz)?.label ?? o.blitz}: ${o.response}` : o.followUp ? `Follow-up: ${o.response}` : o.response}</span>
           {o.context && <span class="tiny muted"> · {o.context}</span>}
           {q && !q.builtIn && <div class="tiny muted">{q.text.replace(/\{name\}/g, s.preferredName || s.firstName)}</div>}
           {o.note && <div class="small">{o.note}</div>}
@@ -193,14 +196,14 @@ export function StudentProfile({ id }: { id: string }) {
       <div class="section"><h2>Draw weight</h2></div>
       <PriorityCard studentId={s.id} weight={priority.weight} raw={priority.raw} parts={priority.parts} adjust={s.priorityAdjust} />
 
-      <div class="section"><h2>Trends</h2><span class="tiny muted">last 6 weeks</span></div>
-      <div class="legend" style="margin-bottom:8px"><span><i style="background:#9db3ec" />As expected</span><span><i style="background:#e2b85c" />Some difficulty</span><span><i style="background:#c9693d" />Significant</span></div>
+      <div class="section"><h2>Trends</h2><span class="tiny muted">last 8 weeks · includes Blitz</span></div>
+      <div class="legend" style="margin-bottom:8px"><span><i style="background:var(--ok)" />Meeting expectations</span><span><i style="background:var(--some)" />Needs support</span><span>Line: share of the last 5 answers meeting expectations</span></div>
       {usedCats.map((c) => {
         const t = categoryTrend(observations, c, date);
         return (
           <div class="card" key={c.id}>
             <div class="row between"><h3>{c.name}</h3><span class={`badge ${t.status === 'improving' ? 'ok' : t.status === 'declining' ? 'some' : ''}`}>{t.status === 'insufficient' ? 'Not enough data' : t.status === 'improving' ? 'Improving' : t.status === 'declining' ? 'More difficulty' : 'Stable'}</span></div>
-            {t.points.length > 0 && <div class="dots" aria-label="Observations, oldest to newest">{t.points.map((p, i) => <i key={i} class={`l${p.level}`} title={`${formatDate(p.date)}`} />)}</div>}
+            {(() => { const r = rollingShare(observations, c.id, date); return <TrendLine values={r.map((p) => 1 - p.share)} dots={r.map((p) => p.level)} labels={r.length ? [formatDate(r[0].date), formatDate(r[r.length - 1].date)] : undefined} />; })()}
             <p class="small"><span class="label-tag">Interpretation</span>{t.summary}</p>
             {t.facts.map((f) => <p key={f} class="small muted"><span class="label-tag">Observed</span>{f}</p>)}
           </div>

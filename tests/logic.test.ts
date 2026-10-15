@@ -343,3 +343,21 @@ describe('last 5 answers summary', () => {
     expect(recentStatus([o(1, null), o(2, 0)], 'behaviour').count).toBe(1); // "didn't see" style answers ignored
   });
 });
+
+import { classSuggestions, weeklyShare } from '../src/logic/insights';
+
+describe('class insights', () => {
+  it('computes weekly needs-support share and plain suggestions', () => {
+    const obs = [
+      ...[20, 19, 18].map((d) => mkObs('s1', addDays(TODAY, -d), 0, { categoryId: 'behaviour' })),
+      ...[3, 2, 1].map((d) => mkObs('s1', addDays(TODAY, -d), 1, { categoryId: 'behaviour' }))
+    ];
+    const w = weeklyShare(obs, 'behaviour', TODAY, 4);
+    expect(w).toHaveLength(4);
+    expect(w.at(-1)!.share).toBeGreaterThan(0);
+    const students = [mkStudent(1), mkStudent(2)];
+    const tips = classSuggestions({ students, checkins: [mkChk('s1', addDays(TODAY, -1))], observations: obs, categories: CORE_CATEGORIES, adjustments: [], icpChecks: [], today: TODAY, maxGapDays: 14 });
+    expect(tips.join(' ')).toContain('1 student hasn’t been checked in 10+ days: First2');
+    expect(tips.join(' ')).toMatch(/Behaviour is slipping .* Try a Behaviour blitz/);
+  });
+});

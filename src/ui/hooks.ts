@@ -20,7 +20,7 @@ export function useSettings(): Settings | undefined {
 
 function parseHash(): string[] {
   const h = location.hash.replace(/^#\/?/, '');
-  return h ? h.split('/').map(decodeURIComponent) : ['today'];
+  return h ? h.split('/').map(decodeURIComponent) : ['home'];
 }
 
 export function useRoute(): string[] {

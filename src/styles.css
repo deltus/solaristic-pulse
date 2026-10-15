@@ -541,3 +541,20 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .icp-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; padding: 10px 0 2px; border-top: 1px dashed var(--line); margin-top: 10px; }
 .ring { width: 38px; height: 38px; flex: none; }
 .ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Home: your classes ---------- */
+.today-top { margin-bottom: 10px; gap: 8px; }
+.today-top .lesson-line { margin: 0; min-height: 0; justify-content: flex-end; text-align: right; }
+.home-title { font-size: 28px; margin-top: 2px; }
+.class-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.class-card { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; transition: border-color 0.15s, transform 0.08s; animation: fadeUp 0.25s ease-out; }
+.class-card:hover { border-color: var(--line-strong); }
+.class-card:active { transform: scale(0.99); }
+.class-card.now { border-color: #b9c8ef; background: #f7f9ff; }
+.class-card.finished { opacity: 0.85; }
+.class-card-name { font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+.class-progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.class-progress i { display: block; height: 100%; background: var(--blue); border-radius: 3px; transition: width 0.4s ease; }
+.class-card.finished .class-progress i { background: var(--ok); }
+.class-go { display: inline-flex; align-items: center; gap: 4px; font-weight: 650; color: var(--blue); }
+.class-go svg { width: 14px; height: 14px; }

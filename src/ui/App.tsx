@@ -5,6 +5,7 @@ import { LockScreen } from './Lock';
 import { Setup } from './Setup';
 import { Tour } from './Tour';
 import { TodayScreen } from './screens/Today';
+import { HomeScreen } from './screens/Home';
 import { ClassesScreen, ClassDetail } from './screens/Classes';
 import { StudentsScreen, StudentProfile } from './screens/Students';
 import { IcpScreen } from './screens/Icp';
@@ -18,7 +19,7 @@ import { isNative } from '../platform';
 import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort } from '../lib/dates';
 
 export const NAV = [
-  { path: 'today', label: 'Today', icon: 'today' },
+  { path: 'home', label: 'Today', icon: 'today' },
   { path: 'classes', label: 'Classes', icon: 'classes' },
   { path: 'students', label: 'Students', icon: 'students' },
   { path: 'icp', label: 'ICP Check-In', icon: 'icp' },
@@ -66,7 +67,7 @@ export function App() {
   if (locked && settings.pin) return <LockScreen pin={settings.pin} name={settings.profile.name} onUnlock={() => setLocked(false)} />;
   if (!settings.onboarded) return <Setup />;
 
-  const [page = 'today', id, sub] = route;
+  const [page = 'home', id, sub] = route;
   const currentClass = classes?.find((c) => c.id === settings.currentClassId) ?? classes?.[0];
   let screen;
   switch (page) {
@@ -75,9 +76,11 @@ export function App() {
     case 'icp': screen = <IcpScreen studentId={id} mode={sub} />; break;
     case 'reports': screen = <ReportsScreen studentId={id} />; break;
     case 'settings': screen = <SettingsScreen section={id} sub={sub} />; break;
-    default: screen = <TodayScreen reminder={reminder} />;
+    case 'today': screen = <TodayScreen reminder={reminder} />; break;
+    default: screen = <HomeScreen reminder={reminder} />;
   }
-  const isToday = !NAV.some((n) => n.path === page) || page === 'today';
+  const isToday = page === 'today';
+  const isHome = !isToday && !NAV.some((n) => n.path === page && n.path !== 'home');
 
   return (
     <div class="shell">
@@ -102,7 +105,7 @@ export function App() {
           <button class="icon-btn menu-btn" data-tour="menu" aria-label="Open menu" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
           {isToday && currentClass ? (
             <button class="class-btn" data-tour="class" onClick={() => setPicker(true)} aria-label="Change class">{currentClass.name}<Icon name="chevronDown" /></button>
-          ) : <span class="title">{NAV.find((n) => n.path === page)?.label ?? ''}</span>}
+          ) : <span class="title">{isHome ? 'Solaristic Pulse' : NAV.find((n) => n.path === page)?.label ?? ''}</span>}
           <span class="spacer" />
           {settings.devTools !== false ? <DayButton /> : <span class="topbar-mark" aria-hidden="true"><img src="icons/mark.png" alt="" /></span>}
         </header>

@@ -72,6 +72,10 @@ export function TodayScreen({ reminder }: { reminder: ReminderState }) {
 }
 
 function LessonLine({ reminder, classId, classes }: { reminder: ReminderState; classId: string; classes: { id: string; name: string }[] }) {
+  return <div class="row between today-top"><a class="link-btn back-btn" href="#/home"><Icon name="back" /> Your classes</a><LessonInfo reminder={reminder} classId={classId} classes={classes} /></div>;
+}
+
+function LessonInfo({ reminder, classId, classes }: { reminder: ReminderState; classId: string; classes: { id: string; name: string }[] }) {
   const cur = reminder.current;
   const name = (id: string) => classes.find((c) => c.id === id)?.name ?? 'Class';
   if (cur && cur.classId === classId) return <div class="lesson-line"><Icon name="clock" /><span><b>Now</b> · {cur.start}–{cur.end}{cur.room ? ` · ${cur.room}` : ''}</span></div>;
@@ -167,7 +171,8 @@ function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }
           <div class="check"><Icon name="check" /></div>
           <h2>{done >= target ? 'All done for today' : 'Queue is empty'}</h2>
           <p class="muted small">{cls.name} · {done} checked</p>
-          {back && <button class="btn small" onClick={back}><Icon name="back" /> Back</button>}
+          <a class="btn primary" href="#/home" style="margin-top:10px"><Icon name="back" /> Back to your classes</a>
+          {back && <button class="btn small ghost" style="margin-top:6px" onClick={back}>Review the last student</button>}
         </div>
       )}
 
@@ -262,7 +267,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
     setNoteOpen(false);
     setIdxRaw(n);
   };
-  const goBack = () => { if (idx > 0 && !finished) setIdx(idx - 1); else onBack?.(); };
+  const goBack = () => { if (idx > 0 && !finished) setIdx(idx - 1); else if (onBack) onBack(); else location.hash = '#/home'; };
   const top = (
     <div class="row between">
       <div class="cc-eyebrow">{position}</div>
@@ -405,7 +410,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
       </div>
 
       <div class="cc-foot">
-        <button class="link-btn back-btn" disabled={idx === 0 && !onBack} onClick={goBack}><Icon name="back" /> Back</button>
+        <button class="link-btn back-btn" onClick={goBack}><Icon name="back" /> Back</button>
         <div class="step-dots" role="tablist" aria-label="Questions">
           {steps.map((s, k) => <button key={k} role="tab" aria-selected={k === idx} aria-label={`Question ${k + 1}`} class={`${k === idx ? 'cur' : answered(s) ? 'done' : ''}`} onClick={() => setIdx(k)} />)}
         </div>

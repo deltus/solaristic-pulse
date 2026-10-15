@@ -512,3 +512,13 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .day-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px dashed var(--burgundy); color: var(--burgundy); background: var(--burgundy-50); border-radius: 999px; padding: 4px 8px; font: 600 12px var(--mono); cursor: pointer; }
 .day-chip svg { width: 12px; height: 12px; }
 .day-next { min-height: 32px; padding: 0 10px; font-size: 12.5px; border-style: dashed; }
+
+/* ---------- Hold an answer to add a note ---------- */
+.opt { position: relative; overflow: hidden; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-y; }
+.opt .opt-label, .opt .tick { position: relative; z-index: 1; }
+.hold-fill { position: absolute; inset: 0; background: rgba(35, 80, 216, 0.16); transform: scaleX(0); transform-origin: left center; pointer-events: none; }
+.opt.holding .hold-fill { transform: scaleX(1); transition: transform var(--hold, 450ms) linear; }
+.opt.sel .hold-fill { background: rgba(255, 255, 255, 0.25); }
+.hold-hint { text-align: center; font-size: 12.5px; color: var(--muted); margin: 12px 0 0; }
+.saved-note { font-size: 13.5px; color: var(--ink-2); margin: 12px 0 0; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+@media (prefers-reduced-motion: reduce) { .opt.holding .hold-fill { transform: scaleX(1); opacity: 0.6; } }

@@ -248,7 +248,6 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const [finished, setFinished] = useState(!startAtLast && firstOpen < 0 && steps.length > 0 && checkin?.status === 'complete');
   // Note box: open before answering (saved with the answer) or after (saved on Next).
   const [noteOpen, setNoteOpen] = useState(false);
-  const [askWhy, setAskWhy] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftCtx, setDraftCtx] = useState<string | undefined>(undefined);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -258,7 +257,6 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
     clearTimeout(advanceTimer.current);
     setDir(n < idx ? 'back' : 'fwd');
     setNoteOpen(false);
-    setAskWhy(false);
     setIdxRaw(n);
   };
   const goBack = () => { if (idx > 0 && !finished) setIdx(idx - 1); else onBack?.(); };
@@ -312,37 +310,26 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const canNote = step.kind === 'icp' || step.q.allowDetail;
   const savedNote = step.kind === 'q' ? ans?.note : icpAns?.note;
 
-  function openNote() {
+  /** Tap: save and move on. Hold: save, then open the note box for this answer. */
+  async function answer(save: () => Promise<unknown>, held: boolean) {
     clearTimeout(advanceTimer.current);
-    setDraft(savedNote ?? '');
-    setDraftCtx(step.kind === 'q' ? ans?.context : undefined);
-    setAskWhy(false);
-    setNoteOpen(true);
-  }
-  /** Saves an answer (with any note typed first). A difficulty pauses to ask what happened. */
-  async function answer(save: (note?: string, context?: string) => Promise<unknown>, difficult: boolean) {
-    const typed = noteOpen ? draft.trim() : '';
-    await save(typed || undefined, noteOpen ? draftCtx : undefined);
-    if (difficult && !typed && !savedNote && canNote) {
-      clearTimeout(advanceTimer.current);
-      setDraft('');
-      setDraftCtx(undefined);
-      setAskWhy(true);
+    await save();
+    if (held && canNote) {
+      setDraft(savedNote ?? '');
+      setDraftCtx(step.kind === 'q' ? ans?.context : undefined);
       setNoteOpen(true);
       return;
     }
     setNoteOpen(false);
-    setAskWhy(false);
     advance();
   }
   async function saveNoteAndNext() {
-    if (step.kind === 'q' && ans) await svc.updateObservationDetail(ans.id, { note: draft.trim() || undefined, context: draftCtx });
-    if (step.kind === 'icp' && icpAns) await svc.updateIcpNote(icpAns.id, draft.trim());
+    // Ids are deterministic, so this works even before the saved answer has refreshed on screen.
+    if (step.kind === 'q') await svc.updateObservationDetail(`${svc.checkinIdFor(date, classId, student.id)}|${step.q.id}`, { note: draft.trim() || undefined, context: draftCtx });
+    else await svc.updateIcpNote(`${step.a.id}|${date}`, draft.trim());
     setNoteOpen(false);
-    setAskWhy(false);
     advance();
   }
-  const hasAnswer = step.kind === 'q' ? !!ans : !!icpAns;
 
   return (
     <div class="cc" data-tour="card">
@@ -378,28 +365,22 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
 
         <div class="cc-opts">
           {step.kind === 'icp' && ICP_SHORT.map((o) => (
-            <button key={o.value} class={`opt ${o.cls} ${icpAns?.outcome === o.value ? 'sel' : ''}`}
-              onClick={() => answer((note) => svc.recordIcpCheck(step.a, date, o.value, note), false)}>
-              {o.label}<Icon name="check" class="tick" />
-            </button>
+            <HoldOpt key={o.value} cls={o.cls} selected={icpAns?.outcome === o.value} label={o.label} canHold={canNote}
+              onPick={(held) => answer(() => svc.recordIcpCheck(step.a, date, o.value), held)} />
           ))}
           {step.kind === 'q' && fu && FU_SHORT.map((o) => (
-            <button key={o.outcome} class={`opt ${o.cls} ${ans?.followUp?.outcome === o.outcome ? 'sel' : ''}`}
-              onClick={() => answer(async (note, context) => svc.answerQuestion({ checkin: await chk(), question: step.q, followUp: { previousId: fu.previous.id, prevLevel: fu.level, outcome: o.outcome }, note, context }), o.difficult)}>
-              {o.label}<Icon name="check" class="tick" />
-            </button>
+            <HoldOpt key={o.outcome} cls={o.cls} selected={ans?.followUp?.outcome === o.outcome} label={o.label} canHold={canNote}
+              onPick={(held) => answer(async () => svc.answerQuestion({ checkin: await chk(), question: step.q, followUp: { previousId: fu.previous.id, prevLevel: fu.level, outcome: o.outcome } }), held)} />
           ))}
           {step.kind === 'q' && !fu && step.q.options.map((o) => (
-            <button key={o.label} class={`opt ${levelClass(o.level)} ${ans?.response === o.label && !ans.followUp ? 'sel' : ''}`}
-              onClick={() => answer(async (note, context) => svc.answerQuestion({ checkin: await chk(), question: step.q, option: o, note, context }), !!o.level)}>
-              {o.label}<Icon name="check" class="tick" />
-            </button>
+            <HoldOpt key={o.label} cls={levelClass(o.level)} selected={ans?.response === o.label && !ans.followUp} label={o.label} canHold={canNote}
+              onPick={(held) => answer(async () => svc.answerQuestion({ checkin: await chk(), question: step.q, option: o }), held)} />
           ))}
         </div>
 
-        {canNote && (noteOpen ? (
+        {noteOpen ? (
           <div class="note-box pop-in">
-            <div class="note-title">{askWhy ? 'What happened? (optional)' : hasAnswer ? 'Note' : 'Note (saved with your answer)'}</div>
+            <div class="note-title">Note</div>
             {step.kind === 'q' && (
               <div class="chips" style="flex-wrap:wrap">
                 {settings.contextTags.map((t) => (
@@ -407,16 +388,16 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
                 ))}
               </div>
             )}
-            <textarea class="input" autoFocus value={draft} placeholder={askWhy ? 'e.g. Mucked around during group work' : 'Short note'}
+            <textarea class="input" autoFocus value={draft} placeholder="What happened? e.g. Mucked around during group work"
               onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)} />
             <div class="tiny muted" style="margin:6px 0 10px"><Icon name="mic" class="inline-ico" /> Tap your keyboard's mic to dictate. Stick to what happened; avoid full names where you can.</div>
-            {hasAnswer
-              ? <button class="btn primary block" onClick={saveNoteAndNext}>{draft.trim() || draftCtx ? 'Save and next' : 'Next'} <Icon name="arrow" /></button>
-              : <button class="link-btn" onClick={() => setNoteOpen(false)}>Cancel note</button>}
+            <button class="btn primary block" onClick={saveNoteAndNext}>{draft.trim() || draftCtx ? 'Save and next' : 'Next'} <Icon name="arrow" /></button>
           </div>
-        ) : (
-          <button class="link-btn note-link" onClick={openNote}>{savedNote ? '✎ Edit note' : '+ Add a note'}</button>
-        ))}
+        ) : canNote && (
+          savedNote
+            ? <p class="saved-note">“{savedNote}”<span class="tiny muted"> · hold an answer to edit</span></p>
+            : <p class="hold-hint">Hold an answer to add a note</p>
+        )}
       </div>
 
       <div class="cc-foot">
@@ -469,5 +450,49 @@ function ReminderCard() {
         </div>
       </div>
     </div>
+  );
+}
+
+const HOLD_MS = 450;
+
+/** Answer button: tap to answer and move on; press and hold (fills like a progress bar) to answer and add a note. */
+function HoldOpt({ cls, selected, label, canHold, onPick }: { cls: string; selected: boolean; label: string; canHold: boolean; onPick: (held: boolean) => void }) {
+  const [holding, setHolding] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const fired = useRef(false);
+  const pressed = useRef(false);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const cancel = () => { clearTimeout(timer.current); pressed.current = false; setHolding(false); };
+  return (
+    <button
+      class={`opt ${cls} ${selected ? 'sel' : ''} ${holding ? 'holding' : ''}`}
+      style={{ '--hold': `${HOLD_MS}ms` } as Record<string, string>}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        fired.current = false;
+        pressed.current = true;
+        if (!canHold) return;
+        setHolding(true);
+        timer.current = setTimeout(() => {
+          fired.current = true;
+          pressed.current = false;
+          setHolding(false);
+          navigator.vibrate?.(15);
+          onPick(true);
+        }, HOLD_MS);
+      }}
+      onPointerUp={() => {
+        if (!pressed.current || fired.current) return;
+        cancel();
+        onPick(false);
+      }}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => { if (e.detail === 0) onPick(false); /* keyboard activation */ }}
+    >
+      <span class="hold-fill" aria-hidden="true" />
+      <span class="opt-label">{label}</span><Icon name="check" class="tick" />
+    </button>
   );
 }

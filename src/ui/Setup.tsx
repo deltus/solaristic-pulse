@@ -13,7 +13,7 @@ import { ReminderPrompt } from './ReminderPrompt';
 
 const GUIDE = [
   { icon: 'today', title: 'A few students each lesson', text: 'Pulse picks about five students per class each day and asks a few quick questions about each.' },
-  { icon: 'check', title: 'Tap and move on', text: 'Tap an answer and it saves straight away. A check-in takes a few seconds.' },
+  { icon: 'check', title: 'Tap and move on', text: 'Tap an answer and it saves straight away. Press and hold an answer to add a note.' },
   { icon: 'flag', title: 'Nobody gets missed', text: 'Students with recent difficulties come up more often, and everyone is checked regularly.' },
   { icon: 'clock', title: 'It remembers for you', text: 'Earlier concerns come back as follow-ups, and trends build up over time.' },
   { icon: 'shield', title: 'Private by design', text: 'Everything stays on this device. No accounts, no cloud.' }

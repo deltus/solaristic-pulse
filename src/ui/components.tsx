@@ -14,6 +14,7 @@ const P: Record<string, JSX.Element> = {
   chevron: <path d="m9 6 6 6-6 6" />,
   chevronDown: <path d="m6 9 6 6 6-6" />,
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+  bolt: <path d="M13 3 5 13.5h6L10 21l8-10.5h-6L13 3Z" />,
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></>,
   back: <path d="m15 6-6 6 6 6" />,
   plus: <path d="M12 5v14M5 12h14" />,

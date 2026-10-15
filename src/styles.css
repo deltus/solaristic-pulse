@@ -600,3 +600,16 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .blitz-bar { position: sticky; bottom: calc(10px + var(--safe-b)); margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(14, 26, 58, 0.08); }
 .ics-row { padding: 10px 0; border-top: 1px solid var(--line); }
 .ics-row:first-child { border-top: 0; }
+
+/* ---------- Tactile answers, visible hold bar, gentle question fades ---------- */
+.opt { transition: transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.12s, background 0.18s, border-color 0.18s, color 0.18s; box-shadow: 0 2px 0 var(--line), 0 1px 2px rgba(14, 26, 58, 0.04); }
+.opt.down { transform: translateY(2px) scale(0.985); box-shadow: 0 0 0 var(--line), inset 0 2px 4px rgba(14, 26, 58, 0.10); border-color: var(--line-strong); background: #f6f2ea; }
+.opt.sel.down { background: var(--blue-600); }
+.opt:active { transform: translateY(2px) scale(0.985); }
+.hold-fill { background: linear-gradient(90deg, rgba(35, 80, 216, 0.22), rgba(35, 80, 216, 0.34)); border-right: 3px solid var(--blue); }
+.opt.holding .hold-fill { transform: scaleX(1); transition: transform var(--hold, 600ms) linear; }
+.opt.holding { border-color: var(--blue); }
+.opt.sel .hold-fill { background: rgba(255, 255, 255, 0.28); border-right-color: #fff; }
+.q-enter { animation: qIn 0.3s ease-out both; }
+.q-leave { opacity: 0; transform: translateY(-4px); transition: opacity 0.2s ease, transform 0.2s ease; }
+@keyframes qIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }

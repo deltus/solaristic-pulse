@@ -4,11 +4,48 @@ import { useEffect, useState } from 'preact/hooks';
 import { db } from '../../db';
 import * as svc from '../../services';
 import { BLITZ_TOPICS, blitzTopic, type BlitzMark } from '../../logic/blitz';
-import { formatShort, today } from '../../lib/dates';
+import { formatShort, today, weekday } from '../../lib/dates';
 import { go, useLive } from '../hooks';
-import { Avatar, displayName, Icon, PageHead, toast } from '../components';
+import { Avatar, displayName, Empty, Icon, PageHead, toast } from '../components';
 
-export function BlitzScreen({ classId }: { classId: string }) {
+/** Blitz tab: choose a class first (today's classes on top), then a topic. */
+export function BlitzScreen({ classId, fromClassPage }: { classId?: string; fromClassPage?: boolean }) {
+  return classId ? <BlitzClass classId={classId} back={fromClassPage ? `#/classes/${classId}` : '#/blitz'} /> : <BlitzPicker />;
+}
+
+function BlitzPicker() {
+  const date = today();
+  const data = useLive(async () => ({
+    classes: (await db.classes.toArray()).filter((c) => !c.archived).sort((a, b) => a.name.localeCompare(b.name)),
+    timetable: await db.timetable.toArray(),
+    done: await db.observations.where('date').equals(date).filter((o) => !!o.blitz).toArray()
+  }), [date]);
+  if (!data) return null;
+  const wd = weekday(date);
+  const lessonAt = (id: string) => data.timetable.filter((t) => t.classId === id && t.day === wd).map((t) => t.start).sort()[0];
+  const sorted = [...data.classes].sort((a, b) => (lessonAt(a.id) ?? '99').localeCompare(lessonAt(b.id) ?? '99'));
+  return (
+    <div>
+      <PageHead eyebrow={`Blitz · ${formatShort(date)}`} title="Which class?" />
+      <p class="muted small" style="margin-top:-6px">Mark a whole class Yes or No on one thing, like homework or uniform, in under a minute.</p>
+      <div class="class-grid">
+        {sorted.map((c) => {
+          const topics = [...new Set(data.done.filter((o) => o.classId === c.id).map((o) => blitzTopic(o.blitz!)?.label ?? o.blitz!))];
+          return (
+            <button key={c.id} class="class-card" onClick={() => go(`blitz/${c.id}`)}>
+              <div class="row between"><span class="class-card-name">{c.name}</span>{lessonAt(c.id) && <span class="tiny muted mono">{lessonAt(c.id)}</span>}</div>
+              <div class="tiny muted">{topics.length ? `Done today: ${topics.join(', ')}` : 'No blitz yet today'}</div>
+              <div class="row between tiny"><span /><span class="class-go">Start a blitz <Icon name="arrow" /></span></div>
+            </button>
+          );
+        })}
+      </div>
+      {!sorted.length && <div class="card"><Empty icon="classes">Add a class first.</Empty></div>}
+    </div>
+  );
+}
+
+function BlitzClass({ classId, back }: { classId: string; back: string }) {
   const date = today();
   const data = useLive(async () => ({
     cls: await db.classes.get(classId),
@@ -29,7 +66,6 @@ export function BlitzScreen({ classId }: { classId: string }) {
 
   if (!data?.cls) return null;
   const { cls, students, categories } = data;
-  const back = `#/classes/${cls.id}`;
 
   if (!topic) {
     return (
@@ -61,7 +97,7 @@ export function BlitzScreen({ classId }: { classId: string }) {
     await svc.saveBlitz(cls!.id, date, t.id, marks);
     setBusy(false);
     toast(`${t.label} blitz saved: ${counts.yes} yes, ${counts.no} no`);
-    go(`classes/${cls!.id}`);
+    location.hash = back;
   }
 
   return (

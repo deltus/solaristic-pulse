@@ -14,6 +14,7 @@ const steps = (first: string): Step[] => [
   { target: '[data-tour=more]', title: 'More students', text: 'Check extra students when you have time, or choose one yourself.' },
   { target: '[data-tour=nav-classes]', drawer: true, title: 'Classes', text: 'Add classes, import rosters and set your timetable.' },
   { target: '[data-tour=nav-students]', drawer: true, title: 'Students', text: "Profiles, trends and each student's draw weight." },
+  { target: '[data-tour=nav-blitz]', drawer: true, title: 'Blitz', text: 'Mark a whole class Yes or No on one thing, like homework or uniform, in under a minute.' },
   { target: '[data-tour=nav-icp]', drawer: true, title: 'ICP Check-In', text: 'Record whether Individual Curriculum Plan adjustments happened.' },
   { target: '[data-tour=nav-reports]', drawer: true, title: 'Reports', text: 'Excel or CSV exports, de-identified when you need to share.' },
   { target: '[data-tour=nav-settings]', drawer: true, title: 'Settings', text: 'Reminders, questions, PIN and backups. You can replay this tour from here.' },

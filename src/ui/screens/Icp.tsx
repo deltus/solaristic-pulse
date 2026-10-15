@@ -308,6 +308,7 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
   const first = items.findIndex((a) => !answered(a));
   const [idx, setIdx] = useState(first < 0 ? 0 : first);
   const [summary, setSummary] = useState(first < 0 && items.length > 0);
+  const [leaving, setLeaving] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -320,7 +321,10 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
   }
   const next = () => {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => { setNoteOpen(false); if (idx < items.length - 1) setIdx(idx + 1); else setSummary(true); }, 260);
+    timer.current = setTimeout(() => {
+      setLeaving(true);
+      timer.current = setTimeout(() => { setLeaving(false); setNoteOpen(false); if (idx < items.length - 1) setIdx(idx + 1); else setSummary(true); }, 220);
+    }, 160);
   };
 
   if (summary) {
@@ -361,7 +365,7 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
       <div class="cc-eyebrow" style="margin-top:8px">ICP · {idx + 1} of {items.length}</div>
       <div class="cc-head"><h1>{displayName(s)}</h1></div>
       <p class="cc-sub">{className}{lastChecked ? ` · last checked ${relativeDay(lastChecked, date)}` : ''}</p>
-      <div key={a.id} class="slide-fwd">
+      <div key={a.id} class={leaving ? "q-step q-leave" : "q-step q-enter"}>
         <div class="cc-q" style="margin-bottom:6px">{a.title} today?</div>
         {a.details && <p class="small muted" style="margin:0 0 14px">{a.details}</p>}
         <div class="cc-opts">

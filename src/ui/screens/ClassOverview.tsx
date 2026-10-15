@@ -46,7 +46,7 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
         <div class="stat"><b>{icpRate === null ? '–' : `${icpRate}%`}</b><span>ICP implemented</span></div>
       </div>
 
-      <button class="btn primary block blitz-btn" onClick={onBlitz}><Icon name="today" /> Blitz: mark the whole class</button>
+      <button class="btn primary block blitz-btn" onClick={onBlitz}><Icon name="bolt" /> Blitz: mark the whole class</button>
 
       <div class="card">
         <span class="eyebrow">What to do</span>

@@ -250,7 +250,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const answered = (s: Step) => (s.kind === 'q' ? answers.has(s.q.id) : icpToday.some((c) => c.adjustmentId === s.a.id));
   const firstOpen = steps.findIndex((s) => !answered(s));
   const [idx, setIdxRaw] = useState(startAtLast ? Math.max(0, steps.length - 1) : firstOpen < 0 ? 0 : firstOpen);
-  const [dir, setDir] = useState<'fwd' | 'back'>('fwd');
+  const [leaving, setLeaving] = useState(false);
   const [info, setInfo] = useState(false);
   const [finished, setFinished] = useState(!startAtLast && firstOpen < 0 && steps.length > 0 && checkin?.status === 'complete');
   // Note box: open before answering (saved with the answer) or after (saved on Next).
@@ -263,7 +263,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
 
   const setIdx = (n: number) => {
     clearTimeout(advanceTimer.current);
-    setDir(n < idx ? 'back' : 'fwd');
+    setLeaving(false);
     setNoteOpen(false);
     setIdxRaw(n);
   };
@@ -278,13 +278,18 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   async function chk() {
     return checkin ?? svc.getOrCreateCheckin(student.id, classId, date, entry?.source ?? 'manual');
   }
+  /** Let the pressed answer register, fade the question out, then fade the next one in. */
   function advance() {
     clearTimeout(advanceTimer.current);
     advanceTimer.current = setTimeout(() => {
-      if (idx < steps.length - 1) setIdx(idx + 1);
-      else if (settings.autoAdvance) { toast(`${name} saved`); onNext(); }
-      else setFinished(true);
-    }, 260);
+      setLeaving(true);
+      advanceTimer.current = setTimeout(() => {
+        setLeaving(false);
+        if (idx < steps.length - 1) setIdx(idx + 1);
+        else if (settings.autoAdvance) { toast(`${name} saved`); onNext(); }
+        else setFinished(true);
+      }, 220);
+    }, 160);
   }
 
   if (checkin?.status === 'absent' || checkin?.status === 'skipped') {
@@ -355,7 +360,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
         </div>
       )}
 
-      <div key={`${student.id}-${idx}`} class={dir === 'back' ? 'slide-back' : 'slide-fwd'}>
+      <div key={`${student.id}-${idx}`} class={`q-step ${leaving ? 'q-leave' : 'q-enter'}`}>
         <p class="cc-sub">{label} · {idx + 1} of {steps.length}</p>
 
         {step.kind === 'q' && fu && (
@@ -463,37 +468,50 @@ function ReminderCard() {
   );
 }
 
-const HOLD_MS = 450;
+/** Pause before the hold bar appears, so a normal tap never shows it. */
+const HOLD_DELAY_MS = 500;
+/** Time for the bar to fill once it appears. */
+const HOLD_FILL_MS = 600;
 
-/** Answer button: tap to answer and move on; press and hold (fills like a progress bar) to answer and add a note. */
+/**
+ * Answer button. Tap: presses down like a real button, then answers and moves on.
+ * Press and hold: after a short pause a bar fills across the button; when full it answers
+ * and opens the note box.
+ */
 export function HoldOpt({ cls, selected, label, canHold, onPick }: { cls: string; selected: boolean; label: string; canHold: boolean; onPick: (held: boolean) => void }) {
   const [holding, setHolding] = useState(false);
+  const [down, setDown] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const fired = useRef(false);
   const pressed = useRef(false);
   useEffect(() => () => clearTimeout(timer.current), []);
-  const cancel = () => { clearTimeout(timer.current); pressed.current = false; setHolding(false); };
+  const cancel = () => { clearTimeout(timer.current); pressed.current = false; setHolding(false); setDown(false); };
   return (
     <button
-      class={`opt ${cls} ${selected ? 'sel' : ''} ${holding ? 'holding' : ''}`}
-      style={{ '--hold': `${HOLD_MS}ms` } as Record<string, string>}
+      class={`opt ${cls} ${selected ? 'sel' : ''} ${holding ? 'holding' : ''} ${down ? 'down' : ''}`}
+      style={{ '--hold': `${HOLD_FILL_MS}ms` } as Record<string, string>}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         fired.current = false;
         pressed.current = true;
+        setDown(true);
         if (!canHold) return;
-        setHolding(true);
         timer.current = setTimeout(() => {
-          fired.current = true;
-          pressed.current = false;
-          setHolding(false);
-          navigator.vibrate?.(15);
-          onPick(true);
-        }, HOLD_MS);
+          setHolding(true);
+          timer.current = setTimeout(() => {
+            fired.current = true;
+            pressed.current = false;
+            setHolding(false);
+            setDown(false);
+            navigator.vibrate?.(25);
+            onPick(true);
+          }, HOLD_FILL_MS);
+        }, HOLD_DELAY_MS);
       }}
       onPointerUp={() => {
         if (!pressed.current || fired.current) return;
         cancel();
+        navigator.vibrate?.(8); // light "click" on phones that support it
         onPick(false);
       }}
       onPointerLeave={cancel}

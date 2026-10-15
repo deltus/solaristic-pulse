@@ -23,6 +23,7 @@ export const NAV = [
   { path: 'home', label: 'Today', icon: 'today' },
   { path: 'classes', label: 'Classes', icon: 'classes' },
   { path: 'students', label: 'Students', icon: 'students' },
+  { path: 'blitz', label: 'Blitz', icon: 'bolt' },
   { path: 'icp', label: 'ICP Check-In', icon: 'icp' },
   { path: 'reports', label: 'Reports', icon: 'reports' },
   { path: 'settings', label: 'Settings', icon: 'settings' }
@@ -72,12 +73,13 @@ export function App() {
   const currentClass = classes?.find((c) => c.id === settings.currentClassId) ?? classes?.[0];
   let screen;
   switch (page) {
-    case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} /> : id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
+    case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} fromClassPage /> : id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
     case 'students': screen = id ? <StudentProfile id={id} /> : <StudentsScreen />; break;
     case 'icp': screen = <IcpScreen studentId={id} mode={sub} />; break;
     case 'reports': screen = <ReportsScreen studentId={id} />; break;
     case 'settings': screen = <SettingsScreen section={id} sub={sub} />; break;
     case 'today': screen = <TodayScreen reminder={reminder} />; break;
+    case 'blitz': screen = <BlitzScreen classId={id} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }
   const isToday = page === 'today';

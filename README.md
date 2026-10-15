@@ -1,6 +1,5 @@
 # Solaristic Pulse
 
-Offline-first classroom check-ins for teachers: about five targeted student check-ins per class per day, contextual follow-ups, transparent priorities, ICP (Individual Curriculum Plan) tracking, and de-identifiable spreadsheet reports. All data stays on the device.
 
 **Live app:** https://deltus.github.io/solaristic-pulse/ (open on a phone → browser menu → *Install app* / *Add to Home Screen*). Every push to `main` runs the tests and republishes it automatically; the installed app offers to update.
 

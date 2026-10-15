@@ -66,7 +66,7 @@ export function SettingsScreen({ section }: { section?: string; sub?: string }) 
       {section === 'security' && <SecuritySection s={settings} />}
       {section === 'data' && <DataSection s={settings} />}
       {section === 'privacy' && <div class="card"><PrivacyNotice /></div>}
-      {section === 'about' && <AboutSection />}
+      {section === 'about' && <AboutSection s={settings} />}
     </div>
   );
 }
@@ -434,8 +434,13 @@ function DataSection({ s }: { s: Settings }) {
   );
 }
 
-function AboutSection() {
+function AboutSection({ s }: { s: Settings }) {
   return (
+    <>
+    <div class="card">
+      <span class="eyebrow">Developer tools</span>
+      <Switch label="Show the “+1 day” test button" hint="Moves the app’s date forward to try follow-ups, rotation and overdue reminders. Records you make while testing are dated on the simulated day, so use it with test or demo data." checked={s.devTools !== false} onChange={(v) => saveSettings({ devTools: v })} />
+    </div>
     <div class="card small stack">
       <p><b>Solaristic Pulse</b> v{__APP_VERSION__}: offline classroom check-ins.</p>
       <p><b>Works offline.</b> After the first load (or installing the Android app), everything runs on this device with no internet connection. Nothing in the app requires internet access.</p>
@@ -444,5 +449,6 @@ function AboutSection() {
       <p><b>Dictation.</b> Use your keyboard's microphone button in any note field. Depending on your keyboard settings, dictation may be processed by your keyboard provider rather than on the device.</p>
       <p class="muted">Selection, follow-ups and trends use simple, deterministic rules on this device. No AI service is used.</p>
     </div>
+    </>
   );
 }

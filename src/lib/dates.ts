@@ -7,8 +7,33 @@ export function toISODate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/* ---------- Test clock (developer tool) ----------
+ * Shifts the app's idea of "today" forward so multi-day behaviour (rotation,
+ * follow-ups, overdue, ICP due dates) can be tried without waiting. Stored per device.
+ */
+const OFFSET_KEY = 'pulse-day-offset';
+let offsetDays = (() => {
+  try { return Number(localStorage.getItem(OFFSET_KEY)) || 0; } catch { return 0; }
+})();
+export const DAY_CHANGE_EVENT = 'pulse:day-change';
+
+export function dayOffset(): number {
+  return offsetDays;
+}
+
+export function setDayOffset(n: number) {
+  offsetDays = Math.max(0, Math.round(n));
+  try {
+    if (offsetDays) localStorage.setItem(OFFSET_KEY, String(offsetDays));
+    else localStorage.removeItem(OFFSET_KEY);
+  } catch { /* storage unavailable: offset lasts for this session */ }
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(DAY_CHANGE_EVENT));
+}
+
 export function today(): string {
-  return toISODate(new Date());
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return toISODate(d);
 }
 
 export function parseISODate(s: string): Date {

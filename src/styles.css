@@ -506,3 +506,9 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- Test clock (developer tool) ---------- */
+.day-tool { display: flex; align-items: center; gap: 6px; }
+.day-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px dashed var(--burgundy); color: var(--burgundy); background: var(--burgundy-50); border-radius: 999px; padding: 4px 8px; font: 600 12px var(--mono); cursor: pointer; }
+.day-chip svg { width: 12px; height: 12px; }
+.day-next { min-height: 32px; padding: 0 10px; font-size: 12.5px; border-style: dashed; }

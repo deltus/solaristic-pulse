@@ -15,7 +15,7 @@ import { db, saveSettings } from '../db';
 import { FileSavedHost } from './Files';
 import { openFile } from '../files';
 import { isNative } from '../platform';
-import { today } from '../lib/dates';
+import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort } from '../lib/dates';
 
 export const NAV = [
   { path: 'today', label: 'Today', icon: 'today' },
@@ -36,6 +36,7 @@ export function App() {
   const [picker, setPicker] = useState(false);
   const hiddenAt = useRef<number | null>(null);
   const online = useOnline();
+  useDayOffset();
   const reminder = useReminders(settings);
   const drawerRef = useRef<HTMLElement>(null);
   const shadeRef = useRef<HTMLDivElement>(null);
@@ -103,7 +104,7 @@ export function App() {
             <button class="class-btn" data-tour="class" onClick={() => setPicker(true)} aria-label="Change class">{currentClass.name}<Icon name="chevronDown" /></button>
           ) : <span class="title">{NAV.find((n) => n.path === page)?.label ?? ''}</span>}
           <span class="spacer" />
-          <span class="topbar-mark" aria-hidden="true"><img src="icons/mark.png" alt="" /></span>
+          {settings.devTools !== false ? <DayButton /> : <span class="topbar-mark" aria-hidden="true"><img src="icons/mark.png" alt="" /></span>}
         </header>
         <main class="main">{screen}</main>
       </div>
@@ -220,4 +221,29 @@ function useNotificationTaps() {
       }
     }));
   }, []);
+}
+
+/** Re-render everything when the test clock moves. */
+function useDayOffset() {
+  const [, setN] = useState(0);
+  useEffect(() => {
+    const on = () => setN((n) => n + 1);
+    window.addEventListener(DAY_CHANGE_EVENT, on);
+    return () => window.removeEventListener(DAY_CHANGE_EVENT, on);
+  }, []);
+}
+
+/** Developer tool: jump the app's "today" forward one day (reset with ✕). */
+function DayButton() {
+  const off = dayOffset();
+  return (
+    <div class="day-tool">
+      {off > 0 && (
+        <button class="day-chip" title="Back to the real date" onClick={() => setDayOffset(0)}>
+          {formatShort(today())} <Icon name="x" />
+        </button>
+      )}
+      <button class="btn small day-next" title="Test tool: move to the next day" onClick={() => setDayOffset(off + 1)}>+1 day</button>
+    </div>
+  );
 }

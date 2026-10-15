@@ -191,6 +191,8 @@ export interface Settings {
   currentClassId?: string;
   tutorialDone?: boolean;
   reminderCardDismissed?: boolean;
+  /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
+  devTools?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

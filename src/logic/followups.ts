@@ -3,7 +3,7 @@ import { relativeDay, today as todayISO } from '../lib/dates';
 
 export const FOLLOW_UP_OPTIONS: { outcome: FollowUpOutcome; label: string }[] = [
   { outcome: 'improved', label: 'No, all good' },
-  { outcome: 'same', label: 'Yes, about the same' },
+  { outcome: 'same', label: 'Yes, still needs support' },
   { outcome: 'worsened', label: 'Yes, and worse' },
   { outcome: 'unknown', label: 'Not sure' }
 ];

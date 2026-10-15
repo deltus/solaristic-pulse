@@ -41,11 +41,17 @@ export interface Category {
   /** Short phrase used in follow-up prompts, e.g. "staying focused". */
   phrase: string;
   builtIn: boolean;
+  /** Note box prompt after a hold, e.g. "What was missing?". */
+  notePrompt?: string;
+  /** Quick context tags offered in the note box. */
+  tags?: string[];
 }
 
 export interface ResponseOption {
   label: string;
   level: Level;
+  /** Open the note box automatically after this answer (e.g. Coping: No). */
+  askNote?: boolean;
 }
 
 export interface Question {
@@ -98,6 +104,8 @@ export interface Observation {
   followUp?: { previousId: string; outcome: FollowUpOutcome };
   context?: string;
   note?: string;
+  /** Set for Blitz marks (whole-class, one topic). Not part of a check-in. */
+  blitz?: string;
 }
 
 export interface PlanEntry {

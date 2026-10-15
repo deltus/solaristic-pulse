@@ -522,3 +522,14 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .hold-hint { text-align: center; font-size: 12.5px; color: var(--muted); margin: 12px 0 0; }
 .saved-note { font-size: 13.5px; color: var(--ink-2); margin: 12px 0 0; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 @media (prefers-reduced-motion: reduce) { .opt.holding .hold-fill { transform: scaleX(1); opacity: 0.6; } }
+
+/* ---------- Last 5 answers table (under the survey) ---------- */
+.recent-table { margin-top: 26px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.recent-head { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px; font-weight: 650; font-size: 13.5px; border-bottom: 1px solid var(--line); }
+.recent-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.recent-head + .recent-row { border-top: 0; }
+.status { font-size: 12px; font-weight: 650; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.status.meeting { background: var(--ok-50); color: var(--ok); }
+.status.support { background: var(--some-50); color: var(--some); }
+.status.none { background: var(--unsure-50); color: var(--muted); }
+.link-btn.inline { padding: 0; font-size: inherit; text-decoration: underline; }

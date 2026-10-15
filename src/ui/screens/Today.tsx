@@ -7,10 +7,11 @@ import { allOpenFollowUps, openFollowUp } from '../../logic/followups';
 import type { FollowUpOutcome } from '../../types';
 import { dueQuestions } from '../../logic/schedule';
 import { icpDueStatus } from '../../logic/icp';
-import { relativeDay, today } from '../../lib/dates';
+import { formatShort, relativeDay, today } from '../../lib/dates';
 import { useLive, useSettings } from '../hooks';
 import { displayName, Empty, Icon, Sheet, levelClass, toast } from '../components';
 import type { ReminderState } from '../reminders';
+import { recentStatus, STATUS_LABEL } from '../../logic/summary';
 import { ReminderPrompt } from '../ReminderPrompt';
 
 async function loadToday(classId: string, date: string) {
@@ -97,6 +98,9 @@ function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }
   const [showAll, setShowAll] = useState(false);
   const [trail, setTrail] = useState<string[]>([]);
   const [openLast, setOpenLast] = useState(false);
+  // Keep the current student on screen until the teacher moves on (finishing their last
+  // question marks them complete, which would otherwise jump straight to the next student).
+  useEffect(() => { if (!activeId && currentId) setActiveId(currentId); }, [activeId, currentId]);
 
   const obsBy = useMemo(() => {
     const m = new Map<string, Observation[]>();
@@ -218,9 +222,7 @@ type Step = { kind: 'q'; q: Question } | { kind: 'icp'; a: IcpAdjustment };
 
 const FU_SHORT: { outcome: FollowUpOutcome; label: string; cls: string; difficult: boolean }[] = [
   { outcome: 'improved', label: 'No, all good', cls: 'l0', difficult: false },
-  { outcome: 'same', label: 'Yes, about the same', cls: 'l1', difficult: true },
-  { outcome: 'worsened', label: 'Yes, and worse', cls: 'l2', difficult: true },
-  { outcome: 'unknown', label: 'Not sure', cls: 'ln', difficult: false }
+  { outcome: 'same', label: 'Yes, still needs support', cls: 'l1', difficult: true }
 ];
 const ICP_SHORT: { value: IcpOutcome; label: string; cls: string }[] = [
   { value: 'implemented', label: 'Yes', cls: 'l0' },
@@ -248,6 +250,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const [finished, setFinished] = useState(!startAtLast && firstOpen < 0 && steps.length > 0 && checkin?.status === 'complete');
   // Note box: open before answering (saved with the answer) or after (saved on Next).
   const [noteOpen, setNoteOpen] = useState(false);
+  const [asked, setAsked] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftCtx, setDraftCtx] = useState<string | undefined>(undefined);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -311,10 +314,11 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const savedNote = step.kind === 'q' ? ans?.note : icpAns?.note;
 
   /** Tap: save and move on. Hold: save, then open the note box for this answer. */
-  async function answer(save: () => Promise<unknown>, held: boolean) {
+  async function answer(save: () => Promise<unknown>, held: boolean, askNote = false) {
     clearTimeout(advanceTimer.current);
     await save();
-    if (held && canNote) {
+    setAsked(askNote && !held);
+    if ((held || askNote) && canNote) {
       setDraft(savedNote ?? '');
       setDraftCtx(step.kind === 'q' ? ans?.context : undefined);
       setNoteOpen(true);
@@ -351,7 +355,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
 
         {step.kind === 'q' && fu && (
           <div class="prev">
-            <span class="eyebrow">Last time · {relativeDay(fu.previous.date, date)} · {cat?.name}</span>
+            <span class="eyebrow">{cat?.name} · last time · {relativeDay(fu.previous.date, date)} ({formatShort(fu.previous.date)})</span>
             {fu.previous.note
               ? <div class="prev-note">“{fu.previous.note}”</div>
               : <b>{fu.previous.followUp ? `Still a difficulty (${fu.previous.response.toLowerCase()})` : fu.previous.response}</b>}
@@ -374,21 +378,21 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
           ))}
           {step.kind === 'q' && !fu && step.q.options.map((o) => (
             <HoldOpt key={o.label} cls={levelClass(o.level)} selected={ans?.response === o.label && !ans.followUp} label={o.label} canHold={canNote}
-              onPick={(held) => answer(async () => svc.answerQuestion({ checkin: await chk(), question: step.q, option: o }), held)} />
+              onPick={(held) => answer(async () => svc.answerQuestion({ checkin: await chk(), question: step.q, option: o }), held, !!o.askNote)} />
           ))}
         </div>
 
         {noteOpen ? (
           <div class="note-box pop-in">
-            <div class="note-title">Note</div>
+            <div class="note-title">{asked ? 'Any notes?' : step.kind === 'q' ? cat?.notePrompt ?? 'What happened?' : 'Note'}</div>
             {step.kind === 'q' && (
               <div class="chips" style="flex-wrap:wrap">
-                {settings.contextTags.map((t) => (
+                {(cat?.tags ?? settings.contextTags).map((t) => (
                   <button key={t} class={`chip small ${draftCtx === t ? 'active' : ''}`} onClick={() => setDraftCtx(draftCtx === t ? undefined : t)}>{t}</button>
                 ))}
               </div>
             )}
-            <textarea class="input" autoFocus value={draft} placeholder="What happened? e.g. Mucked around during group work"
+            <textarea class="input" autoFocus value={draft} placeholder="Short note"
               onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)} />
             <div class="tiny muted" style="margin:6px 0 10px"><Icon name="mic" class="inline-ico" /> Tap your keyboard's mic to dictate. Stick to what happened; avoid full names where you can.</div>
             <button class="btn primary block" onClick={saveNoteAndNext}>{draft.trim() || draftCtx ? 'Save and next' : 'Next'} <Icon name="arrow" /></button>
@@ -396,7 +400,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
         ) : canNote && (
           savedNote
             ? <p class="saved-note">“{savedNote}”<span class="tiny muted"> · hold an answer to edit</span></p>
-            : <p class="hold-hint">Hold an answer to add a note</p>
+            : <p class="hold-hint">Hold an answer to add a note · <button class="link-btn inline" onClick={() => advance()}>Didn’t see</button></p>
         )}
       </div>
 
@@ -407,6 +411,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
         </div>
         <button class="link-btn" data-tour="absent" onClick={() => svc.markStatus(student.id, classId, date, 'absent')}>Absent</button>
       </div>
+      <RecentTable obs={obs} categories={categories} />
     </div>
   );
 }
@@ -494,5 +499,27 @@ function HoldOpt({ cls, selected, label, canHold, onPick }: { cls: string; selec
       <span class="hold-fill" aria-hidden="true" />
       <span class="opt-label">{label}</span><Icon name="check" class="tick" />
     </button>
+  );
+}
+
+/** Under the survey: each core area from the student's last 5 answers (check-ins and Blitz). */
+function RecentTable({ obs, categories }: { obs: Observation[]; categories: Category[] }) {
+  const rows = ['homework', 'focus', 'behaviour', 'coping']
+    .map((id) => categories.find((c) => c.id === id))
+    .filter((c): c is Category => !!c);
+  return (
+    <div class="recent-table">
+      <div class="recent-head"><span>Last 5 answers</span><span class="tiny muted">incl. Blitz</span></div>
+      {rows.map((c) => {
+        const r = recentStatus(obs, c.id);
+        return (
+          <div class="recent-row" key={c.id}>
+            <span class="grow">{c.name}</span>
+            <span class={`status ${r.status}`}>{STATUS_LABEL[r.status]}</span>
+            {r.count > 0 && <span class="tiny muted mono">{r.support}/{r.count}</span>}
+          </div>
+        );
+      })}
+    </div>
   );
 }

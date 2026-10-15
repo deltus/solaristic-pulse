@@ -43,6 +43,14 @@ export class PulseDB extends Dexie {
     this.version(2).stores({}).upgrade(async (tx) => {
       for (const q of CORE_QUESTIONS) await tx.table('questions').update(q.id, { shortText: q.shortText });
     });
+    // v4: Effort / Prepared for class / Behaviour / Coping with work, two answers each.
+    this.version(4).stores({}).upgrade(async (tx) => {
+      for (const c of CORE_CATEGORIES) await tx.table('categories').put(c);
+      for (const q of CORE_QUESTIONS) {
+        const old = await tx.table('questions').get(q.id);
+        await tx.table('questions').put(old ? { ...old, text: q.text, shortText: q.shortText, options: q.options, categoryId: q.categoryId, order: q.order } : q);
+      }
+    });
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
       tx.table('questions').bulkAdd(CORE_QUESTIONS);
@@ -63,37 +71,25 @@ export const STANDARD_OPTIONS = [
   { label: 'Not observed / unsure', level: null }
 ];
 
-export const CORE_CATEGORIES: Category[] = [
-  { id: 'focus', name: 'Attention / Focus', phrase: 'staying focused', builtIn: true },
-  { id: 'homework', name: 'Homework', phrase: 'completing homework', builtIn: true },
-  { id: 'behaviour', name: 'Behaviour', phrase: 'behaviour', builtIn: true }
+/** Two answers for every core question; press and hold an answer to add a note. */
+const TWO = (yes: string, no: string, noteOnNo = false) => [
+  { label: yes, level: 0 as const },
+  { label: no, level: 1 as const, ...(noteOnNo ? { askNote: true } : {}) }
 ];
 
+export const CORE_CATEGORIES: Category[] = [
+  { id: 'focus', name: 'Effort', phrase: 'effort', builtIn: true, notePrompt: 'What got in the way of their effort?', tags: ['Independent work', 'Group work', 'Whole class', 'Devices'] },
+  { id: 'homework', name: 'Prepared for class', phrase: 'being prepared for class', builtIn: true, notePrompt: 'What was missing?', tags: ['Homework', 'Equipment', 'Uniform', 'Late'] },
+  { id: 'behaviour', name: 'Behaviour', phrase: 'behaviour', builtIn: true, notePrompt: 'What happened?', tags: ['Peers', 'Instructions', 'Transitions', 'Language'] },
+  { id: 'coping', name: 'Coping with work', phrase: 'coping with the work', builtIn: true, notePrompt: 'What were they finding hard?', tags: ['Content', 'Workload', 'Pace', 'Wellbeing'] }
+];
+
+const core = { allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true };
 export const CORE_QUESTIONS: Question[] = [
-  {
-    id: 'q-focus', text: 'Was {name} focused and engaged during the lesson?', categoryId: 'focus',
-    options: [
-      { label: 'Focused / as expected', level: 0 }, { label: 'Some difficulty', level: 1 },
-      { label: 'Significant difficulty', level: 2 }, { label: 'Not observed / unsure', level: null }
-    ],
-    allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true, order: 0, shortText: 'Focused today?'
-  },
-  {
-    id: 'q-homework', text: 'Did {name} complete their assigned homework?', categoryId: 'homework',
-    options: [
-      { label: 'Completed', level: 0 }, { label: 'Partly completed', level: 1 },
-      { label: 'Not completed', level: 2 }, { label: 'None set / unsure', level: null }
-    ],
-    allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true, order: 1, shortText: 'Homework done?'
-  },
-  {
-    id: 'q-behaviour', text: "Was {name}'s behaviour appropriate and productive?", categoryId: 'behaviour',
-    options: [
-      { label: 'Positive / as expected', level: 0 }, { label: 'Some difficulty', level: 1 },
-      { label: 'Significant difficulty', level: 2 }, { label: 'Not observed / unsure', level: null }
-    ],
-    allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true, order: 2, shortText: 'Behaviour on track?'
-  }
+  { ...core, id: 'q-homework', order: 0, categoryId: 'homework', text: 'Was {name} prepared for class?', shortText: 'Prepared for class?', options: TWO('Meeting expectations', 'Needs support') },
+  { ...core, id: 'q-focus', order: 1, categoryId: 'focus', text: "How was {name}'s effort?", shortText: 'Effort today?', options: TWO('Meeting expectations', 'Needs support') },
+  { ...core, id: 'q-behaviour', order: 2, categoryId: 'behaviour', text: "How was {name}'s behaviour?", shortText: 'Behaviour today?', options: TWO('Meeting expectations', 'Needs support') },
+  { ...core, id: 'q-coping', order: 3, categoryId: 'coping', text: 'Is {name} coping with the work?', shortText: 'Coping with the work?', options: TWO('Yes', 'No', true) }
 ];
 
 export let db = new PulseDB();

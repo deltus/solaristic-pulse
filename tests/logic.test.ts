@@ -124,7 +124,7 @@ describe('contextual follow-ups (scenarios 6 & 7)', () => {
     const f = openFollowUp([prev], 'q-focus')!;
     expect(f).not.toBeNull();
     const text = followUpPrompt('Ethan', CORE_CATEGORIES[0], f, TODAY);
-    expect(text).toContain('Last time (3 days ago), Ethan had some difficulty with staying focused during independent work');
+    expect(text).toContain('Last time (3 days ago), Ethan had some difficulty with effort during independent work');
     expect(text).toContain('Note: "Needed several reminders." Did this happen again?');
   });
 
@@ -183,7 +183,7 @@ describe('trends', () => {
     const obs = levels.map((l, i) => mkObs('s1', addDays(TODAY, -21 + i * 3), l, { categoryId: 'homework' }));
     const t = categoryTrend(obs, cat, TODAY);
     expect(t.status).toBe('improving');
-    expect(t.summary).toMatch(/Homework has improved over the last 3 weeks/);
+    expect(t.summary).toMatch(/Prepared for class has improved over the last 3 weeks/);
   });
   it('reports stability and recurring contexts as facts', () => {
     const obs = [0, 1, 2, 3].map((i) => mkObs('s1', addDays(TODAY, -i * 4), 1, { context: 'Independent work' }));
@@ -328,5 +328,18 @@ describe('setup name entry', () => {
       { firstName: 'Ethan', lastName: 'Taylor' }, { firstName: 'Sam', lastName: 'Taylor' },
       { firstName: 'Mary Jane', lastName: 'Watson' }, { firstName: 'Cher', lastName: '' }, { firstName: 'Li', lastName: 'Wei' }
     ]);
+  });
+});
+
+import { recentStatus } from '../src/logic/summary';
+
+describe('last 5 answers summary', () => {
+  it('rates each area from the last 5 rated answers, including Blitz marks', () => {
+    const o = (d: number, level: 0 | 1 | null, extra: Partial<Observation> = {}) => mkObs('s1', addDays(TODAY, -d), level, { categoryId: 'behaviour', questionId: 'q-behaviour', ...extra });
+    expect(recentStatus([], 'behaviour').status).toBe('none');
+    expect(recentStatus([o(1, 0), o(2, 0), o(3, 1), o(4, 0)], 'behaviour')).toEqual({ status: 'meeting', count: 4, support: 1 });
+    const withBlitz = [o(1, 1, { blitz: 'behaviour', questionId: 'blitz-behaviour' }), o(2, 1), o(3, 0), o(4, 0), o(5, 0), o(30, 1)];
+    expect(recentStatus(withBlitz, 'behaviour')).toEqual({ status: 'support', count: 5, support: 2 });
+    expect(recentStatus([o(1, null), o(2, 0)], 'behaviour').count).toBe(1); // "didn't see" style answers ignored
   });
 });

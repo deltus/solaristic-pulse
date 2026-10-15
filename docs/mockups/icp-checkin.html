@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ICP check-in mockup</title>
+<style>
+:root{--bg:#F4F0E8;--surface:#FDFBF6;--line:#E4DDCF;--line2:#D3CAB8;--ink:#0E1A3A;--ink2:#3D4763;--muted:#6B7183;--blue:#2350D8;--blue50:#E9EEFC;--bur:#7A1F3D;--bur50:#F6E9ED;--some:#9A6A12;--sig:#A4471C;--un:#656B7A;--ok:#2A6B5C;--ok50:#E5F1ED;--amber50:#FBF1DC}
+*{box-sizing:border-box}
+body{margin:0;background:#E9E6DF;font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:var(--ink)}
+header{max-width:980px;margin:0 auto;padding:22px 16px 4px}
+header h1{font-size:21px;margin:0 0 4px}
+header p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.row3{max-width:980px;margin:0 auto;display:flex;flex-wrap:wrap;gap:22px;justify-content:center;padding:18px 16px 30px}
+.col{display:flex;flex-direction:column;align-items:center;gap:8px}
+.cap{font-size:13px;color:var(--muted);font-weight:600}
+.phone{width:280px;height:580px;border-radius:32px;border:7px solid #1b1b1f;background:var(--bg);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.bar{display:flex;align-items:center;gap:8px;padding:14px 12px 6px}
+.bar b{font-size:15px;flex:1}
+.ico{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;color:var(--ink2)}
+.scroll{flex:1;overflow:auto;padding:4px 14px 16px}
+.eyebrow{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;letter-spacing:.06em;color:var(--bur);text-transform:uppercase}
+h2{font-size:22px;margin:4px 0 2px;letter-spacing:-.02em}
+.sub{font-size:12.5px;color:var(--muted)}
+.chips{display:flex;gap:6px;margin:10px 0 12px;overflow:hidden}
+.chip{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:999px;border:1px solid var(--line2);background:var(--surface);white-space:nowrap}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.stu{display:flex;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--line);cursor:pointer}
+.stu:first-child{border-top:0}
+.stu:hover{background:#f8f4ec}
+.av{width:34px;height:34px;border-radius:17px;background:var(--blue50);color:#07226F;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none}
+.grow{flex:1;min-width:0}
+.nm{font-weight:650;font-size:14px}
+.mini{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ring{width:34px;height:34px;flex:none}
+.tag{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px}
+.tag.over{background:var(--amber50);color:var(--some)}
+.tag.done{background:var(--ok50);color:var(--ok)}
+.sec{font-size:13px;font-weight:650;margin:16px 2px 6px;display:flex;justify-content:space-between}
+.sec span{font-family:ui-monospace,Consolas,monospace;font-weight:400;color:var(--muted);font-size:11px}
+.seg{display:flex;gap:4px;margin:2px 0 14px}
+.seg i{flex:1;height:5px;border-radius:3px;background:var(--line)}
+.seg i.on{background:var(--bur)}
+.q{font-size:18px;font-weight:650;margin:14px 0 4px;letter-spacing:-.01em}
+.det{font-size:12.5px;color:var(--ink2);margin-bottom:12px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{min-height:50px;padding:12px 14px;border-radius:13px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:14px;text-align:left;cursor:pointer;font-family:inherit;color:var(--ink)}
+.opt:hover{border-color:var(--line2)}
+.opt.y{border-color:#b9c8ef}.opt.p{border-color:#e8d29f}.opt.n{border-color:#e6b9a2}
+.hint{text-align:center;font-size:11.5px;color:var(--muted);margin:10px 0 0}
+.last{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px 10px;font-size:12px;color:var(--ink2);margin-bottom:4px}
+.foot{display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:13px;font-weight:600;color:var(--muted)}
+.res{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line);font-size:13px}
+.res:first-child{border-top:0}
+.pill{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.pill.y{background:var(--blue50);color:#1b41b5}.pill.p{background:var(--amber50);color:var(--some)}.pill.n{background:#f9e6dc;color:var(--sig)}.pill.x{background:#ecebe7;color:var(--un)}
+.btn{display:block;width:100%;min-height:44px;border-radius:999px;border:1px solid var(--blue);background:var(--blue);color:#fff;font-weight:650;font-size:14px;margin-top:14px;cursor:pointer;font-family:inherit}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line2)}
+.done-ico{width:54px;height:54px;border-radius:27px;background:var(--ok50);color:var(--ok);display:flex;align-items:center;justify-content:center;margin:18px auto 8px;font-size:26px}
+.center{text-align:center}
+.note{font-size:12px;color:var(--muted);text-align:center;max-width:860px;margin:0 auto 26px;padding:0 16px;line-height:1.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>ICP Check-In: grouped by student (mockup)</h1>
+  <p>Each student appears once, however many adjustments they have. Tap a student to go through their adjustments as a short survey, one at a time. The right-hand phone is clickable: tap a student, then tap answers.</p>
+</header>
+
+<div class="row3">
+  <div class="col">
+    <div class="cap">1 · ICP Check-In list</div>
+    <div class="phone">
+      <div class="bar"><span class="ico">☰</span><b>ICP Check-In</b></div>
+      <div class="scroll">
+        <div class="chips"><span class="chip on">All classes</span><span class="chip">7B English</span><span class="chip">9C Science</span></div>
+        <div class="sec">Due today <span>2 students · 4 checks</span></div>
+        <div class="card">
+          <div class="stu"><span class="av">BH</span><div class="grow"><div class="nm">Bill Harris</div><div class="mini">7B English · Seating, teacher time, extra time</div></div><span class="tag over">Overdue</span><svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="#E4DDCF" stroke-width="4"/><text x="18" y="22" text-anchor="middle" font-size="10" font-weight="700" fill="#0E1A3A">0/3</text></svg></div>
+          <div class="stu"><span class="av">ET</span><div class="grow"><div class="nm">Ethan Taylor</div><div class="mini">9C Science · Chunked task with checklist</div></div><svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="#E4DDCF" stroke-width="4"/><text x="18" y="22" text-anchor="middle" font-size="10" font-weight="700" fill="#0E1A3A">0/1</text></svg></div>
+        </div>
+        <div class="sec">Done today <span>1 student</span></div>
+        <div class="card">
+          <div class="stu"><span class="av">MN</span><div class="grow"><div class="nm">Mia Nguyen</div><div class="mini">7B English · 2 of 2 recorded</div></div><span class="tag done">✓ Done</span></div>
+        </div>
+        <div class="sec">All students with an ICP <span>3</span></div>
+        <div class="card">
+          <div class="stu"><span class="av">BH</span><div class="grow"><div class="nm">Bill Harris</div><div class="mini">3 active · 91% implemented</div></div><span class="ico">›</span></div>
+          <div class="stu"><span class="av">ET</span><div class="grow"><div class="nm">Ethan Taylor</div><div class="mini">1 active · 75% implemented</div></div><span class="ico">›</span></div>
+          <div class="stu"><span class="av">MN</span><div class="grow"><div class="nm">Mia Nguyen</div><div class="mini">2 active · 100% implemented</div></div><span class="ico">›</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">2 · Bill's survey (question 1 of 3)</div>
+    <div class="phone">
+      <div class="bar"><span class="ico">‹</span><b>ICP Check-In</b><span class="sub">Skip</span></div>
+      <div class="scroll">
+        <div class="seg"><i class="on"></i><i></i><i></i></div>
+        <div class="eyebrow">ICP · 1 of 3</div>
+        <h2>Bill Harris</h2>
+        <div class="sub">7B English · last checked 3 days ago</div>
+        <div class="q">Preferential seating near the teacher today?</div>
+        <div class="det">Front row, away from the door.</div>
+        <div class="opts">
+          <button class="opt y">Yes</button><button class="opt p">Partly</button><button class="opt n">No</button><button class="opt">Not needed today</button>
+        </div>
+        <p class="hint">Hold an answer to add a note</p>
+        <div class="foot"><span>‹ Back</span><span>● ○ ○</span><span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col">
+    <div class="cap">3 · Try it (clickable)</div>
+    <div class="phone" id="demo"></div>
+  </div>
+</div>
+
+<p class="note">Same feel as the daily check-ins: one question per screen, tap to answer and move on, hold to add a note, Back to change an answer. When a student's last adjustment is answered you get a summary, then go back to the list, where they move to "Done today". Tapping a student in "All students with an ICP" opens their full history (as now).</p>
+
+<script>
+const STUDENTS = [
+  { id: 'bill', name: 'Bill Harris', cls: '7B English', ini: 'BH', overdue: true, last: 'last checked 3 days ago', adj: [
+    { t: 'Preferential seating near the teacher', d: 'Front row, away from the door.' },
+    { t: 'Individual teacher time', d: '2–3 minute check-in at the start of independent work.' },
+    { t: 'Additional time for written tasks', d: 'Weekly · last recorded 8 days ago.' } ] },
+  { id: 'ethan', name: 'Ethan Taylor', cls: '9C Science', ini: 'ET', overdue: false, last: 'last checked yesterday', adj: [
+    { t: 'Chunked task with checklist', d: 'Independent work broken into three steps on a printed checklist.' } ] }
+];
+const OPTS = [['Yes', 'y'], ['Partly', 'p'], ['No', 'n'], ['Not needed today', 'x']];
+const state = { view: 'list', sid: null, i: 0, answers: {} };
+const el = document.getElementById('demo');
+const ring = (d, n) => {
+  const c = 2 * Math.PI * 14, f = n ? d / n : 0;
+  return `<svg class="ring" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" fill="none" stroke="#E4DDCF" stroke-width="4"/><circle cx="18" cy="18" r="14" fill="none" stroke="#7A1F3D" stroke-width="4" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - f)}" transform="rotate(-90 18 18)" stroke-linecap="round"/><text x="18" y="22" text-anchor="middle" font-size="10" font-weight="700" fill="#0E1A3A">${d}/${n}</text></svg>`;
+};
+const doneCount = (s) => s.adj.filter((_, k) => state.answers[s.id + k]).length;
+function render() {
+  if (state.view === 'list') {
+    const due = STUDENTS.filter((s) => doneCount(s) < s.adj.length), done = STUDENTS.filter((s) => doneCount(s) === s.adj.length);
+    el.innerHTML = `<div class="bar"><span class="ico">☰</span><b>ICP Check-In</b></div><div class="scroll">
+      <div class="sec">Due today <span>${due.length} student${due.length === 1 ? '' : 's'}</span></div>
+      ${due.length ? `<div class="card">${due.map((s) => `<div class="stu" data-s="${s.id}"><span class="av">${s.ini}</span><div class="grow"><div class="nm">${s.name}</div><div class="mini">${s.cls} · ${s.adj.length} adjustment${s.adj.length === 1 ? '' : 's'}</div></div>${s.overdue && !doneCount(s) ? '<span class="tag over">Overdue</span>' : ''}${ring(doneCount(s), s.adj.length)}</div>`).join('')}</div>` : '<p class="sub center" style="margin:14px 0">All ICP check-ins done for today.</p>'}
+      ${done.length ? `<div class="sec">Done today <span>${done.length}</span></div><div class="card">${done.map((s) => `<div class="stu" data-s="${s.id}"><span class="av">${s.ini}</span><div class="grow"><div class="nm">${s.name}</div><div class="mini">${s.adj.length} of ${s.adj.length} recorded</div></div><span class="tag done">✓ Done</span></div>`).join('')}</div>` : ''}
+      <button class="btn ghost" data-reset>Reset demo</button></div>`;
+    el.querySelectorAll('[data-s]').forEach((r) => (r.onclick = () => { state.sid = r.dataset.s; state.i = 0; state.view = 'survey'; render(); }));
+    el.querySelector('[data-reset]').onclick = () => { state.answers = {}; render(); };
+    return;
+  }
+  const s = STUDENTS.find((x) => x.id === state.sid);
+  if (state.view === 'summary') {
+    el.innerHTML = `<div class="bar"><span class="ico" data-back>‹</span><b>ICP Check-In</b></div><div class="scroll">
+      <div class="done-ico">✓</div><div class="center"><h2>${s.name}</h2><div class="sub">${s.adj.length} adjustment${s.adj.length === 1 ? '' : 's'} recorded</div></div>
+      <div class="card" style="margin-top:14px">${s.adj.map((a, k) => { const v = state.answers[s.id + k]; return `<div class="res"><span class="grow">${a.t}</span><span class="pill ${v[1]}">${v[0]}</span></div>`; }).join('')}</div>
+      <button class="btn" data-list>Back to the list</button><button class="btn ghost" data-review>Review answers</button></div>`;
+    el.querySelector('[data-list]').onclick = () => { state.view = 'list'; render(); };
+    el.querySelector('[data-review]').onclick = () => { state.view = 'survey'; state.i = 0; render(); };
+    el.querySelector('[data-back]').onclick = () => { state.view = 'list'; render(); };
+    return;
+  }
+  const a = s.adj[state.i], cur = state.answers[s.id + state.i];
+  el.innerHTML = `<div class="bar"><span class="ico" data-back style="cursor:pointer">‹</span><b>ICP Check-In</b><span class="sub" data-skip style="cursor:pointer">Skip</span></div><div class="scroll">
+    <div class="seg">${s.adj.map((_, k) => `<i class="${state.answers[s.id + k] || k === state.i ? 'on' : ''}"></i>`).join('')}</div>
+    <div class="eyebrow">ICP · ${state.i + 1} of ${s.adj.length}</div><h2>${s.name}</h2><div class="sub">${s.cls} · ${s.last}</div>
+    <div class="q">${a.t} today?</div><div class="det">${a.d}</div>
+    <div class="opts">${OPTS.map(([l, c]) => `<button class="opt ${c}" data-o="${l}|${c}" style="${cur && cur[0] === l ? 'background:#2350D8;color:#fff;border-color:#2350D8' : ''}">${l}</button>`).join('')}</div>
+    <p class="hint">Hold an answer to add a note</p>
+    <div class="foot"><span data-prev style="cursor:pointer">‹ Back</span><span>${s.adj.map((_, k) => (k === state.i ? '●' : '○')).join(' ')}</span><span></span></div></div>`;
+  el.querySelectorAll('[data-o]').forEach((b) => (b.onclick = () => {
+    state.answers[s.id + state.i] = b.dataset.o.split('|');
+    render();
+    setTimeout(() => { if (state.i < s.adj.length - 1) state.i++; else state.view = 'summary'; render(); }, 250);
+  }));
+  el.querySelector('[data-prev]').onclick = () => { if (state.i > 0) { state.i--; render(); } else { state.view = 'list'; render(); } };
+  el.querySelector('[data-back]').onclick = () => { state.view = 'list'; render(); };
+  el.querySelector('[data-skip]').onclick = () => { state.view = 'list'; render(); };
+}
+render();
+</script>
+</body>
+</html>

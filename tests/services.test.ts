@@ -33,12 +33,13 @@ describe('stage 1 milestone', () => {
     expect(planA.entries.every((e) => studentsA.has(e.studentId))).toBe(true);
     expect(planB.entries.some((e) => studentsA.has(e.studentId))).toBe(false);
 
-    const [focus, homework, behaviour] = await db.questions.bulkGet(['q-focus', 'q-homework', 'q-behaviour']);
+    const [focus, homework, behaviour, coping] = await db.questions.bulkGet(['q-focus', 'q-homework', 'q-behaviour', 'q-coping']);
     for (const e of planA.entries) {
       const chk = await svc.getOrCreateCheckin(e.studentId, a.id, d, 'daily');
       await svc.answerQuestion({ checkin: chk, question: focus!, option: focus!.options[0] });
       await svc.answerQuestion({ checkin: chk, question: homework!, option: homework!.options[1] });
       await svc.answerQuestion({ checkin: chk, question: behaviour!, option: behaviour!.options[0] });
+      await svc.answerQuestion({ checkin: chk, question: coping!, option: coping!.options[0] });
     }
     // Plan is stable when re-requested.
     expect((await svc.ensurePlan(a.id, d)).entries).toEqual(planA.entries);
@@ -54,7 +55,7 @@ describe('stage 1 milestone', () => {
     const chks = await reopened.checkins.where('[classId+date]').equals([a.id, d]).toArray();
     expect(chks).toHaveLength(5);
     expect(chks.every((c) => c.status === 'complete')).toBe(true);
-    expect(await reopened.observations.where('classId').equals(a.id).count()).toBe(15);
+    expect(await reopened.observations.where('classId').equals(a.id).count()).toBe(20);
     expect(await reopened.observations.where('classId').equals(b.id).count()).toBe(0);
   });
 
@@ -63,7 +64,7 @@ describe('stage 1 milestone', () => {
     const plan = await svc.ensurePlan(a.id);
     const q = (await db.questions.get('q-focus'))!;
     const chk = await svc.getOrCreateCheckin(plan.entries[0].studentId, a.id, today(), 'daily');
-    await svc.answerQuestion({ checkin: chk, question: q, option: q.options[2] });
+    await svc.answerQuestion({ checkin: chk, question: q, option: q.options[1] });
     await svc.answerQuestion({ checkin: chk, question: q, option: q.options[0] });
     const obs = await db.observations.where('checkinId').equals(chk.id).toArray();
     expect(obs).toHaveLength(1);
@@ -132,7 +133,7 @@ describe('backup, restore, deletion (scenario 18)', () => {
 
     await svc.deleteAllData();
     expect(await db.students.count()).toBe(0);
-    expect(await db.questions.count()).toBe(3); // core questions restored
+    expect(await db.questions.count()).toBe(4); // core questions restored
     expect((await getSettings()).onboarded).toBe(false);
 
     await svc.restoreBackup(backup);

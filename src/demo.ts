@@ -53,7 +53,8 @@ const CLASSES: { name: string; subject: string; yearLevel: string; days: number[
 
 const DIFFICULTY_NOTES: Record<string, string[]> = {
   focus: ['Needed several reminders to return to the task.', 'Distracted during the explanation; settled after a check-in.', 'Off task for much of independent work.'],
-  homework: ['Homework not handed in; said they forgot.', 'Only the first half attempted.', 'Missing for the second week in a row.'],
+  homework: ['Homework not handed in; said they forgot.', 'No exercise book or calculator.', 'Missing homework for the second week in a row.'],
+  coping: ['Found the extension task overwhelming.', 'Fell behind during the practical write-up.'],
   behaviour: ['Calling out during instructions.', 'Unsettled after lunch; moved seats.', 'Disrupting the group work.'],
   organisation: ['No exercise book today.', 'Forgot calculator.']
 };
@@ -143,14 +144,16 @@ export async function loadDemoData(): Promise<void> {
           let followUp: Observation['followUp'];
           if (fu) {
             const r = rand();
-            const outcome = r < p * 0.6 ? 'worsened' : r < p * 1.4 ? 'same' : r < 0.95 ? 'improved' : 'unknown';
+            const outcome = r < p * 1.4 ? 'same' : 'improved';
             level = followUpLevel(fu.level, outcome);
             response = FOLLOW_UP_OPTIONS.find((f) => f.outcome === outcome)!.label;
             followUp = { previousId: fu.previous.id, outcome };
           } else {
             const r = rand();
-            level = r < p * 0.35 ? 2 : r < p ? 1 : r < 0.95 ? 0 : null;
-            response = q.options.find((o) => o.level === level)!.label;
+            if (r >= 0.97) continue; // "Didn't see": nothing recorded
+            const opt = q.options.find((x) => x.level === (r < p ? 1 : 0)) ?? q.options.find((x) => x.level !== null)!;
+            level = opt.level;
+            response = opt.label;
           }
           const o: Observation = {
             id: `${chk.id}|${q.id}`, checkinId: chk.id, studentId: s.id, classId: cls.id, date, createdAt: Date.now() + observations.length,

@@ -1,2 +1,5 @@
-android/gradlew text eol=lf
+* text=auto eol=lf
 *.cmd text eol=crlf
+*.png binary
+*.xlsx binary
+*.apk binary

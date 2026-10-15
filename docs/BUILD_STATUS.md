@@ -45,6 +45,11 @@ Automated: `npm test` → **44 tests passing** (tests/logic, tests/services, tes
 | 17 | Narrow & desktop screens | browser at 375 px (bottom nav, no horizontal scroll) and desktop (sidebar) |
 | 18 | Backup, restore, deletion | services test (round-trip of all tables, delete-all, invalid file rejected) |
 
+## Hosting
+- Code: https://github.com/deltus/solaristic-pulse (public; contains no student data)
+- Live web app: https://deltus.github.io/solaristic-pulse/ — published by .github/workflows/pages.yml after the tests pass
+- Web version limits: notifications only while open; files go to browser Downloads; its data is separate from the APK.
+
 ## Remaining / deferred
 - **Build and install the APK** (next step; see README "Android").
 - Physical-device checks: notifications, file saving to Documents, share sheet, back button.

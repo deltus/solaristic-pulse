@@ -361,3 +361,32 @@ describe('class insights', () => {
     expect(tips.join(' ')).toMatch(/Behaviour is slipping .* Try a Behaviour blitz/);
   });
 });
+
+import { parseIcs } from '../src/logic/ics';
+
+describe('Outlook calendar (.ics) import', () => {
+  const ics = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'BEGIN:VEVENT', 'SUMMARY:9C Science', 'DTSTART;TZID=AUS Eastern Standard Time:20261012T112000', 'DTEND;TZID=AUS Eastern Standard Time:20261012T122000',
+    'RRULE:FREQ=WEEKLY;BYDAY=MO,TH', 'LOCATION:Lab 2', 'END:VEVENT',
+    // Outlook-style individual occurrences of the same lesson
+    'BEGIN:VEVENT', 'SUMMARY:7B English', 'DTSTART:20261013T090000', 'DTEND:20261013T100000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'SUMMARY:7B English', 'DTSTART:20261020T090000', 'DTEND:20261020T100000', 'END:VEVENT',
+    // one-off meeting, an all-day event and a cancelled lesson
+    'BEGIN:VEVENT', 'SUMMARY:Staff meeting', 'DTSTART:20261014T153000', 'DTEND:20261014T163000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'SUMMARY:Pupil free day', 'DTSTART;VALUE=DATE:20261016', 'DTEND;VALUE=DATE:20261017', 'END:VEVENT',
+    'BEGIN:VEVENT', 'SUMMARY:Cancelled', 'STATUS:CANCELLED', 'DTSTART:20261015T090000', 'DTEND:20261015T100000', 'END:VEVENT',
+    'BEGIN:VEVENT', 'SUMMARY:Long title that is', ' folded onto two lines', 'DTSTART:20261015T130000', 'DTEND:20261015T140000', 'RRULE:FREQ=WEEKLY', 'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+  it('turns recurring and repeated events into weekly lessons', () => {
+    const c = parseIcs(ics);
+    const sci = c.find((x) => x.summary === '9C Science')!;
+    expect(sci.recurring).toBe(true);
+    expect(sci.slots).toEqual([{ day: 1, start: '11:20', end: '12:20', room: 'Lab 2' }, { day: 4, start: '11:20', end: '12:20', room: 'Lab 2' }]);
+    expect(c.find((x) => x.summary === '7B English')).toMatchObject({ recurring: true, slots: [{ day: 2, start: '09:00', end: '10:00' }] });
+    expect(c.find((x) => x.summary === 'Staff meeting')?.recurring).toBe(false);
+    expect(c.some((x) => x.summary === 'Pupil free day' || x.summary === 'Cancelled')).toBe(false);
+    expect(c.some((x) => x.summary === 'Long title that isfolded onto two lines' || x.summary.startsWith('Long title that is'))).toBe(true);
+  });
+});

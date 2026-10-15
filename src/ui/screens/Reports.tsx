@@ -4,6 +4,7 @@ import { buildExport, toBlob, DEID_WARNING, type ExportOptions, type ExportResul
 import { mailtoLink } from '../../platform';
 import { saveFile, shareBlob } from '../../files';
 import { RecentFiles } from '../Files';
+import { buildSqlScript, buildSqliteFile } from '../../sqlExport';
 import { addDays, today } from '../../lib/dates';
 import { useLive, useSettings } from '../hooks';
 import { displayName, Field, Icon, PageHead, Switch, toast } from '../components';
@@ -142,6 +143,7 @@ export function ReportsScreen({ studentId }: { studentId?: string }) {
           {o.deidentify && <Preview result={result} />}
         </div>
       )}
+      <SqlExportCard />
       <RecentFiles />
     </div>
   );
@@ -159,5 +161,36 @@ function Preview({ result }: { result: ExportResult }) {
         </table>
       </div>
     </details>
+  );
+}
+
+/** Long-term data: everything, in SQL form, for Power BI / Excel / a school database. */
+function SqlExportCard() {
+  const [deid, setDeid] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const name = (ext: string) => `solaristic-pulse-data_${today()}${deid ? '_deidentified' : ''}.${ext}`;
+  async function run(kind: 'sqlite' | 'sql') {
+    setBusy(kind);
+    try {
+      const blob = kind === 'sqlite'
+        ? await buildSqliteFile({ deidentify: deid })
+        : new Blob([await buildSqlScript({ deidentify: deid })], { type: 'application/sql' });
+      await saveFile(blob, name(kind), 'report');
+    } catch (e) {
+      toast(`Could not create the export: ${(e as Error).message}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+  return (
+    <div class="card" style="margin-top:18px">
+      <span class="eyebrow">Long-term data (SQL)</span>
+      <p class="small muted" style="margin-top:0">All history in one file, for analysis across terms and years. The <b>database file</b> opens in Power BI, Excel (Power Query) or DB Browser for SQLite. The <b>SQL script</b> loads into a school database (SQL Server, MySQL, PostgreSQL).</p>
+      <Switch label="De-identify" hint="Names replaced with Student 001…; known names removed from notes." checked={deid} onChange={setDeid} />
+      <div class="grid2">
+        <button class="btn" disabled={!!busy} onClick={() => run('sqlite')}><Icon name="download" /> {busy === 'sqlite' ? 'Creating…' : 'Database file'}</button>
+        <button class="btn" disabled={!!busy} onClick={() => run('sql')}><Icon name="download" /> {busy === 'sql' ? 'Creating…' : 'SQL script'}</button>
+      </div>
+    </div>
   );
 }

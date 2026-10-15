@@ -90,3 +90,27 @@ describe('exports (scenarios 11, 13, 14)', () => {
     expect(csv.split('\n').length).toBeGreaterThan(100);
   });
 });
+
+import initSqlJs from 'sql.js';
+import { buildSqlScript, buildSqliteFile } from '../src/sqlExport';
+
+describe('SQL exports', () => {
+  it('builds a valid SQL script and SQLite database with all history', async () => {
+    const script = await buildSqlScript({ deidentify: false });
+    expect(script).toContain('CREATE TABLE observations');
+    expect(script).toContain("'Harris'");
+    const blob = await buildSqliteFile({ deidentify: false }, () => initSqlJs());
+    const SQL = await initSqlJs();
+    const sq = new SQL.Database(new Uint8Array(await blob.arrayBuffer()));
+    const n = sq.exec('SELECT COUNT(*) FROM observations')[0].values[0][0] as number;
+    expect(n).toBe(await db.observations.count());
+    const byArea = sq.exec("SELECT category_id, ROUND(AVG(level > 0), 2) FROM observations WHERE level IS NOT NULL GROUP BY category_id");
+    expect(byArea[0].values.length).toBeGreaterThan(2);
+    sq.close();
+  });
+  it('de-identifies names in the SQL export', async () => {
+    const script = await buildSqlScript({ deidentify: true });
+    expect(script).not.toMatch(/Harris|William|Fictional Bay College/);
+    expect(script).toMatch(/'Student 0\d\d'/);
+  });
+});

@@ -26,11 +26,13 @@
     "dexie": "^4.4.6",
     "exceljs": "^4.4.0",
     "preact": "^11.0.1",
+    "sql.js": "^1.15.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.3",
     "@preact/preset-vite": "^2.10.6",
+    "@types/sql.js": "^1.4.11",
     "fake-indexeddb": "^6.2.5",
     "sharp": "^0.35.5",
     "typescript": "^7.0.2",

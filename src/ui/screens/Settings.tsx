@@ -15,6 +15,7 @@ import { PinSetup, PrivacyNotice } from '../Onboarding';
 import { LessonForm } from './Classes';
 import { saveFile, shareBlob } from '../../files';
 import { saveSample } from '../../samples';
+import { parseIcs, type IcsCandidate } from '../../logic/ics';
 import { RecentFiles } from '../Files';
 import { ReminderPrompt, turnOnReminders } from '../ReminderPrompt';
 
@@ -225,6 +226,7 @@ function TimetableSection() {
   const [errors, setErrors] = useState<string[]>([]);
   const [opts, setOpts] = useState({ replace: true, createMissing: true });
   const [adding, setAdding] = useState(false);
+  const [ics, setIcs] = useState<IcsCandidate[] | null>(null);
   if (!data) return null;
   const name = (id: string) => data.classes.find((c) => c.id === id)?.name ?? '?';
 
@@ -254,6 +256,9 @@ function TimetableSection() {
         <div class="row wrap">
           <button class="btn primary" onClick={choose}><Icon name="upload" /> Choose file</button>
           <button class="btn ghost small" onClick={() => saveSample('timetable')}>Get a sample timetable</button>
+        </div>
+        <div class="row wrap" style="margin-top:10px">
+          <button class="btn" onClick={async () => { const f = await pickFile('.ics,text/calendar'); if (f) setIcs(parseIcs(await f.text())); }}><Icon name="calendar" /> Import from Outlook (.ics)</button>
         </div>
         {errors.map((e) => <p key={e} class="small" style="color:var(--sig);margin:6px 0 0">{e}</p>)}
         {rows && (
@@ -286,6 +291,7 @@ function TimetableSection() {
       }) : <div class="card"><Empty icon="calendar">No lessons yet. With a timetable, Today opens the class you're teaching and reminders know when to prompt you.</Empty></div>}
       {data.timetable.length > 0 && <button class="btn danger small" onClick={() => confirm('Remove every lesson from the timetable?') && db.timetable.clear()}>Clear timetable</button>}
       {adding && <LessonForm onClose={() => setAdding(false)} />}
+      {ics && <IcsImport candidates={ics} classes={data.classes.filter((c) => !c.archived)} onClose={() => setIcs(null)} />}
     </div>
   );
 }
@@ -450,5 +456,56 @@ function AboutSection({ s }: { s: Settings }) {
       <p class="muted">Selection, follow-ups and trends use simple, deterministic rules on this device. No AI service is used.</p>
     </div>
     </>
+  );
+}
+
+/** Review an Outlook calendar export: tick the events that are classes and match them to classes. */
+function IcsImport({ candidates, classes, onClose }: { candidates: IcsCandidate[]; classes: { id: string; name: string }[]; onClose: () => void }) {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const guess = (summary: string) => classes.find((c) => norm(summary).includes(norm(c.name)) || norm(c.name).includes(norm(summary)))?.name ?? `new:${summary}`;
+  const [rows, setRows] = useState(candidates.map((c) => ({ c, include: c.recurring, target: guess(c.summary) })));
+  const [replace, setReplace] = useState(true);
+  const chosen = rows.filter((r) => r.include);
+  const slotText = (c: IcsCandidate) => c.slots.map((s) => `${DAY_NAMES[s.day - 1].slice(0, 3)} ${s.start}`).join(', ');
+
+  async function doImport() {
+    const tt: TimetableRow[] = chosen.flatMap((r) => r.c.slots.map((s) => ({
+      className: r.target.startsWith('new:') ? r.target.slice(4) : r.target, day: s.day, start: s.start, end: s.end, room: s.room
+    })));
+    const res = await svc.importTimetable(tt, { replace, createMissing: true });
+    toast(`Imported ${res.added} lessons${res.created.length ? ` and ${res.created.length} new class${res.created.length === 1 ? '' : 'es'}` : ''}`);
+    onClose();
+  }
+
+  return (
+    <Sheet title="Import from Outlook" onClose={onClose}>
+      {!candidates.length ? <p class="small">No timed events were found in that file.</p> : (
+        <>
+          <p class="small muted" style="margin-top:0">Tick the events that are your classes. Repeating events and lessons that occur at the same time each week are ticked for you.</p>
+          <div class="card flat" style="padding:2px 12px">
+            {rows.map((r, i) => (
+              <div key={r.c.summary} class="ics-row">
+                <label class="check" style="padding:0"><input type="checkbox" checked={r.include} onChange={() => setRows(rows.map((x, j) => (j === i ? { ...x, include: !x.include } : x)))} />
+                  <span><b>{r.c.summary}</b><div class="tiny muted">{slotText(r.c)}{r.c.slots[0]?.room ? ` · ${r.c.slots[0].room}` : ''}</div></span></label>
+                {r.include && (
+                  <select class="input" style="margin-top:6px" value={r.target} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, target: (e.target as HTMLSelectElement).value } : x)))}>
+                    <option value={`new:${r.c.summary}`}>New class: {r.c.summary}</option>
+                    {classes.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+                  </select>
+                )}
+              </div>
+            ))}
+          </div>
+          <Switch label="Replace my current timetable" checked={replace} onChange={setReplace} />
+          <div class="actions"><button class="btn" onClick={onClose}>Cancel</button><button class="btn primary" disabled={!chosen.length} onClick={doImport}>Import {chosen.length} class{chosen.length === 1 ? '' : 'es'}</button></div>
+        </>
+      )}
+      <details class="small" style="margin-top:12px">
+        <summary>How to export from Outlook</summary>
+        <p><b>Outlook on Windows:</b> open your calendar → File → Save Calendar → choose a date range that covers a full week of lessons (a term is best) → Save. This creates an .ics file.</p>
+        <p><b>Outlook on the web:</b> Settings → Calendar → Shared calendars → Publish a calendar → copy the ICS link, open it in your browser to download the file.</p>
+        <p class="muted">This is a one-off import done on this device; re-import if your timetable changes.</p>
+      </details>
+    </Sheet>
   );
 }

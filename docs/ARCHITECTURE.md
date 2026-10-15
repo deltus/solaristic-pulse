@@ -9,6 +9,8 @@
 | Offline web | **vite-plugin-pwa** (Workbox) | Precaches the app shell, fonts and the SheetJS chunk so the PWA runs without a connection. |
 | Android | **Capacitor 8** + Filesystem, Share, LocalNotifications | Wraps the same web build into an APK; adds real file saving, the share sheet and scheduled notifications. |
 | Fonts | Inter Variable + IBM Plex Mono (bundled via @fontsource) | Matches the Solaristic Insights look; works offline. |
+| Styled XLSX | ExcelJS (lazy-loaded) | Outlined tables, header styling. |
+| SQL export | sql.js (SQLite as WebAssembly, lazy-loaded) | .sqlite file and portable .sql script for long-term analysis. |
 | Tests | Vitest + fake-indexeddb | Fast unit and integration tests without a browser. |
 
 No backend, no cloud database, no AI service, no analytics. The app makes **no network requests** at runtime.
@@ -48,6 +50,9 @@ android/            Capacitor Android project (generated; icons via scripts/andr
 - `notes`, `icpAdjustments`, `icpChecks` (id = `adjustmentId|date`), `timetable`, `kv` (settings incl. PIN hash)
 
 Deterministic ids make corrections idempotent (re-answering updates, never duplicates) and keep one check-in per student/class/day.
+
+## Blitz records
+Blitz marks are stored as observations with `blitz` set (topic id), `checkinId = blitz|date|classId` and the matching area's category. They are not check-ins (coverage and rotation ignore them) but feed trends, the last-5-answers table, draw weight and reports (own "Blitz" sheet).
 
 ## Security notes
 - PIN: PBKDF2-SHA256 (150k iterations, random salt) via WebCrypto; lock on launch and after N minutes in background; 30 s back-off every 5 failures. **Data is not encrypted at rest** — stated in the privacy notice.

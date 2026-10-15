@@ -19,10 +19,15 @@ _Last updated: 15/10/2026_
 | 13. Saved files: confirmation sheet (Open / Share), Android notification that opens the file, Recent files (Reports and Settings → Data); sample roster/timetable fixed (bundled CSVs) | ✅ Done — Android file opening untested on a device |
 | 14. Reminders: setup step, Today card (when a timetable exists), permission/blocked/exact-alarm handling; tapping a lesson reminder opens that class | ✅ Done — notifications untested on a device |
 | 15. Light motion (question slides, answer tick, sheets, toasts), off with the OS reduce-motion setting | ✅ Done |
+| 16. Questions: Prepared for class, Effort, Behaviour, Coping with work; two answers + "Didn't see"; per-area note prompts/tags; last-5-answers table | ✅ Done |
+| 17. ICP Check-In grouped by student; survey for 3+ adjustments | ✅ Done |
+| 18. Home page "Your classes"; trend lines; class overview (stats, suggestions, class trends) | ✅ Done |
+| 19. Blitz (whole-class Yes/No on a topic, feeds matching area, own export tab) | ✅ Done |
+| 20. Outlook .ics timetable import; SQL exports (.sqlite database file and .sql script, optional de-identification) | ✅ Done |
 | 6. Android wrapper (Capacitor project, icons, native files/share/notifications) | ✅ APK builds: `npm run android:apk:win` → release/SolaristicPulse.apk |
 
 ## Test matrix (spec §13)
-Automated: `npm test` → **44 tests passing** (tests/logic, tests/services, tests/exporting). Browser: production build served locally and driven in the built-in browser at 375 px and desktop width.
+Automated: `npm test` → **50 tests passing** (tests/logic, tests/services, tests/exporting). Browser: production build served locally and driven in the built-in browser at 375 px and desktop width.
 
 | # | Scenario | How verified |
 |---|---|---|

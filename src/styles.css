@@ -533,3 +533,11 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .status.support { background: var(--some-50); color: var(--some); }
 .status.none { background: var(--unsure-50); color: var(--muted); }
 .link-btn.inline { padding: 0; font-size: inherit; text-decoration: underline; }
+
+/* ---------- ICP grouped by student ---------- */
+.icp-group { padding: 12px 14px; }
+.link-card { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+.link-card:hover { border-color: var(--line-strong); }
+.icp-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: space-between; padding: 10px 0 2px; border-top: 1px dashed var(--line); margin-top: 10px; }
+.ring { width: 38px; height: 38px; flex: none; }
+.ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

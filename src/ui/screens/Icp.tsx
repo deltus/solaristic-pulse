@@ -1,11 +1,12 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { db, sortedCategories } from '../../db';
-import type { IcpAdjustment, IcpCheck, IcpFrequency, Student, TimetableEntry } from '../../types';
+import type { IcpAdjustment, IcpCheck, IcpFrequency, IcpOutcome, Student, TimetableEntry } from '../../types';
 import * as svc from '../../services';
 import { compareBeforeAfter, icpDueStatus, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from '../../logic/icp';
-import { formatDate, formatShort, today, weekday } from '../../lib/dates';
+import { formatDate, formatShort, relativeDay, today, weekday } from '../../lib/dates';
 import { useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, Switch, toast } from '../components';
+import { HoldOpt } from './Today';
 
 const TEMPLATES = ['Preferential seating', 'Individual teacher time', 'Additional time provided', 'Adjusted task or resource provided', 'Agreed support implemented'];
 
@@ -14,7 +15,7 @@ function hasLesson(timetable: TimetableEntry[], classId: string, date: string) {
   return !forClass.length || forClass.some((t) => t.day === weekday(date));
 }
 
-export function IcpScreen({ studentId }: { studentId?: string }) {
+export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: string }) {
   const date = today();
   const data = useLive(async () => {
     const [classes, students, adjustments, checks, timetable, observations, categories] = await Promise.all([
@@ -30,6 +31,17 @@ export function IcpScreen({ studentId }: { studentId?: string }) {
   const studentOf = (id: string) => data.students.find((s) => s.id === id);
   const classOf = (id: string) => data.classes.find((c) => c.id === id);
 
+  if (studentId && mode === 'check') {
+    const s = studentOf(studentId);
+    if (!s) return <p>Student not found.</p>;
+    const items = data.adjustments
+      .filter((a) => a.studentId === s.id && a.active)
+      .map((a) => ({ a, st: icpDueStatus(a, data.checks, date, hasLesson(data.timetable, s.classId, date)) }))
+      .filter((x) => x.st.due || x.st.doneToday)
+      .map((x) => x.a);
+    return <IcpSurvey s={s} className={classOf(s.classId)?.name ?? ''} items={items} checks={data.checks} date={date} />;
+  }
+
   if (studentId) {
     const s = studentOf(studentId);
     if (!s) return <p>Student not found.</p>;
@@ -43,11 +55,17 @@ export function IcpScreen({ studentId }: { studentId?: string }) {
   const withStatus = active.map((a) => {
     const s = studentOf(a.studentId)!;
     return { a, s, st: icpDueStatus(a, data.checks, date, hasLesson(data.timetable, s.classId, date)) };
+  }).filter((x) => x.st.due || x.st.doneToday);
+  // One entry per student, however many adjustments they have today.
+  const groups = [...new Set(withStatus.map((x) => x.s.id))].map((id) => {
+    const items = withStatus.filter((x) => x.s.id === id);
+    return { s: items[0].s, items, done: items.filter((x) => x.st.doneToday).length, overdue: items.some((x) => x.st.overdue) };
   });
-  const due = withStatus.filter((x) => x.st.due).sort((x, y) => Number(y.st.overdue) - Number(x.st.overdue));
-  const doneToday = withStatus.filter((x) => x.st.doneToday);
+  const pending = groups.filter((g) => g.done < g.items.length).sort((x, y) => Number(y.overdue) - Number(x.overdue));
+  const finished = groups.filter((g) => g.done === g.items.length);
   const studentsWithAdj = [...new Set(data.adjustments.map((a) => a.studentId))].map(studentOf).filter((s): s is Student => !!s && (!classId || s.classId === classId));
   const classesWithAdj = data.classes.filter((c) => !c.archived && data.adjustments.some((a) => studentOf(a.studentId)?.classId === c.id));
+  const checkFor = (aId: string) => data.checks.find((c) => c.adjustmentId === aId && c.date === date);
 
   return (
     <div>
@@ -58,39 +76,55 @@ export function IcpScreen({ studentId }: { studentId?: string }) {
         <button class={`chip small ${!classId ? 'active' : ''}`} onClick={() => setClassId('')}>All classes</button>
         {classesWithAdj.map((c) => <button key={c.id} class={`chip small ${classId === c.id ? 'active' : ''}`} onClick={() => setClassId(c.id)}>{c.name}</button>)}
       </div>
-      {due.some((x) => x.st.overdue) && <div class="notice"><b>{due.filter((x) => x.st.overdue).length} overdue ICP check-in{due.filter((x) => x.st.overdue).length === 1 ? '' : 's'}.</b> Record whether each agreed adjustment was implemented.</div>}
 
-      <div class="section"><h2>Due today</h2><span class="tiny muted mono">{due.length} due · {doneToday.length} done</span></div>
-      {due.length ? due.map(({ a, s, st }) => (
-        <div class="card" key={a.id}>
+      <div class="section"><h2>Due today</h2><span class="tiny muted mono">{pending.length} student{pending.length === 1 ? '' : 's'}</span></div>
+      {pending.length ? pending.map((g) => g.items.length > SURVEY_THRESHOLD ? (
+        <a key={g.s.id} class="card icp-group link-card" href={`#/icp/${g.s.id}/check`}>
+          <Avatar s={g.s} />
+          <span class="grow">
+            <b>{displayName(g.s)}</b>
+            <div class="tiny muted ellipsis">{classOf(g.s.classId)?.name} · {g.items.map((x) => x.a.title).join(', ')}</div>
+          </span>
+          {g.overdue && g.done === 0 && <span class="badge some">Overdue</span>}
+          <Ring done={g.done} total={g.items.length} />
+        </a>
+      ) : (
+        <div key={g.s.id} class="card icp-group">
           <div class="row">
-            <Avatar s={s} />
-            <div class="grow">
-              <a href={`#/icp/${s.id}`} style="color:inherit;text-decoration:none"><b>{displayName(s)}</b></a> <span class="tiny muted">· {classOf(s.classId)?.name}</span>
-              <div class="small">{a.title}</div>
-            </div>
-            {st.overdue ? <span class="badge some">Overdue</span> : <span class="badge">{ICP_FREQUENCIES.find((f) => f.value === a.frequency)?.label}</span>}
+            <Avatar s={g.s} />
+            <span class="grow"><b>{displayName(g.s)}</b><div class="tiny muted">{classOf(g.s.classId)?.name}</div></span>
+            {g.overdue && g.done === 0 && <span class="badge some">Overdue</span>}
+            <Ring done={g.done} total={g.items.length} />
           </div>
-          {a.details && <p class="small muted" style="margin:8px 0 0">{a.details}</p>}
-          <p class="tiny muted" style="margin:6px 0 8px">{st.label}</p>
-          <OutcomeButtons adj={a} date={date} current={data.checks.find((c) => c.adjustmentId === a.id && c.date === date)} />
+          {g.items.map(({ a }) => {
+            const c = checkFor(a.id);
+            return (
+              <div key={a.id} class="icp-inline">
+                <div class="small" style="font-weight:600">{a.title}</div>
+                <div class="seg" role="group" aria-label={a.title}>
+                  {ICP_OUTCOMES.map((o) => (
+                    <button key={o.value} class={c?.outcome === o.value ? 'sel' : ''} onClick={() => svc.recordIcpCheck(a, date, o.value)}>
+                      {o.value === 'implemented' ? 'Yes' : o.value === 'partial' ? 'Partly' : o.value === 'not' ? 'No' : 'N/A'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )) : <div class="card"><Empty icon="icp">{active.length ? 'All ICP check-ins due today are recorded.' : 'No active adjustments yet. Add one to start tracking.'}</Empty></div>}
 
-      {doneToday.length > 0 && (
+      {finished.length > 0 && (
         <>
-          <div class="section"><h2>Recorded today</h2></div>
+          <div class="section"><h2>Done today</h2><span class="tiny muted mono">{finished.length}</span></div>
           <div class="list">
-            {doneToday.map(({ a, s }) => {
-              const c = data.checks.find((x) => x.adjustmentId === a.id && x.date === date)!;
-              return (
-                <div class="list-item" key={a.id}>
-                  <Avatar s={s} />
-                  <span class="grow"><span class="title">{displayName(s)}: {a.title}</span><div class="sub">{ICP_OUTCOMES.find((o) => o.value === c.outcome)?.label}{c.note ? ` · ${c.note}` : ''}</div></span>
-                  <button class="btn small ghost" onClick={() => svc.deleteIcpCheck(c.id)}>Undo</button>
-                </div>
-              );
-            })}
+            {finished.map((g) => (
+              <a key={g.s.id} class="list-item" href={`#/icp/${g.s.id}/check`}>
+                <Avatar s={g.s} />
+                <span class="grow"><span class="title">{displayName(g.s)}</span><div class="sub">{g.items.length} of {g.items.length} recorded</div></span>
+                <span class="badge ok"><Icon name="check" /> Done</span>
+              </a>
+            ))}
           </div>
         </>
       )}
@@ -244,5 +278,115 @@ function AdjustmentForm({ adj, studentId, students, classes, onClose }: { adj?: 
         <button class="btn primary" onClick={save}>Save</button>
       </div>
     </Sheet>
+  );
+}
+
+/** Students with more than this many adjustments due go through a survey; others answer on the list. */
+const SURVEY_THRESHOLD = 2;
+
+function Ring({ done, total }: { done: number; total: number }) {
+  const c = 2 * Math.PI * 14;
+  return (
+    <svg class="ring" viewBox="0 0 36 36" aria-label={`${done} of ${total} recorded`}>
+      <circle cx="18" cy="18" r="14" fill="none" stroke="var(--line)" stroke-width="4" />
+      <circle cx="18" cy="18" r="14" fill="none" stroke="var(--burgundy)" stroke-width="4" stroke-dasharray={c} stroke-dashoffset={c * (1 - (total ? done / total : 0))} transform="rotate(-90 18 18)" stroke-linecap="round" />
+      <text x="18" y="22" text-anchor="middle" font-size="10" font-weight="700" fill="var(--ink)">{done}/{total}</text>
+    </svg>
+  );
+}
+
+const ICP_PICK: { value: IcpOutcome; label: string; cls: string }[] = [
+  { value: 'implemented', label: 'Yes', cls: 'l0' },
+  { value: 'partial', label: 'Partly', cls: 'l1' },
+  { value: 'not', label: 'No', cls: 'l2' },
+  { value: 'na', label: 'Not needed today', cls: 'ln' }
+];
+
+/** One adjustment at a time, like the daily check-ins; ends with a summary. */
+function IcpSurvey({ s, className, items, checks, date }: { s: Student; className: string; items: IcpAdjustment[]; checks: IcpCheck[]; date: string }) {
+  const answered = (a: IcpAdjustment) => checks.find((c) => c.adjustmentId === a.id && c.date === date);
+  const first = items.findIndex((a) => !answered(a));
+  const [idx, setIdx] = useState(first < 0 ? 0 : first);
+  const [summary, setSummary] = useState(first < 0 && items.length > 0);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [draft, setDraft] = useState('');
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const back = '#/icp';
+  const lastChecked = checks.filter((c) => c.studentId === s.id && c.date < date).map((c) => c.date).sort().pop();
+
+  if (!items.length) {
+    return <div><PageHead eyebrow="ICP" title={displayName(s)} back={back} /><div class="card"><Empty icon="icp">Nothing due for {s.preferredName || s.firstName} today.</Empty></div></div>;
+  }
+  const next = () => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => { setNoteOpen(false); if (idx < items.length - 1) setIdx(idx + 1); else setSummary(true); }, 260);
+  };
+
+  if (summary) {
+    return (
+      <div class="cc fade-up">
+        <div class="done-state">
+          <div class="check"><Icon name="check" /></div>
+          <h2>{displayName(s)}</h2>
+          <p class="muted small">{items.length} adjustment{items.length === 1 ? '' : 's'} recorded</p>
+        </div>
+        <div class="card flat" style="padding:4px 14px">
+          {items.map((a) => {
+            const c = answered(a);
+            const o = ICP_PICK.find((x) => x.value === c?.outcome);
+            return (
+              <div class="recent-row" key={a.id}>
+                <span class="grow">{a.title}{c?.note ? <div class="tiny muted">“{c.note}”</div> : null}</span>
+                <span class={`status ${o?.value === 'implemented' ? 'meeting' : o ? 'support' : 'none'}`}>{o?.label ?? 'Not recorded'}</span>
+              </div>
+            );
+          })}
+        </div>
+        <a class="btn primary block" style="margin-top:16px" href={back}>Back to the list</a>
+        <button class="btn block" style="margin-top:8px" onClick={() => { setSummary(false); setIdx(0); }}>Review answers</button>
+      </div>
+    );
+  }
+
+  const a = items[idx];
+  const cur = answered(a);
+  return (
+    <div class="cc">
+      <div class="row between">
+        <a class="link-btn back-btn" href={back}><Icon name="back" /> ICP Check-In</a>
+        <a class="link-btn" href={back}>Skip</a>
+      </div>
+      <div class="segbar" style="margin-top:6px">{items.map((x, k) => <i key={x.id} class={answered(x) || k === idx ? 'on' : ''} />)}</div>
+      <div class="cc-eyebrow" style="margin-top:8px">ICP · {idx + 1} of {items.length}</div>
+      <div class="cc-head"><h1>{displayName(s)}</h1></div>
+      <p class="cc-sub">{className}{lastChecked ? ` · last checked ${relativeDay(lastChecked, date)}` : ''}</p>
+      <div key={a.id} class="slide-fwd">
+        <div class="cc-q" style="margin-bottom:6px">{a.title} today?</div>
+        {a.details && <p class="small muted" style="margin:0 0 14px">{a.details}</p>}
+        <div class="cc-opts">
+          {ICP_PICK.map((o) => (
+            <HoldOpt key={o.value} cls={o.cls} selected={cur?.outcome === o.value} label={o.label} canHold
+              onPick={async (held) => {
+                clearTimeout(timer.current);
+                await svc.recordIcpCheck(a, date, o.value);
+                if (held) { setDraft(cur?.note ?? ''); setNoteOpen(true); } else next();
+              }} />
+          ))}
+        </div>
+        {noteOpen ? (
+          <div class="note-box pop-in">
+            <div class="note-title">Note</div>
+            <textarea class="input" autoFocus value={draft} placeholder="Context for this adjustment" onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)} />
+            <button class="btn primary block" style="margin-top:10px" onClick={async () => { await svc.updateIcpNote(`${a.id}|${date}`, draft.trim()); next(); }}>{draft.trim() ? 'Save and next' : 'Next'} <Icon name="arrow" /></button>
+          </div>
+        ) : <p class="hold-hint">{cur?.note ? `“${cur.note}” · hold to edit` : 'Hold an answer to add a note'}</p>}
+      </div>
+      <div class="cc-foot">
+        <button class="link-btn back-btn" onClick={() => (idx > 0 ? setIdx(idx - 1) : (location.hash = back))}><Icon name="back" /> Back</button>
+        <div class="step-dots">{items.map((x, k) => <button key={x.id} class={k === idx ? 'cur' : answered(x) ? 'done' : ''} aria-label={`Adjustment ${k + 1}`} onClick={() => setIdx(k)} />)}</div>
+        <span style="width:48px" />
+      </div>
+    </div>
   );
 }

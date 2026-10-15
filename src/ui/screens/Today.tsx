@@ -461,7 +461,7 @@ function ReminderCard() {
 const HOLD_MS = 450;
 
 /** Answer button: tap to answer and move on; press and hold (fills like a progress bar) to answer and add a note. */
-function HoldOpt({ cls, selected, label, canHold, onPick }: { cls: string; selected: boolean; label: string; canHold: boolean; onPick: (held: boolean) => void }) {
+export function HoldOpt({ cls, selected, label, canHold, onPick }: { cls: string; selected: boolean; label: string; canHold: boolean; onPick: (held: boolean) => void }) {
   const [holding, setHolding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const fired = useRef(false);

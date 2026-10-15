@@ -72,7 +72,7 @@ export function App() {
   switch (page) {
     case 'classes': screen = id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
     case 'students': screen = id ? <StudentProfile id={id} /> : <StudentsScreen />; break;
-    case 'icp': screen = <IcpScreen studentId={id} />; break;
+    case 'icp': screen = <IcpScreen studentId={id} mode={sub} />; break;
     case 'reports': screen = <ReportsScreen studentId={id} />; break;
     case 'settings': screen = <SettingsScreen section={id} sub={sub} />; break;
     default: screen = <TodayScreen reminder={reminder} />;

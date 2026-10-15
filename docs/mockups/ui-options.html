@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse UI options</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css" />
+<style>
+:root{--page:#ECEAE4;--card:#F8F7F3;--text:#1A1A1A;--muted:#5F5E5A;--border:#D3D1C7}
+body{margin:0;background:var(--page);color:var(--text);font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
+header{max-width:1100px;margin:0 auto;padding:24px 16px 4px}
+header h1{font-size:22px;font-weight:600;margin:0 0 6px}
+header p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.grid{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;padding:16px}
+.opt{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.opt h3{margin:0;font-size:16px;font-weight:600;align-self:flex-start}
+.opt p{margin:0;font-size:13px;color:var(--muted);align-self:flex-start;line-height:1.5}
+.seg{display:flex;gap:6px}
+.seg button{font:inherit;font-size:12px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:transparent;cursor:pointer;color:var(--text)}
+.seg button.on{background:#fff;border-color:#888}
+.phone{width:260px;height:520px;border-radius:30px;border:6px solid #1b1b1f;overflow:hidden;position:relative;user-select:none;touch-action:pan-y;background:#fff}
+.scr{position:absolute;inset:0;overflow:hidden}
+.drawer{position:absolute;top:0;bottom:0;left:0;width:78%;transform:translateX(-100%);transition:transform .28s cubic-bezier(.2,.8,.2,1);z-index:5;padding:40px 14px 14px;box-sizing:border-box}
+.shade{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity .28s;z-index:4}
+.edge{position:absolute;left:0;top:0;bottom:0;width:18px;z-index:3}
+.ni{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;font-size:13px;margin-bottom:2px}
+.ni i{font-size:18px}
+.rb{border-radius:12px;font-size:12px;padding:10px 6px;text-align:center;font-weight:500}
+.key{width:52px;height:52px;border-radius:26px;display:flex;align-items:center;justify-content:center;font-size:19px}
+.hint{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Solaristic Pulse: five UI directions</h1>
+  <p>Switch each phone between App, Sign in and Sidebar. Drag from a phone's left edge to slide the sidebar open; tap the dark area to close it.</p>
+</header>
+<div class="grid" id="g"></div>
+<script>
+const T=[
+{n:'1 · Calm cards',d:'Cream, one question at a time, huge tap targets. Quietest and most minimal.',
+ bg:'#F4F0E8',fg:'#0E1A3A',mut:'#6B7183',card:'#FDFBF6',line:'#E4DDCF',acc:'#2350D8',bur:'#7A1F3D',dr:'#FDFBF6',drfg:'#0E1A3A',drAct:'#E9EEFC',
+ lockBg:'#F4F0E8',lockFg:'#0E1A3A',keyBg:'#FDFBF6',keyBd:'#E4DDCF',dot:'#7A1F3D',style:'single'},
+{n:'2 · Navy focus',d:'Dark navy app with white type. High contrast, feels premium, easy on the eyes in class.',
+ bg:'#0E1A3A',fg:'#FFFFFF',mut:'#AAB3CC',card:'#172752',line:'#24366B',acc:'#5B83F5',bur:'#E7B9C6',dr:'#0A1330',drfg:'#FFFFFF',drAct:'#172752',
+ lockBg:'#0E1A3A',lockFg:'#FFFFFF',keyBg:'#172752',keyBd:'#24366B',dot:'#E7B9C6',style:'grid'},
+{n:'3 · Compact grid',d:'Whole check-in on one screen: three rows of icon buttons, no sentences.',
+ bg:'#FFFFFF',fg:'#0E1A3A',mut:'#6B7183',card:'#F7F7FA',line:'#E6E8EF',acc:'#07226F',bur:'#7A1F3D',dr:'#FFFFFF',drfg:'#0E1A3A',drAct:'#EEF1FA',
+ lockBg:'#07226F',lockFg:'#FFFFFF',keyBg:'#0D2C86',keyBd:'#2A47A3',dot:'#FFFFFF',style:'icons'},
+{n:'4 · Swipe deck',d:'Student cards stacked like a deck with a progress ring. Swipe right = all good.',
+ bg:'#EEF1F7',fg:'#0E1A3A',mut:'#6B7183',card:'#FFFFFF',line:'#DDE2EE',acc:'#2350D8',bur:'#7A1F3D',dr:'#FFFFFF',drfg:'#0E1A3A',drAct:'#F6E9ED',
+ lockBg:'#3A1430',lockFg:'#FFFFFF',keyBg:'#4D1C40',keyBd:'#6B2E59',dot:'#E7B9C6',style:'deck'},
+{n:'5 · Clean list',d:'White, iOS-settings feel. Blue header band, burgundy hairline accents, list rows.',
+ bg:'#F6F7F9',fg:'#111827',mut:'#6B7280',card:'#FFFFFF',line:'#E5E7EB',acc:'#2350D8',bur:'#7A1F3D',dr:'#FFFFFF',drfg:'#111827',drAct:'#F3F4F6',
+ lockBg:'#FFFFFF',lockFg:'#111827',keyBg:'#F3F4F6',keyBd:'#F3F4F6',dot:'#2350D8',style:'list'}
+];
+const NAV=[['ti-sun','Today'],['ti-stack-2','Classes'],['ti-users','Students'],['ti-clipboard-check','ICP check-in'],['ti-file-analytics','Reports'],['ti-settings','Settings']];
+const mark=(t,s)=>`<div style="width:${s}px;height:${s}px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;border:1px solid ${t.line};flex:none"><span style="color:#07226F;font-weight:700;font-size:${s*.5}px">S</span></div>`;
+const topBar=(t,title)=>`<div style="display:flex;align-items:center;gap:10px;padding:34px 14px 8px"><i class="ti ti-menu-2 mb" style="font-size:20px;color:${t.fg};cursor:pointer" aria-label="Open menu"></i><span style="font-weight:600;font-size:14px;color:${t.fg};flex:1">${title}</span>${mark(t,24)}</div>`;
+const lock=t=>`<div class="scr" style="background:${t.lockBg};display:flex;flex-direction:column;align-items:center;padding-top:70px;gap:12px">${mark(t,64)}<div style="color:${t.lockFg};font-weight:600;font-size:18px;margin-top:6px">Solaristic Pulse</div><div style="display:flex;gap:12px;margin:10px 0 18px">${[1,1,0,0].map(f=>`<span style="width:12px;height:12px;border-radius:6px;border:2px solid ${t.dot};background:${f?t.dot:'transparent'}"></span>`).join('')}</div><div style="display:grid;grid-template-columns:repeat(3,52px);gap:12px">${['1','2','3','4','5','6','7','8','9','','0','<i class="ti ti-backspace"></i>'].map(k=>k?`<div class="key" style="background:${t.keyBg};border:1px solid ${t.keyBd};color:${t.lockFg}">${k}</div>`:'<div></div>').join('')}</div><div style="font-size:11px;color:${t.lockFg};margin-top:8px">Forgot PIN?</div></div>`;
+const prog=t=>`<div style="display:flex;gap:4px;padding:0 14px 10px">${[1,1,0,0,0].map(f=>`<span style="flex:1;height:4px;border-radius:2px;background:${f?t.acc:t.line}"></span>`).join('')}</div>`;
+const opts=(t,labels)=>`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${labels.map((l,i)=>`<div class="rb" style="background:${i==0?t.acc:t.card};color:${i==0?'#fff':t.fg};border:1px solid ${i==0?t.acc:t.line}">${l}</div>`).join('')}</div>`;
+function app(t){
+ let body='';
+ if(t.style=='single'){body=topBar(t,'7B English')+prog(t)+`<div style="padding:6px 14px"><div style="font-size:11px;color:${t.bur};letter-spacing:.04em;margin-bottom:4px">2 OF 5</div><div style="font-size:26px;font-weight:700;color:${t.fg}">Zara Ahmed</div><div style="font-size:12px;color:${t.mut};margin:4px 0 22px">Focus · question 1 of 3</div><div style="font-size:17px;color:${t.fg};margin-bottom:16px;font-weight:600">Focused today?</div><div style="display:flex;flex-direction:column;gap:9px">${['Yes, as expected','Some difficulty','Significant','Not sure'].map((l,i)=>`<div class="rb" style="padding:14px;text-align:left;font-size:13px;background:${i==0?t.acc:t.card};color:${i==0?'#fff':t.fg};border:1px solid ${i==0?t.acc:t.line}">${l}</div>`).join('')}</div><div style="display:flex;justify-content:space-between;margin-top:18px;font-size:12px;color:${t.mut}"><span>Absent</span><span>Skip</span></div></div>`}
+ if(t.style=='grid'){body=topBar(t,'7B English')+`<div style="padding:4px 14px"><div style="background:${t.card};border-radius:16px;padding:14px;border-top:2px solid ${t.bur}"><div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-size:30px;font-weight:700;color:${t.fg}">2<span style="font-size:13px;color:${t.mut}">/5</span></span><span style="font-size:11px;color:${t.bur}">TODAY</span></div></div><div style="margin:16px 0 6px;font-size:22px;font-weight:700;color:${t.fg}">Zara Ahmed</div><div style="display:flex;gap:6px;margin-bottom:14px"><span style="font-size:11px;padding:3px 8px;border-radius:10px;background:${t.card};color:${t.bur}">Follow-up</span><span style="font-size:11px;padding:3px 8px;border-radius:10px;background:${t.card};color:${t.mut}">3 days</span></div>${['Focus','Homework','Behaviour'].map((c,ci)=>`<div style="margin-bottom:10px"><div style="font-size:11px;color:${t.mut};margin-bottom:5px">${c}</div><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px">${['Good','Some','Sig.','?'].map((l,i)=>`<div class="rb" style="padding:8px 2px;background:${i==ci%2?t.acc:t.card};color:#fff;border:1px solid ${t.line}">${l}</div>`).join('')}</div></div>`).join('')}</div>`}
+ if(t.style=='icons'){body=topBar(t,'Today')+`<div style="padding:4px 14px"><div style="display:flex;gap:6px;margin-bottom:12px">${['7B','9C','10A'].map((c,i)=>`<span style="font-size:11px;padding:5px 10px;border-radius:14px;background:${i==0?t.acc:t.card};color:${i==0?'#fff':t.fg}">${c}</span>`).join('')}<span style="margin-left:auto;font-size:12px;color:${t.mut}">2/5</span></div><div style="background:${t.card};border-radius:14px;padding:14px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><div style="width:36px;height:36px;border-radius:18px;background:#E9EEFC;color:#07226F;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">ZA</div><div style="flex:1"><div style="font-weight:600;font-size:15px;color:${t.fg}">Zara Ahmed</div><div style="font-size:11px;color:${t.bur}">Follow-up · focus</div></div><i class="ti ti-info-circle" style="color:${t.mut};font-size:18px"></i></div>${[['ti-eye'],['ti-book'],['ti-mood-smile']].map(([ic],ri)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><i class="ti ${ic}" style="font-size:18px;color:${t.acc};width:22px"></i>${['ti-check','ti-minus','ti-alert-triangle','ti-question-mark'].map((b,i)=>`<div style="flex:1;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:${i==(ri==1?1:0)?(i==1?'#9A6A12':t.acc):'#fff'};color:${i==(ri==1?1:0)?'#fff':t.fg};border:1px solid ${t.line}"><i class="ti ${b}" style="font-size:16px"></i></div>`).join('')}</div>`).join('')}</div><div style="display:flex;gap:8px;margin-top:12px"><div class="rb" style="flex:1;background:${t.card};color:${t.fg}">Absent</div><div class="rb" style="flex:2;background:${t.acc};color:#fff">Next →</div></div></div>`}
+ if(t.style=='deck'){body=topBar(t,'7B English')+`<div style="padding:4px 14px;position:relative"><div style="display:flex;align-items:center;gap:10px;margin-bottom:14px"><svg width="42" height="42" viewBox="0 0 42 42"><circle cx="21" cy="21" r="17" stroke="${t.line}" stroke-width="5" fill="none"/><circle cx="21" cy="21" r="17" stroke="${t.acc}" stroke-width="5" fill="none" stroke-dasharray="107" stroke-dashoffset="64" transform="rotate(-90 21 21)" stroke-linecap="round"/></svg><div><div style="font-size:14px;font-weight:600;color:${t.fg}">2 of 5 done</div><div style="font-size:11px;color:${t.mut}">3 to go</div></div></div><div style="position:relative;height:300px"><div style="position:absolute;inset:16px 14px -8px;background:${t.card};border-radius:18px;border:1px solid ${t.line}"></div><div style="position:absolute;inset:8px 7px 0;background:${t.card};border-radius:18px;border:1px solid ${t.line}"></div><div style="position:absolute;inset:0 0 8px;background:${t.card};border-radius:18px;border:1px solid ${t.line};padding:16px;transform:rotate(-2deg)"><div style="font-size:11px;color:${t.bur}">FOLLOW-UP</div><div style="font-size:22px;font-weight:700;color:${t.fg};margin:4px 0 10px">Zara Ahmed</div><div style="font-size:12px;color:${t.mut};margin-bottom:14px">Last time: some focus difficulty in independent work</div>${opts(t,['Better','Same','Worse','Not sure'])}<div style="display:flex;justify-content:space-between;margin-top:16px;font-size:11px;color:${t.mut}"><span>← Absent</span><span>All good →</span></div></div></div></div>`}
+ if(t.style=='list'){body=`<div style="background:${t.acc};padding:34px 14px 14px;color:#fff"><div style="display:flex;align-items:center;gap:10px"><i class="ti ti-menu-2 mb" style="font-size:20px;cursor:pointer" aria-label="Open menu"></i><span style="flex:1;font-weight:600;font-size:14px">7B English</span><span style="font-size:12px">2/5</span></div><div style="font-size:20px;font-weight:700;margin-top:12px">Zara Ahmed</div><div style="font-size:11px;color:#DCE5FF">Follow-up due · 3 days</div></div><div style="height:2px;background:${t.bur}"></div><div style="padding:12px 14px">${['Focus','Homework','Behaviour'].map((c,ci)=>`<div style="background:${t.card};border:1px solid ${t.line};border-radius:12px;padding:10px 12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:13px;color:${t.fg};margin-bottom:8px"><span>${c}</span><span style="color:${t.mut};font-size:11px">${ci==0?'Same as last time?':''}</span></div><div style="display:flex;gap:6px">${['Good','Some','Sig.','?'].map((l,i)=>`<span style="flex:1;text-align:center;font-size:11px;padding:6px 0;border-radius:8px;background:${i==0&&ci!=2?t.acc:'#F3F4F6'};color:${i==0&&ci!=2?'#fff':t.fg}">${l}</span>`).join('')}</div></div>`).join('')}<div style="display:flex;gap:8px;margin-top:6px"><div class="rb" style="flex:1;background:#F3F4F6;color:${t.fg}">Absent</div><div class="rb" style="flex:1;background:#F3F4F6;color:${t.fg}">Skip</div><div class="rb" style="flex:1.4;background:${t.fg};color:#fff">Next</div></div></div>`}
+ const nav=NAV.map(([ic,l],i)=>`<div class="ni" style="color:${t.drfg};background:${i==0?t.drAct:'transparent'};${i==0?`box-shadow:inset 3px 0 0 ${t.bur}`:''}"><i class="ti ${ic}" aria-hidden="true"></i>${l}</div>`).join('');
+ return `<div class="scr" style="background:${t.bg}">${body}</div><div class="edge"></div><div class="shade"></div><div class="drawer" style="background:${t.dr}"><div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">${mark(t,30)}<div><div style="font-weight:600;font-size:14px;color:${t.drfg}">Solaristic Pulse</div><div style="font-size:11px;color:${t.mut}">Alex Morgan</div></div></div>${nav}<div style="height:1px;background:${t.bur};margin:14px 4px"></div><div class="ni" style="color:${t.mut}"><i class="ti ti-lock" aria-hidden="true"></i>Lock app</div></div>`;
+}
+function wire(ph){
+ const dr=ph.querySelector('.drawer'),sh=ph.querySelector('.shade');if(!dr)return;
+ let open=false,start=null,w=0;
+ const set=(p,anim)=>{dr.style.transition=sh.style.transition=anim?'':'none';dr.style.transform=`translateX(${(p-1)*100}%)`;sh.style.opacity=p*0.45;sh.style.pointerEvents=p>0?'auto':'none'};
+ const toggle=o=>{open=o;set(o?1:0,true)};
+ ph.querySelectorAll('.mb').forEach(b=>b.onclick=()=>toggle(true));
+ sh.onclick=()=>toggle(false);
+ ph.onpointerdown=e=>{const r=ph.getBoundingClientRect();const x=e.clientX-r.left;w=dr.offsetWidth;if((!open&&x<26)||open){start={x:e.clientX,o:open};ph.setPointerCapture(e.pointerId)}};
+ ph.onpointermove=e=>{if(!start)return;const dx=e.clientX-start.x;let p=start.o?1+dx/w:dx/w;p=Math.max(0,Math.min(1,p));if(Math.abs(dx)>4)set(p,false)};
+ ph.onpointerup=e=>{if(!start)return;const dx=e.clientX-start.x;const s=start;start=null;if(Math.abs(dx)<5){if(s.o&&e.clientX-ph.getBoundingClientRect().left>dr.offsetWidth)toggle(false);else set(s.o?1:0,true);return}const p=s.o?1+dx/w:dx/w;toggle(p>0.4)};
+}
+const g=document.getElementById('g');
+T.forEach(t=>{
+ const o=document.createElement('div');o.className='opt';
+ o.innerHTML=`<h3>${t.n}</h3><p>${t.d}</p><div class="seg"><button class="on" data-v="app">App</button><button data-v="lock">Sign in</button><button data-v="menu">Sidebar</button></div><div class="phone"></div><span class="hint">Drag from the left edge to open the sidebar</span>`;
+ g.appendChild(o);
+ const ph=o.querySelector('.phone');
+ const show=v=>{o.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.v==v));ph.innerHTML=v=='lock'?lock(t):app(t);ph.onpointerdown=ph.onpointermove=ph.onpointerup=null;if(v!='lock'){wire(ph);if(v=='menu')setTimeout(()=>ph.querySelector('.mb').click(),30)}};
+ o.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>show(b.dataset.v));
+ show('app');
+});
+</script>
+</body>
+</html>

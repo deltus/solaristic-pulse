@@ -1,0 +1,8 @@
+node_modules
+dist
+dev-dist
+*.log
+android/app/build
+android/.gradle
+release
+.claude

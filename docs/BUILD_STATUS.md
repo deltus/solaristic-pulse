@@ -1,0 +1,65 @@
+# Build status
+
+_Last updated: 15/10/2026_
+
+## Stages
+| Stage | Status |
+|---|---|
+| 1. Layout, navigation, classes, students, local storage, PIN, onboarding, demo data | ✅ Done |
+| 2. Daily rotation, observations, priority weights, contextual follow-ups | ✅ Done |
+| 3. Trends, coverage safeguards, custom questions | ✅ Done |
+| 4. ICP tracking, reports, XLSX/CSV export, de-identification | ✅ Done |
+| 5. Timetable import, reminders, offline PWA, backup/restore/delete | ✅ Done |
+| 7. Calm cards redesign: one question per screen, swipe-out sidebar (permanent on desktop), teacher name on sign-in, skippable guided tour (replay in Settings) | ✅ Done |
+| 8. Draw weight upgrades: weight stored on every check-in and plan entry, significant difficulty counts double, starting priority (form + roster `Priority` column), weight badges on rosters, weight columns in exports | ✅ Done |
+| 9. First-time setup: sign in (name, email), 5-card guide, first class, paste/import students, lesson days and times, optional PIN, then the in-app tour | ✅ Done |
+| 10. Check-in navigation: Back (previous question, then previous student), Skip moved top-right, Absent bottom-right | ✅ Done |
+| 11. Styled XLSX exports (ExcelJS): navy header row, outlined cells, banded rows, frozen header, filters; ICP data on its own tabs | ✅ Done |
+| 12. Notes: always-visible note button; difficulty answers pause for "What happened?"; follow-ups quote the note and ask "Did this happen again?" (No, all good closes it) | ✅ Done |
+| 13. Saved files: confirmation sheet (Open / Share), Android notification that opens the file, Recent files (Reports and Settings → Data); sample roster/timetable fixed (bundled CSVs) | ✅ Done — Android file opening untested on a device |
+| 14. Reminders: setup step, Today card (when a timetable exists), permission/blocked/exact-alarm handling; tapping a lesson reminder opens that class | ✅ Done — notifications untested on a device |
+| 15. Light motion (question slides, answer tick, sheets, toasts), off with the OS reduce-motion setting | ✅ Done |
+| 6. Android wrapper (Capacitor project, icons, native files/share/notifications) | ✅ APK builds: `npm run android:apk:win` → release/SolaristicPulse.apk |
+
+## Test matrix (spec §13)
+Automated: `npm test` → **44 tests passing** (tests/logic, tests/services, tests/exporting). Browser: production build served locally and driven in the built-in browser at 375 px and desktop width.
+
+| # | Scenario | How verified |
+|---|---|---|
+| 1 | Two classes, switch between them | services test (no record mixing) + browser (created 11E Biology, switched chips; queues stayed separate) |
+| 2 | Import a fictional roster | parser + import service tests (flexible headers, class creation, duplicates). UI file picker **not** driven in the browser (needs a manual file pick). Sample: `samples/demo-roster.csv` |
+| 3 | Generate five daily check-ins | logic + services tests; browser |
+| 4 | Observations in all three categories | services test; browser (taps saved, auto-advance) |
+| 5 | Absent ≠ negative | logic + services tests; browser (absent recorded, slot back-filled) |
+| 6 | Repeated difficulties → contextual follow-ups | logic tests; browser (previous note + prompt shown) |
+| 7 | Improvement reduces follow-ups, no permanent exclusion | logic tests (gradual resolution; 30-day simulation) |
+| 8 | Flag increases selection | logic test (40-day simulation: flagged checked ≥1.3× average, not every day) |
+| 9 | Everyone eventually checked | logic test (26 students × 40 days, max gap ≤ 14 days) |
+| 10 | Custom question in rotation | logic test (scope/frequency); browser (created, appeared only in its class) |
+| 11 | ICP + student report | logic + export tests (sheets, before/after, associative wording) |
+| 12 | Timetable import + reminders | parser + reminder-plan tests; browser (timetable-ordered chips, "Next lesson" banner). Notifications not observed on a device yet |
+| 13 | Class & individual export | export tests read XLSX back; browser generated XLSX in-app |
+| 14 | De-identification | export test scans every sheet for every student/teacher/school/class name; browser preview |
+| 15 | Close & reopen persistence | services test (DB reopened); browser reload |
+| 16 | Offline after install | browser: service worker active, **server stopped**, app reloaded, unlocked, saved a check-in and generated an XLSX. Not yet tried on a physical phone |
+| 17 | Narrow & desktop screens | browser at 375 px (bottom nav, no horizontal scroll) and desktop (sidebar) |
+| 18 | Backup, restore, deletion | services test (round-trip of all tables, delete-all, invalid file rejected) |
+
+## Remaining / deferred
+- **Build and install the APK** (next step; see README "Android").
+- Physical-device checks: notifications, file saving to Documents, share sheet, back button.
+- iOS app (needs a Mac + Apple Developer account). iPhone works as a PWA without scheduled notifications.
+- Not built: printable/PDF student report (XLSX only), password-encrypted backups, in-app speech recognition (keyboard dictation is used instead), end-to-end browser test suite (Playwright).
+
+## Known issues / notes
+- Android phones using gesture navigation reserve the very edge of the screen for Back; start the sidebar swipe slightly in from the edge, or tap the menu button.
+- Mockups of the five UI directions: docs/mockups/ui-options.html.
+- Web notifications only fire while the app is open; documented in-app.
+- When a new web version is deployed, the PWA asks before updating (`confirm` dialog).
+- Students belong to one class. A student taught in two classes needs two entries.
+- The built-in browser profile used for testing contains demo data plus a test class "11E Biology"; harmless, and it can be cleared in Settings → Data.
+
+## Resume here
+1. Install Android Studio → `npm run android:apk` → install `android/app/build/outputs/apk/debug/app-debug.apk` on a phone.
+2. Device test pass (notifications, files, PIN after backgrounding).
+3. Consider a release-signed APK (keystore) for wider distribution.

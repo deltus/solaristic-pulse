@@ -7,6 +7,8 @@ import { inviteEmail, inviteLink, newInviteCode, signInLink } from '../logic/inv
 import { canInstall, isInstalled, isNative, mailtoLink, promptInstall, shareText } from '../platform';
 import { saveFile } from '../files';
 import { Field, Icon, toast } from './components';
+import { SyncCard } from './Sync';
+import { keyFragment } from '../sync/cloudSync';
 
 /* ---------- QR code ---------- */
 
@@ -133,7 +135,7 @@ export function SignIn({ defaultEmail }: { defaultEmail: string }) {
           </div>
         </>
       )}
-      <p class="tiny muted" style="margin-top:12px">Your account holds only your email, name, school and the list of your devices. Student records stay on each device.</p>
+      <p class="tiny muted" style="margin-top:12px">Your account holds your email, name, school and the list of your devices. Student records only leave a device if you turn on Live sync, with names and notes encrypted.</p>
     </div>
   );
 }
@@ -144,7 +146,10 @@ function SignedIn({ email }: { email: string }) {
   const [showQr, setShowQr] = useState(false);
   const me = cloud.thisDeviceId();
   const load = () => cloud.listDevices().then(setDevices, (e) => setErr((e as Error).message));
+  const [fragment, setFragment] = useState('');
   useEffect(() => { void cloud.checkInDevice().finally(load); }, []);
+  useEffect(() => { if (showQr) void keyFragment().then(setFragment); }, [showQr]);
+  const addLink = signInLink(cloud.appUrl(), email) + fragment;
 
   async function remove(d: cloud.Device) {
     const self = d.id === me;
@@ -178,6 +183,8 @@ function SignedIn({ email }: { email: string }) {
         </div>
       </div>
 
+      <SyncCard />
+
       <div class="section"><h2>Linked devices</h2></div>
       {err && <p class="error small">{err}</p>}
       <div class="list">
@@ -199,11 +206,11 @@ function SignedIn({ email }: { email: string }) {
         <p class="small">On your other phone or PC, scan this code with the camera (or open the link), then sign in with the code we email you.</p>
         {showQr ? (
           <>
-            <QrCode text={signInLink(cloud.appUrl(), email)} />
-            <CopyLink link={signInLink(cloud.appUrl(), email)} />
+            <QrCode text={addLink} />
+            {fragment ? <p class="tiny muted">This code includes your sync key, so only show it to your own devices.</p> : <CopyLink link={addLink} />}
           </>
         ) : <button class="btn" onClick={() => setShowQr(true)}><Icon name="qr" /> Show QR code</button>}
-        <p class="tiny muted" style="margin-top:10px">Records made on each device stay on that device for now; live sync between devices is the next step.</p>
+        <p class="tiny muted" style="margin-top:10px">Turn on Live sync on both devices to see the same records on each.</p>
       </div>
 
       <button class="btn danger small" onClick={others}>Sign out all other devices</button>

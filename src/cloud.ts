@@ -1,13 +1,13 @@
 // Optional Supabase account: sign in by email on several devices, list/remove linked devices,
 // and invite other teachers with a QR code or email link.
-// Only account details go to Supabase; student records stay on the device (see docs/SUPABASE.md).
+// Records only sync when the teacher turns sync on (src/sync/), with names and notes encrypted (see docs/SUPABASE.md).
 // Everything here is inert unless VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set at build time.
 
 import { useEffect, useState } from 'preact/hooks';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { isNative } from './platform';
 import { deviceName, readLaunchParams } from './logic/invite';
-import { getSettings } from './db';
+import { getSettings, saveSettings } from './db';
 import { toast } from './ui/components';
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined;
@@ -30,7 +30,7 @@ export const apkUrl = () => (import.meta.env.VITE_ANDROID_APK_URL as string | un
 /* ---------- Client and session state ---------- */
 
 let client: Promise<SupabaseClient> | null = null;
-function sb(): Promise<SupabaseClient> {
+export function sb(): Promise<SupabaseClient> {
   if (!cloudConfigured()) throw new Error('Cloud sign-in is not set up in this build.');
   client ??= import('@supabase/supabase-js').then(({ createClient }) => {
     const c = createClient(URL_!, KEY!, {
@@ -50,9 +50,15 @@ export type Account = { status: 'off' } | { status: 'loading' } | { status: 'sig
 let account: Account = { status: cloudConfigured() ? 'loading' : 'off' };
 const listeners = new Set<(a: Account) => void>();
 function setAccount(a: Account) {
+  const changed = a.status !== account.status || (a.status === 'signedIn' && account.status === 'signedIn' && a.user.id !== account.user.id);
   account = a;
   listeners.forEach((l) => l(a));
+  if (changed) accountWatchers.forEach((w) => w(a));
 }
+const accountWatchers = new Set<(a: Account) => void>();
+/** Called whenever the user signs in or out (used by sync). */
+export const onAccountChange = (fn: (a: Account) => void) => void accountWatchers.add(fn);
+export const currentAccount = () => account;
 
 export function useAccount(): Account {
   const [a, setA] = useState(account);
@@ -146,7 +152,13 @@ async function afterSignIn() {
     const s = await getSettings();
     const c = await sb();
     if (account.status !== 'signedIn') return;
-    await saveProfile(s.profile);
+    if (s.profile.name.trim()) await saveProfile(s.profile);
+    else {
+      // A new, empty device: take the name from the account rather than blanking it.
+      const { data } = await c.from('profiles').select('display_name, school').maybeSingle();
+      const p = data as { display_name: string; school: string } | null;
+      if (p?.display_name) await saveSettings({ profile: { ...s.profile, name: p.display_name, school: s.profile.school || p.school, email: s.profile.email || account.user.email || '' } });
+    }
     await checkInDevice();
     const code = pendingInvite();
     if (code) {

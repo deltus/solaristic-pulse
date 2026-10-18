@@ -20,6 +20,7 @@ import { RecentFiles } from '../Files';
 import { ReminderPrompt, turnOnReminders } from '../ReminderPrompt';
 import { AccountSection, InviteSection } from '../Account';
 import { saveProfile } from '../../cloud';
+import { syncWanted, turnOffSync } from '../../sync/cloudSync';
 
 const SECTIONS: [string, string, string, string][] = [
   ['profile', 'Profile', 'user', 'Name, email and school'],
@@ -390,7 +391,7 @@ function DataSection({ s }: { s: Settings }) {
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (!confirm(`Restore "${file.name}"? This REPLACES all data currently in the app with the backup's contents.`)) return;
+      if (!confirm(`Restore "${file.name}"? This REPLACES all data currently in the app with the backup's contents${syncWanted() ? ', and on your other synced devices too' : ''}.`)) return;
       await svc.restoreBackup(data);
       toast('Backup restored');
       setTimeout(() => location.reload(), 600);
@@ -399,8 +400,10 @@ function DataSection({ s }: { s: Settings }) {
     }
   }
   async function wipe() {
-    const a = prompt('This permanently deletes ALL classes, students, observations, ICP records, settings and the PIN from this device. Download a backup first if you may need the data.\n\nType DELETE to confirm.');
+    const synced = syncWanted() ? '\n\nSync will be turned off on this device first, so your account and other devices keep their copy.' : '';
+    const a = prompt(`This permanently deletes ALL classes, students, observations, ICP records, settings and the PIN from this device. Download a backup first if you may need the data.${synced}\n\nType DELETE to confirm.`);
     if (a?.trim().toUpperCase() !== 'DELETE') return;
+    if (synced) await turnOffSync();
     await svc.deleteAllData();
     location.hash = '#/today';
     location.reload();

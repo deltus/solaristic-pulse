@@ -11,6 +11,7 @@ import { Field, Icon, toast } from './components';
 import { PinSetup, PrivacyNotice } from './Onboarding';
 import { ReminderPrompt } from './ReminderPrompt';
 import { InviteWelcome, SignIn } from './Account';
+import { SetupDownload } from './Sync';
 import { cloudConfigured, suggestedEmail, useAccount } from '../cloud';
 
 const GUIDE = [
@@ -243,7 +244,7 @@ function SetupSignIn({ email }: { email: string }) {
   const acc = useAccount();
   const [open, setOpen] = useState(!!suggestedEmail());
   if (!cloudConfigured() || acc.status === 'loading') return null;
-  if (acc.status === 'signedIn') return <div class="notice info small">Signed in as <b>{acc.user.email}</b>. Finish setting up this device below.</div>;
+  if (acc.status === 'signedIn') return <><div class="notice info small">Signed in as <b>{acc.user.email}</b>.</div><SetupDownload /></>;
   if (!open) return <button class="link-btn" style="padding:0 0 14px;color:var(--blue)" onClick={() => setOpen(true)}>Already use Pulse on another device? Sign in</button>;
   return <div style="margin-bottom:14px"><SignIn defaultEmail={suggestedEmail() ?? email} /></div>;
 }

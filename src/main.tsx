@@ -5,7 +5,9 @@ import './styles.css';
 import { App } from './ui/App';
 import { isNative } from './platform';
 import { initCloud } from './cloud';
+import { initSync } from './sync/cloudSync';
 
+initSync();
 initCloud();
 
 render(<App />, document.getElementById('app')!);

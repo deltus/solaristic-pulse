@@ -5,6 +5,7 @@ import type {
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
 import type { SavedFile } from './files';
+import { outboxMiddleware, type OutboxEntry } from './sync/outbox';
 
 export class PulseDB extends Dexie {
   classes!: Table<SchoolClass, string>;
@@ -20,6 +21,9 @@ export class PulseDB extends Dexie {
   timetable!: Table<TimetableEntry, string>;
   kv!: Table<{ key: string; value: unknown }, string>;
   files!: Table<SavedFile, string>;
+  /** Changes waiting to be sent to the cloud, and the sync position (not part of backups). */
+  outbox!: Table<OutboxEntry, [string, string]>;
+  syncState!: Table<{ key: string; value: unknown }, string>;
 
   constructor(name = 'solaristic-pulse') {
     super(name);
@@ -51,6 +55,9 @@ export class PulseDB extends Dexie {
         await tx.table('questions').put(old ? { ...old, text: q.text, shortText: q.shortText, options: q.options, categoryId: q.categoryId, order: q.order } : q);
       }
     });
+    // v5: live sync bookkeeping.
+    this.version(5).stores({ outbox: '[tbl+id], at', syncState: 'key' });
+    this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
       tx.table('questions').bulkAdd(CORE_QUESTIONS);

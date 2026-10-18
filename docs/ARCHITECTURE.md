@@ -13,7 +13,7 @@
 | SQL export | sql.js (SQLite as WebAssembly, lazy-loaded) | .sqlite file and portable .sql script for long-term analysis. |
 | Tests | Vitest + fake-indexeddb | Fast unit and integration tests without a browser. |
 
-No AI service, no analytics. The only backend is the **optional** Supabase account (`src/cloud.ts`, `supabase/migrations/`): sign-in by emailed code, linked devices and invites. It holds no student data and is switched off unless `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are set at build time; otherwise the app makes no network requests at runtime. See `docs/SUPABASE.md`.
+No AI service, no analytics. The only backend is the **optional** Supabase account (`src/cloud.ts`, `supabase/migrations/`): sign-in by emailed code, linked devices, invites and opt-in live sync (`src/sync/`: outbox middleware, push/pull engine, AES-GCM field encryption). Without sync it holds no student data. It is switched off unless `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are set at build time; otherwise the app makes no network requests at runtime. See `docs/SUPABASE.md`.
 
 ## Folder layout
 ```

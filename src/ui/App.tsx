@@ -17,6 +17,8 @@ import { db, saveSettings } from '../db';
 import { FileSavedHost } from './Files';
 import { openFile } from '../files';
 import { isNative } from '../platform';
+import { useSyncStatus } from '../sync/engine';
+import { syncLine } from './Sync';
 import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort } from '../lib/dates';
 
 export const NAV = [
@@ -102,6 +104,7 @@ export function App() {
         <div class="drawer-rule" />
         <a class={`nav-item ${page === 'settings' && id === 'invite' ? 'active' : ''}`} href="#/settings/invite" onClick={() => setDrawer(false)}><Icon name="qr" /><span>Invite a colleague</span></a>
         {settings.pin && <button class="nav-item" onClick={() => { setDrawer(false); setLocked(true); }}><Icon name="lock" /><span>Lock app</span></button>}
+        <SyncNavStatus />
         {!online && <div class="nav-item" style="cursor:default"><Icon name="wifiOff" /><span class="small muted">Offline: everything still works</span></div>}
       </nav>
       <div class="content-col">
@@ -253,4 +256,11 @@ function DayButton() {
       <button class="btn small day-next" title="Test tool: move to the next day" onClick={() => setDayOffset(off + 1)}>+1 day</button>
     </div>
   );
+}
+
+/** Small sync status line in the menu while sync is on. */
+function SyncNavStatus() {
+  const s = useSyncStatus();
+  if (s.state === 'off') return null;
+  return <a class="nav-item" href="#/settings/account"><span class={`sync-state ${s.state}`}><i /></span><span class="small muted">{syncLine(s)}</span></a>;
 }

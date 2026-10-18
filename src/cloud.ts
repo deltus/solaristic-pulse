@@ -190,6 +190,14 @@ export async function checkInDevice() {
   checking = true;
   try {
     const c = await sb();
+    // The account may have been deleted (e.g. a test reset): the saved session is then useless, so sign out here.
+    const { error: userError } = await c.auth.getUser();
+    if (userError && (userError.status === 401 || userError.status === 403 || /does not exist|user_not_found|not found/i.test(userError.message))) {
+      await c.auth.signOut({ scope: 'local' }).catch(() => {});
+      ls.del(DEVICE_KEY);
+      toast('Your account no longer exists, so this device has been signed out. Sign in again to start fresh.');
+      return;
+    }
     const { data: revoked, error } = await c.rpc('touch_device', {
       p_id: thisDeviceId(), p_name: deviceName(navigator.userAgent, isNative()), p_platform: isNative() ? 'android' : 'web'
     });

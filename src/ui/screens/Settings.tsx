@@ -19,8 +19,8 @@ import { parseIcs, type IcsCandidate } from '../../logic/ics';
 import { RecentFiles } from '../Files';
 import { ReminderPrompt, turnOnReminders } from '../ReminderPrompt';
 import { AccountSection, InviteSection } from '../Account';
-import { saveProfile } from '../../cloud';
-import { syncWanted, turnOffSync } from '../../sync/cloudSync';
+import { currentAccount, saveProfile } from '../../cloud';
+import { forgetAccountOnThisDevice, syncWanted } from '../../sync/cloudSync';
 
 const SECTIONS: [string, string, string, string][] = [
   ['profile', 'Profile', 'user', 'Name, email and school'],
@@ -400,10 +400,10 @@ function DataSection({ s }: { s: Settings }) {
     }
   }
   async function wipe() {
-    const synced = syncWanted() ? '\n\nSync will be turned off on this device first, so your account and other devices keep their copy.' : '';
+    const synced = currentAccount().status === 'signedIn' ? '\n\nThis device is also signed out of your account and forgets its sync key. Your account and your other devices keep their copy.' : '';
     const a = prompt(`This permanently deletes ALL classes, students, observations, ICP records, settings and the PIN from this device. Download a backup first if you may need the data.${synced}\n\nType DELETE to confirm.`);
     if (a?.trim().toUpperCase() !== 'DELETE') return;
-    if (synced) await turnOffSync();
+    await forgetAccountOnThisDevice();
     await svc.deleteAllData();
     location.hash = '#/today';
     location.reload();

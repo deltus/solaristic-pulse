@@ -253,3 +253,18 @@ export function initSync() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) void syncNow(); });
   setInterval(() => { if (!document.hidden) void syncNow(); }, 60_000);
 }
+
+/**
+ * Part of "Delete all data on this device": stops sync first (so nothing is deleted in the cloud),
+ * then signs out and forgets the sync key and every saved sign-in detail. Records are deleted by the caller.
+ */
+export async function forgetAccountOnThisDevice() {
+  await turnOffSync(true);
+  if (currentAccount().status === 'signedIn') await (await sb()).auth.signOut({ scope: 'local' }).catch(() => {});
+  await db.syncState.clear();
+  await db.outbox.clear();
+  try {
+    for (const k of Object.keys(localStorage)) if (k.startsWith('pulse.')) localStorage.removeItem(k);
+  } catch { /* private mode */ }
+  setAttention(null);
+}

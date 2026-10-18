@@ -18,9 +18,13 @@ import { saveSample } from '../../samples';
 import { parseIcs, type IcsCandidate } from '../../logic/ics';
 import { RecentFiles } from '../Files';
 import { ReminderPrompt, turnOnReminders } from '../ReminderPrompt';
+import { AccountSection, InviteSection } from '../Account';
+import { saveProfile } from '../../cloud';
 
 const SECTIONS: [string, string, string, string][] = [
   ['profile', 'Profile', 'user', 'Name, email and school'],
+  ['account', 'Account & devices', 'devices', 'Sign in to use Pulse on your phone and PC'],
+  ['invite', 'Invite a colleague', 'qr', 'QR code or email link to download and join'],
   ['checkins', 'Check-ins', 'check', 'Daily target, coverage and quick notes'],
   ['questions', 'Questions & categories', 'edit', 'Custom questions in the rotation'],
   ['timetable', 'Timetable', 'calendar', 'Import or edit your lessons'],
@@ -60,6 +64,8 @@ export function SettingsScreen({ section }: { section?: string; sub?: string }) 
     <div>
       <PageHead eyebrow="Settings" title={title} back="#/settings" />
       {section === 'profile' && <ProfileSection s={settings} />}
+      {section === 'account' && <AccountSection s={settings} />}
+      {section === 'invite' && <InviteSection s={settings} />}
       {section === 'checkins' && <CheckinSection s={settings} />}
       {section === 'questions' && <QuestionsSection />}
       {section === 'timetable' && <TimetableSection />}
@@ -74,13 +80,13 @@ export function SettingsScreen({ section }: { section?: string; sub?: string }) 
 
 function ProfileSection({ s }: { s: Settings }) {
   const [p, setP] = useState({ ...s.profile, school: s.profile.school ?? '' });
-  const set = (k: keyof typeof p) => (e: Event) => setP({ ...p, [k]: (e.target as HTMLInputElement).value });
+  const set = (k: keyof typeof p) => (e: Event) => { const v = (e.target as HTMLInputElement).value; setP((cur) => ({ ...cur, [k]: v })); };
   return (
     <div class="card">
       <Field label="Name"><input class="input" value={p.name} onInput={set('name')} /></Field>
-      <Field label="Email address" hint="Pre-fills the 'Email draft' button in Reports. The app never sends email itself."><input class="input" type="email" value={p.email} onInput={set('email')} /></Field>
+      <Field label="Email address" hint="Pre-fills the 'Email draft' button in Reports and the account sign-in. The app never sends email itself."><input class="input" type="email" value={p.email} onInput={set('email')} /></Field>
       <Field label="School (optional)"><input class="input" value={p.school} onInput={set('school')} /></Field>
-      <button class="btn primary" onClick={async () => { await saveSettings({ profile: p }); toast('Profile saved'); }}>Save</button>
+      <button class="btn primary" onClick={async () => { await saveSettings({ profile: p }); await saveProfile(p).catch(() => {}); toast('Profile saved'); }}>Save</button>
     </div>
   );
 }
@@ -449,7 +455,7 @@ function AboutSection({ s }: { s: Settings }) {
     </div>
     <div class="card small stack">
       <p><b>Solaristic Pulse</b> v{__APP_VERSION__}: offline classroom check-ins.</p>
-      <p><b>Works offline.</b> After the first load (or installing the Android app), everything runs on this device with no internet connection. Nothing in the app requires internet access.</p>
+      <p><b>Works offline.</b> After the first load (or installing the Android app), everything runs on this device with no internet connection. Nothing in the app requires internet access; signing in (Settings → Account & devices) is optional and only needs a connection while you sign in.</p>
       <p><b>Install on Android.</b> Use the Solaristic Pulse APK, or in Chrome open the app's web address and choose <i>Install app</i> / <i>Add to Home screen</i>.</p>
       <p><b>iPhone / iPad.</b> Open the web address in Safari → Share → <i>Add to Home Screen</i>. Scheduled notifications are not available there; in-app reminders are.</p>
       <p><b>Dictation.</b> Use your keyboard's microphone button in any note field. Depending on your keyboard settings, dictation may be processed by your keyboard provider rather than on the device.</p>

@@ -4,6 +4,9 @@ import '@fontsource/ibm-plex-mono/400.css';
 import './styles.css';
 import { App } from './ui/App';
 import { isNative } from './platform';
+import { initCloud } from './cloud';
+
+initCloud();
 
 render(<App />, document.getElementById('app')!);
 

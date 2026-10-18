@@ -45,5 +45,8 @@ Host the `dist/` folder on any HTTPS static host (only the app code is uploaded,
 ## Backups
 Settings → **Data, backup & deletion** → *Download backup* creates a complete JSON file. Restore it on the same or another device with *Restore from backup* (replaces the current data). Backups are **not encrypted**; store them according to your school's policy. Uninstalling the app or clearing browser data deletes local records.
 
+## Accounts and invites (optional)
+With a Supabase project connected (see `docs/SUPABASE.md`), teachers can sign in by emailed code in **Settings → Account & devices**, see and remove their linked devices, and **Invite a colleague** with a QR code or an email link that opens the app with install steps. Without it, the invite screen still shares a plain link and QR code to the app.
+
 ## Privacy
-No accounts, servers, cloud sync, analytics or AI services. Data is stored in the device's local database and is not encrypted by the app; the optional PIN only deters casual access. Check your school's privacy and record-keeping policies before entering real student data. All bundled names are fictional.
+No cloud sync, analytics or AI services. The optional account stores only the teacher's email, name, school, linked devices and invites; student records never leave the device. Data is stored in the device's local database and is not encrypted by the app; the optional PIN only deters casual access. Check your school's privacy and record-keeping policies before entering real student data. All bundled names are fictional.

@@ -38,6 +38,8 @@ const P: Record<string, JSX.Element> = {
   skip: <path d="m5 5 9 7-9 7V5ZM19 5v14" />,
   wifiOff: <><path d="m2 2 20 20M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 5.2-2.8M19 13a10 10 0 0 0-2.3-1.6M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8A15 15 0 0 0 11 5" /><path d="M12 20h.01" /></>,
   shield: <><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6l-8-3Z" /></>,
+  qr: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M14 14h3v3M21 14v.01M14 21h3M20 17v4M17 20h.01" /></>,
+  devices: <><rect x="2" y="4" width="14" height="10" rx="1.5" /><path d="M5 18h8" /><rect x="16" y="8" width="6" height="12" rx="1.5" /></>,
   mic: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></>
 };
 

@@ -1,5 +1,5 @@
 // Platform helpers: files, sharing, notifications and PIN hashing.
-// Everything runs locally; nothing here contacts a server.
+// Everything runs locally; nothing here contacts a server (the optional account lives in cloud.ts).
 
 import type { PinConfig } from './types';
 
@@ -28,6 +28,43 @@ export async function readSpreadsheet(file: File): Promise<string[][]> {
 
 export function mailtoLink(to: string, subject: string, body: string) {
   return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+/** Opens the share sheet with a message and link. Returns false if sharing isn't available. */
+export async function shareText(title: string, text: string, url: string): Promise<boolean> {
+  try {
+    if (isNative()) {
+      const { Share } = await import('@capacitor/share');
+      await Share.share({ title, text, url, dialogTitle: title });
+      return true;
+    }
+    if (!navigator.share) return false;
+    await navigator.share({ title, text, url });
+    return true;
+  } catch (e) {
+    return (e as Error).name === 'AbortError';
+  }
+}
+
+/* ---------- Install (PWA) ---------- */
+// Chrome/Edge fire `beforeinstallprompt` when the app can be installed; keep it for an "Install app" button.
+
+type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
+let installPrompt: InstallPrompt | null = null;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e as InstallPrompt;
+  });
+}
+export const canInstall = () => !!installPrompt;
+export const isInstalled = () => isNative() || window.matchMedia?.('(display-mode: standalone)').matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
+export async function promptInstall(): Promise<boolean> {
+  if (!installPrompt) return false;
+  await installPrompt.prompt();
+  const { outcome } = await installPrompt.userChoice;
+  installPrompt = null;
+  return outcome === 'accepted';
 }
 
 /* ---------- Notifications ---------- */

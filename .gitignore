@@ -6,3 +6,5 @@ android/app/build
 android/.gradle
 release
 .claude
+.env.local
+.env.*.local

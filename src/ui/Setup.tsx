@@ -10,13 +10,15 @@ import { pickFile, readSpreadsheet, requestPersistentStorage } from '../platform
 import { Field, Icon, toast } from './components';
 import { PinSetup, PrivacyNotice } from './Onboarding';
 import { ReminderPrompt } from './ReminderPrompt';
+import { InviteWelcome, SignIn } from './Account';
+import { cloudConfigured, suggestedEmail, useAccount } from '../cloud';
 
 const GUIDE = [
   { icon: 'today', title: 'A few students each lesson', text: 'Pulse picks about five students per class each day and asks a few quick questions about each.' },
   { icon: 'check', title: 'Tap and move on', text: 'Tap an answer and it saves straight away. Press and hold an answer to add a note.' },
   { icon: 'flag', title: 'Nobody gets missed', text: 'Students with recent difficulties come up more often, and everyone is checked regularly.' },
   { icon: 'clock', title: 'It remembers for you', text: 'Earlier concerns come back as follow-ups, and trends build up over time.' },
-  { icon: 'shield', title: 'Private by design', text: 'Everything stays on this device. No accounts, no cloud.' }
+  { icon: 'shield', title: 'Private by design', text: 'Student records stay on this device. An account is optional, only to use Pulse on more than one device.' }
 ];
 const STEPS = ['Sign in', 'How it works', 'Your class', 'Students', 'Lessons', 'Reminders', 'PIN', 'Ready'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -42,7 +44,7 @@ export function Setup() {
   const [slide, setSlide] = useState(0);
   const [accepted, setAccepted] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [profile, setProfile] = useState({ name: '', email: '', school: '' });
+  const [profile, setProfile] = useState({ name: '', email: suggestedEmail() ?? '', school: '' });
   const [cls, setCls] = useState({ name: '', yearLevel: '' });
   const [classId, setClassId] = useState<string | null>(null);
   const [names, setNames] = useState('');
@@ -122,6 +124,8 @@ export function Setup() {
           <img class="hero-mark" src="icons/icon-192.png" alt="" style="margin:8px 0 14px" />
           <h1>Welcome to Solaristic Pulse</h1>
           <p class="muted" style="margin:8px 0 18px">Setup takes about two minutes.</p>
+          <InviteWelcome />
+          <SetupSignIn email={profile.email} />
           <Field label="Your name"><input class="input" value={profile.name} autoComplete="name" placeholder="Alex Morgan" onInput={(e) => setProfile({ ...profile, name: (e.target as HTMLInputElement).value })} /></Field>
           <Field label="Email address" hint="Pre-fills emails when you share a report. Nothing is sent anywhere.">
             <input class="input" type="email" autoComplete="email" placeholder="name@school.edu.au" value={profile.email} onInput={(e) => setProfile({ ...profile, email: (e.target as HTMLInputElement).value })} />
@@ -232,4 +236,14 @@ export function Setup() {
       )}
     </div>
   );
+}
+
+/** "Already use Pulse on another device?": optional sign-in on the first screen (opened automatically from an "Add a device" QR code). */
+function SetupSignIn({ email }: { email: string }) {
+  const acc = useAccount();
+  const [open, setOpen] = useState(!!suggestedEmail());
+  if (!cloudConfigured() || acc.status === 'loading') return null;
+  if (acc.status === 'signedIn') return <div class="notice info small">Signed in as <b>{acc.user.email}</b>. Finish setting up this device below.</div>;
+  if (!open) return <button class="link-btn" style="padding:0 0 14px;color:var(--blue)" onClick={() => setOpen(true)}>Already use Pulse on another device? Sign in</button>;
+  return <div style="margin-bottom:14px"><SignIn defaultEmail={suggestedEmail() ?? email} /></div>;
 }

@@ -13,7 +13,7 @@
 | SQL export | sql.js (SQLite as WebAssembly, lazy-loaded) | .sqlite file and portable .sql script for long-term analysis. |
 | Tests | Vitest + fake-indexeddb | Fast unit and integration tests without a browser. |
 
-No backend, no cloud database, no AI service, no analytics. The app makes **no network requests** at runtime.
+No AI service, no analytics. The only backend is the **optional** Supabase account (`src/cloud.ts`, `supabase/migrations/`): sign-in by emailed code, linked devices and invites. It holds no student data and is switched off unless `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are set at build time; otherwise the app makes no network requests at runtime. See `docs/SUPABASE.md`.
 
 ## Folder layout
 ```
@@ -30,9 +30,11 @@ src/
     reminderPlan.ts   timetable + prefs → concrete reminder times
     deidentify.ts     pseudonyms and note scrubbing
     importers.ts      roster/timetable parsing
+    invite.ts         invite codes, invite/sign-in links, invite email text, device names
   exporting.ts      report sheets + XLSX/CSV writer
   demo.ts           fictional demo data (replays the real algorithm over 4 weeks)
-  platform.ts       files, share, notifications, PIN hashing (web + native switch)
+  platform.ts       files, share, install prompt, notifications, PIN hashing (web + native switch)
+  cloud.ts          optional Supabase account: email-code sign-in, linked devices, invites
   native.ts         Android implementations (Capacitor plugins)
   ui/               App shell, Lock, Onboarding, reminders hook, screens/*
 tests/              logic, services (IndexedDB), exporting (XLSX read-back)

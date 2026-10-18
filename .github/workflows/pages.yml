@@ -1,5 +1,6 @@
 # On every push to main: run the tests, build the app and publish it to GitHub Pages.
 # Only the app code is published; student data never leaves each user's device.
+# The Supabase URL and anon key are public by design (row-level security protects the data).
 name: Test and publish
 
 on:
@@ -28,6 +29,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # Repository → Settings → Secrets and variables → Actions → Variables. Empty = accounts off.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          VITE_PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
+          VITE_ANDROID_APK_URL: ${{ vars.ANDROID_APK_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:

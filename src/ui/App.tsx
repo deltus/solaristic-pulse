@@ -94,12 +94,13 @@ export function App() {
           <div><b>Solaristic Pulse</b><span>{settings.profile.name}</span></div>
         </div>
         {NAV.map((n) => (
-          <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${page === n.path || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
+          <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${(page === n.path && !(page === 'settings' && id === 'invite')) || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
             <Icon name={n.icon} /><span>{n.label}</span>
             {n.path === 'icp' && icpDue && <i class="dot" aria-label="ICP check-ins due" />}
           </a>
         ))}
         <div class="drawer-rule" />
+        <a class={`nav-item ${page === 'settings' && id === 'invite' ? 'active' : ''}`} href="#/settings/invite" onClick={() => setDrawer(false)}><Icon name="qr" /><span>Invite a colleague</span></a>
         {settings.pin && <button class="nav-item" onClick={() => { setDrawer(false); setLocked(true); }}><Icon name="lock" /><span>Lock app</span></button>}
         {!online && <div class="nav-item" style="cursor:default"><Icon name="wifiOff" /><span class="small muted">Offline: everything still works</span></div>}
       </nav>

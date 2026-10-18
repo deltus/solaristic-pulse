@@ -613,3 +613,14 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .q-enter { animation: qIn 0.3s ease-out both; }
 .q-leave { opacity: 0; transform: translateY(-4px); transition: opacity 0.2s ease, transform 0.2s ease; }
 @keyframes qIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Account, devices and invites ---------- */
+.error { color: var(--sig); }
+.qr-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 6px 0 12px; }
+.qr { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px; max-width: 100%; }
+.qr svg { display: block; width: 100%; height: 100%; }
+.copy-link { display: flex; gap: 8px; align-items: center; }
+.copy-link .input { flex: 1; min-width: 0; font-size: 13px; }
+.code-input { font-size: 22px; letter-spacing: 0.3em; text-align: center; max-width: 260px; }
+.invite-welcome { text-align: left; }
+.invite-welcome .icon-btn { margin: -6px -8px 0 0; }

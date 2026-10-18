@@ -25,14 +25,13 @@ export function syncLine(s: SyncStatus): string {
 
 export function SyncCard() {
   const status = useSyncStatus();
-  const [on, setOn] = useState(sync.syncWanted());
+  const on = status.state !== 'off';
   const [flow, setFlow] = useState(false);
   const [showKey, setShowKey] = useState<string | null>(null);
 
   async function off() {
-    if (!confirm('Turn off sync on this device? Records stay here, but changes stop going to your other devices.')) return;
+    if (!confirm('Turn off sync on this device? Records stay here, but changes stop going to and from your other devices until you turn it back on.')) return;
     await sync.turnOffSync();
-    setOn(false);
     toast('Sync turned off on this device');
   }
 
@@ -41,7 +40,7 @@ export function SyncCard() {
       <span class="eyebrow">Live sync</span>
       {!on ? (
         <>
-          <p class="small">Keep your classes, check-ins, notes and ICP records the same on every device you sign in on: record on your phone, report on your PC. Changes save here first and sync within seconds when you're online.</p>
+          <p class="small"><b>Sync is off on this device.</b> Keep your classes, check-ins, notes and ICP records the same on every device you sign in on: record on your phone, report on your PC. Changes save here first and sync within seconds when you're online.</p>
           <p class="tiny muted">Names, school IDs, notes and ICP text are encrypted on this device with a key only your devices hold. Ratings and dates are stored readable so reports can be built later.</p>
           <button class="btn primary" onClick={() => setFlow(true)}><Icon name="devices" /> Turn on sync</button>
         </>
@@ -57,7 +56,7 @@ export function SyncCard() {
           </div>
         </>
       )}
-      {flow && <TurnOnFlow onClose={() => setFlow(false)} onDone={() => { setFlow(false); setOn(true); }} />}
+      {flow && <TurnOnFlow onClose={() => setFlow(false)} onDone={() => setFlow(false)} />}
       {showKey && <Sheet title="Recovery key" onClose={() => setShowKey(null)}><RecoveryKey value={showKey} /></Sheet>}
     </div>
   );
@@ -112,7 +111,7 @@ function KeyEntry({ onOk }: { onOk: () => void }) {
   );
 }
 
-function TurnOnFlow({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+export function TurnOnFlow({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [st, setSt] = useState<SetupState | null>(null);
   const [step, setStep] = useState<'load' | 'key' | 'newKey' | 'mode' | 'working'>('load');
   const [newKey, setNewKey] = useState('');
@@ -216,6 +215,33 @@ export function SetupDownload() {
           <button class="btn primary" disabled={busy} onClick={download}>{busy ? 'Copying…' : 'Copy my records to this device'}</button>
         </>
       ) : <KeyEntry onOk={() => void load()} />}
+    </div>
+  );
+}
+
+/* ---------- Banner when sync needs the teacher ---------- */
+
+export function SyncAttentionBanner() {
+  const attention = sync.useSyncAttention();
+  const [flow, setFlow] = useState(false);
+  const [key, setKey] = useState<string | null>(null);
+  if (!attention) return null;
+  const text = {
+    needKey: ['Unlock your synced records', 'Your account already syncs from another device. Enter your recovery key, or scan the Add a device QR code from that device, to see the same classes here.', 'Unlock'],
+    choose: ['Choose how to sync this device', 'This device and your account both have records. Choose whether to combine them or use your account’s records here.', 'Choose'],
+    saveKey: ['Save your recovery key', 'Sync is on. Save your recovery key somewhere private; you need it to see your records on a new device if you can’t scan the QR code from this one.', 'Show key']
+  }[attention];
+  return (
+    <div class="notice info sync-banner">
+      <div class="grow"><b>{text[0]}</b><div class="small">{text[1]}</div></div>
+      <button class="btn small primary" onClick={async () => (attention === 'saveKey' ? setKey(await sync.recoveryKey()) : setFlow(true))}>{text[2]}</button>
+      {flow && <TurnOnFlow onClose={() => setFlow(false)} onDone={() => setFlow(false)} />}
+      {key && (
+        <Sheet title="Recovery key" onClose={() => setKey(null)}>
+          <RecoveryKey value={key} />
+          <button class="btn primary" style="margin-top:12px" onClick={() => { sync.recoveryKeySaved(); setKey(null); toast('Thanks, all set'); }}>I've saved it</button>
+        </Sheet>
+      )}
     </div>
   );
 }

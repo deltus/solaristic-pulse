@@ -12,6 +12,7 @@ import { PinSetup, PrivacyNotice } from './Onboarding';
 import { ReminderPrompt } from './ReminderPrompt';
 import { InviteWelcome, SignIn } from './Account';
 import { SetupDownload } from './Sync';
+import { autoSync } from '../sync/cloudSync';
 import { cloudConfigured, suggestedEmail, useAccount } from '../cloud';
 
 const GUIDE = [
@@ -110,6 +111,7 @@ export function Setup() {
     if (demo) await loadDemoData();
     await requestPersistentStorage();
     await saveSettings({ onboarded: true, tutorialDone: false, ...(classId && !demo ? { currentClassId: classId } : {}) });
+    void autoSync(); // signed in during setup: start syncing now
     location.hash = '#/today';
   }
   const back = (n: number) => <button class="btn" onClick={() => go(n)}><Icon name="back" /> Back</button>;

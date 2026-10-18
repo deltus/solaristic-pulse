@@ -1,9 +1,11 @@
 // Connects the sync engine to Supabase: the account's encryption key, turning sync on and off,
 // and live updates (Supabase Realtime tells this device when another device saved something).
 
+import { useEffect, useState } from 'preact/hooks';
 import type { RealtimeChannel } from '@supabase/supabase-js';
+import { planAutoSync } from './plan';
 import { currentAccount, onAccountChange, sb, thisDeviceId } from '../cloud';
-import { db, saveSettings } from '../db';
+import { db, getSettings, saveSettings } from '../db';
 import { fromB64Url, importKey, keyMatches, makeKeyCheck, newKeyBytes, toB64Url, toRecoveryKey } from './crypto';
 import {
   clearLocalForDownload, enqueueAll, resetPosition, startSync, stopSync, storeKey, storedKey, syncNow, type SyncRow, type Transport
@@ -18,6 +20,32 @@ const ls = {
 };
 
 export const syncWanted = () => ls.get(SYNC_ON) === 'on';
+/** True when the teacher switched sync off on this device; then it isn't turned back on automatically. */
+const syncDeclined = () => ls.get(SYNC_ON) === 'off';
+const KEY_UNSAVED = 'pulse.keyUnsaved';
+
+/* ---------- Things the teacher needs to do (shown as a banner) ---------- */
+
+export type Attention = 'needKey' | 'choose' | 'saveKey' | null;
+let attention: Attention = ls.get(KEY_UNSAVED) ? 'saveKey' : null;
+const attentionListeners = new Set<(a: Attention) => void>();
+function setAttention(a: Attention) {
+  attention = a;
+  attentionListeners.forEach((l) => l(a));
+}
+export function useSyncAttention(): Attention {
+  const [a, setA] = useState(attention);
+  useEffect(() => {
+    attentionListeners.add(setA);
+    setA(attention);
+    return () => void attentionListeners.delete(setA);
+  }, []);
+  return a;
+}
+export function recoveryKeySaved() {
+  ls.del(KEY_UNSAVED);
+  if (attention === 'saveKey') setAttention(null);
+}
 export const hasPendingKey = () => !!ls.get(PENDING_KEY);
 
 function transport(): Transport {
@@ -116,11 +144,15 @@ export async function turnOnSync(mode: 'upload' | 'merge' | 'replace') {
     await enqueueAll();
   }
   ls.set(SYNC_ON, 'on');
+  if (attention === 'needKey' || attention === 'choose') setAttention(ls.get(KEY_UNSAVED) ? 'saveKey' : null);
   await resume();
 }
 
-export async function turnOffSync() {
-  ls.del(SYNC_ON);
+/** explicit: the teacher chose to switch it off here, so it stays off until they turn it on again. */
+export async function turnOffSync(explicit = true) {
+  if (explicit) ls.set(SYNC_ON, 'off');
+  else ls.del(SYNC_ON);
+  if (attention === 'needKey' || attention === 'choose') setAttention(null);
   stopSync();
   await unsubscribe();
 }
@@ -153,12 +185,45 @@ async function resume() {
   if (channel) return;
   const c = await sb();
   let t: ReturnType<typeof setTimeout> | undefined;
-  channel = c.channel(`sync-${a.user.id}`)
+  // A fresh name each time: supabase-js hands back a still-closing channel if the name is reused.
+  channel = c.channel(`sync-${a.user.id}-${Date.now()}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'sync_rows', filter: `user_id=eq.${a.user.id}` }, () => {
       clearTimeout(t);
       t = setTimeout(() => void syncNow(), 400);
     })
     .subscribe();
+}
+
+let autoRunning = false;
+/**
+ * Turns sync on by itself when a signed-in device hasn't decided yet: uploads from the account's first device,
+ * downloads onto an empty device, and only asks (banner) when the key is missing or both sides have records.
+ */
+export async function autoSync() {
+  const a = currentAccount();
+  if (autoRunning || a.status !== 'signedIn' || syncWanted() || syncDeclined()) return;
+  if (!(await getSettings()).onboarded) return; // first-time setup offers "Copy my records" itself
+  autoRunning = true;
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const plan = planAutoSync(await syncSetupState());
+      if (plan === 'needKey' || plan === 'choose') return setAttention(plan);
+      if (plan === 'createKeyAndUpload') {
+        try {
+          await createAccountKey();
+        } catch {
+          continue; // another device made the key at the same moment: decide again
+        }
+        ls.set(KEY_UNSAVED, '1');
+        setAttention('saveKey');
+      }
+      return await turnOnSync(plan === 'download' ? 'replace' : 'upload');
+    }
+  } catch (e) {
+    console.warn('Automatic sync set-up failed', e);
+  } finally {
+    autoRunning = false;
+  }
 }
 
 /** Called once at launch, before the app's router reads the address. */
@@ -172,10 +237,15 @@ export function initSync() {
   onAccountChange(async (a) => {
     const signedOut = wasSignedIn && a.status === 'signedOut';
     wasSignedIn = a.status === 'signedIn';
-    if (a.status === 'signedIn') await resume();
-    else if (signedOut) {
+    if (a.status === 'signedIn') {
+      await resume();
+      await autoSync();
+    } else if (signedOut) {
       // Signing out (or this device being removed) stops sync and forgets the key; records stay on the device.
-      await turnOffSync();
+      // Signing in again turns it back on automatically.
+      await turnOffSync(false);
+      ls.del(KEY_UNSAVED);
+      setAttention(null);
       await db.syncState.delete('key');
     }
   });

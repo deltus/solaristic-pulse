@@ -18,7 +18,7 @@ import { FileSavedHost } from './Files';
 import { openFile } from '../files';
 import { isNative } from '../platform';
 import { useSyncStatus } from '../sync/engine';
-import { syncLine } from './Sync';
+import { SyncAttentionBanner, syncLine } from './Sync';
 import { useAccount } from '../cloud';
 import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort } from '../lib/dates';
 
@@ -118,7 +118,7 @@ export function App() {
           <span class="spacer" />
           {settings.devTools !== false ? <DayButton /> : <span class="topbar-mark" aria-hidden="true"><img src="icons/mark.png" alt="" /></span>}
         </header>
-        <main class="main">{screen}</main>
+        <main class="main"><SyncAttentionBanner />{screen}</main>
       </div>
       {picker && classes && <ClassPicker classes={classes} current={currentClass?.id} reminder={reminder} onClose={() => setPicker(false)} />}
       {!settings.tutorialDone && <Tour name={settings.profile.name} setDrawer={setDrawer} onDone={() => saveSettings({ tutorialDone: true })} />}

@@ -636,3 +636,5 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .nav-account .tiny { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 450; }
 .nav-item.signin-item { color: var(--blue); }
 .nav-item.signin-item svg { color: var(--blue); }
+.sync-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sync-banner .grow { flex: 1 1 220px; }

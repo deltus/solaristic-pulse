@@ -6,6 +6,7 @@ import { clearLocalForDownload, enqueueAll, startSync, stopSync, syncNow, type S
 import { fromB64Url, fromRecoveryKey, newKeyBytes, toB64Url, toRecoveryKey } from '../src/sync/crypto';
 import { splitRow } from '../src/sync/fields';
 import { setTracking } from '../src/sync/outbox';
+import { planAutoSync } from '../src/sync/plan';
 
 /** In-memory stand-in for the Supabase sync_rows table and push_rows function. */
 function fakeServer() {
@@ -137,5 +138,19 @@ describe('sync keys and fields', () => {
     expect(data).toEqual({ id: 'o', level: 1, response: 'Needs support' });
     expect(secret).toEqual({ note: 'Mia was upset', context: 'Peers' });
     expect(splitRow('checkins', { id: 'c', status: 'complete' }).secret).toBeNull();
+  });
+});
+
+describe('automatic sync on sign-in', () => {
+  const s = (accountHasKey: boolean, deviceHasKey: boolean, cloudRows: number, localClasses: number) => ({ accountHasKey, deviceHasKey, cloudRows, localClasses });
+  it('uploads from the first device and downloads onto an empty one', () => {
+    expect(planAutoSync(s(false, false, 0, 3))).toBe('createKeyAndUpload');
+    expect(planAutoSync(s(false, false, 0, 0))).toBe('createKeyAndUpload');
+    expect(planAutoSync(s(true, true, 0, 2))).toBe('upload');
+    expect(planAutoSync(s(true, true, 120, 0))).toBe('download');
+  });
+  it('asks only when it cannot decide safely', () => {
+    expect(planAutoSync(s(true, false, 120, 0))).toBe('needKey');
+    expect(planAutoSync(s(true, true, 120, 3))).toBe('choose');
   });
 });

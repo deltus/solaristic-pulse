@@ -54,12 +54,12 @@ export function ReportsScreen({ studentId }: { studentId?: string }) {
   }
   async function share() {
     if (!result) return;
-    const ok = await shareBlob(result.blob, result.filename, 'Solaristic Pulse report');
+    const ok = await shareBlob(result.blob, result.filename, 'Solaristic Radar report');
     if (!ok) {
       await saveFile(result.blob, result.filename, 'report');
     }
   }
-  const emailHref = mailtoLink(settings.profile.email, 'Solaristic Pulse report', `Report generated ${new Date().toLocaleDateString('en-AU')}.\n\nAttach the downloaded file: ${result?.filename ?? ''}\n`);
+  const emailHref = mailtoLink(settings.profile.email, 'Solaristic Radar report', `Report generated ${new Date().toLocaleDateString('en-AU')}.\n\nAttach the downloaded file: ${result?.filename ?? ''}\n`);
   const active = data.classes.filter((c) => !c.archived);
 
   return (
@@ -168,7 +168,7 @@ function Preview({ result }: { result: ExportResult }) {
 function SqlExportCard() {
   const [deid, setDeid] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const name = (ext: string) => `solaristic-pulse-data_${today()}${deid ? '_deidentified' : ''}.${ext}`;
+  const name = (ext: string) => `solaristic-radar-data_${today()}${deid ? '_deidentified' : ''}.${ext}`;
   async function run(kind: 'sqlite' | 'sql') {
     setBusy(kind);
     try {

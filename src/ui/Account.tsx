@@ -23,7 +23,7 @@ export function QrCode({ text, size = 220, filename }: { text: string; size?: nu
   async function saveImage() {
     const Q = await import('qrcode');
     const blob = await (await fetch(await Q.toDataURL(text, { width: 1024, margin: 2, color: { dark: '#0E1A3A', light: '#FFFFFF' } }))).blob();
-    await saveFile(blob, filename ?? 'solaristic-pulse-qr.png', 'sample');
+    await saveFile(blob, filename ?? 'solaristic-radar-qr.png', 'sample');
   }
   return (
     <div class="qr-wrap">
@@ -63,7 +63,7 @@ const ago = (iso: string) => {
 function NotSetUp() {
   return (
     <div class="notice info">
-      <b>Accounts are not switched on in this version.</b> Pulse works fully on this device without one. Once the Solaristic cloud is connected, you'll be able to sign in here and use Pulse on your phone and PC.
+      <b>Accounts are not switched on in this version.</b> Radar works fully on this device without one. Once the Solaristic cloud is connected, you'll be able to sign in here and use Radar on your phone and PC.
     </div>
   );
 }
@@ -118,7 +118,7 @@ export function SignIn({ defaultEmail, another }: { defaultEmail: string; anothe
   return (
     <div class="card">
       <span class="eyebrow">{another ? 'Sign in to another account' : 'Sign in to your account'}</span>
-      <p class="small">Sign in with your email to use Pulse on more than one device, such as your phone in class and your PC for reports. No password: we email you a code.</p>
+      <p class="small">Sign in with your email to use Radar on more than one device, such as your phone in class and your PC for reports. No password: we email you a code.</p>
       {!sent ? (
         <>
           <Field label="Email address"><input class="input" type="email" autoComplete="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} onKeyDown={(e) => e.key === 'Enter' && send()} /></Field>
@@ -273,7 +273,7 @@ export function InviteSection({ s }: { s: Settings }) {
     <>
       <div class="card">
         <span class="eyebrow">Invite a colleague</span>
-        <p class="small">Create a link and QR code that opens Solaristic Pulse with install steps. Show the QR code on your screen, or send the link by email.</p>
+        <p class="small">Create a link and QR code that opens Solaristic Radar with install steps. Show the QR code on your screen, or send the link by email.</p>
         {!signedIn && cloud.cloudConfigured() && <p class="tiny muted">Sign in (Settings → Account & devices) to see when people you invite join.</p>}
         <Field label="Their email (optional)" hint="Fills in the email for you. Nothing is sent until you press Send in your email app.">
           <input class="input" type="email" placeholder="colleague@school.edu.au" value={email} onInput={(e) => { setEmail((e.target as HTMLInputElement).value); setLink(null); }} />
@@ -282,7 +282,7 @@ export function InviteSection({ s }: { s: Settings }) {
         {!link && <button class="btn primary" disabled={busy} onClick={create}><Icon name="qr" /> {busy ? 'Creating…' : 'Create invite'}</button>}
         {link && msg && (
           <div class="invite-out">
-            <QrCode text={link} filename="solaristic-pulse-invite.png" />
+            <QrCode text={link} filename="solaristic-radar-invite.png" />
             <CopyLink link={link} />
             <div class="row wrap" style="margin-top:10px">
               <a class="btn primary" href={mailtoLink(email.trim(), msg.subject, msg.body)}><Icon name="mail" /> Email invite</a>
@@ -335,7 +335,7 @@ export function InviteWelcome() {
   return (
     <div class="notice info invite-welcome">
       <div class="row between" style="align-items:flex-start">
-        <b>{from ? `${from} invited you to Solaristic Pulse` : 'You were invited to Solaristic Pulse'}</b>
+        <b>{from ? `${from} invited you to Solaristic Radar` : 'You were invited to Solaristic Radar'}</b>
         <button class="icon-btn" aria-label="Dismiss" onClick={() => { cloud.dismissInvite(); setCode(null); }}><Icon name="x" /></button>
       </div>
       {!isInstalled() && !isNative() && (
@@ -350,7 +350,7 @@ export function InviteWelcome() {
           {apk && !ios && <p style="margin-top:6px">Android: you can also <a href={apk}>download the app (APK)</a>.</p>}
         </div>
       )}
-      <p class="small" style="margin-top:6px">Set up below. You can sign in later from Settings → Account & devices to use Pulse on several devices.</p>
+      <p class="small" style="margin-top:6px">Set up below. You can sign in later from Settings → Account & devices to use Radar on several devices.</p>
     </div>
   );
 }

@@ -61,9 +61,9 @@ export function ReminderPrompt({ compact, onDone }: { compact?: boolean; onDone?
   if (state === 'denied') {
     return (
       <div class="notice">
-        <b>Notifications are blocked for Pulse.</b>{' '}
+        <b>Notifications are blocked for Radar.</b>{' '}
         {isNative()
-          ? 'Open your phone’s Settings → Apps → Solaristic Pulse → Notifications, switch them on, then come back.'
+          ? 'Open your phone’s Settings → Apps → Solaristic Radar → Notifications, switch them on, then come back.'
           : 'Allow notifications for this site in your browser’s settings, then come back.'}
         <div style="margin-top:8px"><button class="btn small" onClick={refresh}>I’ve allowed them</button></div>
       </div>
@@ -77,7 +77,7 @@ export function ReminderPrompt({ compact, onDone }: { compact?: boolean; onDone?
       {state === 'granted' && !compact && <p class="small" style="color:var(--ok)"><Icon name="check" class="sr-only" />Notifications are allowed.</p>}
       {state === 'granted' && exact === 'denied' && (
         <div class="notice info">
-          For reminders right on time, allow <b>Alarms &amp; reminders</b> for Pulse. Without it they can arrive a few minutes late.
+          For reminders right on time, allow <b>Alarms &amp; reminders</b> for Radar. Without it they can arrive a few minutes late.
           <div style="margin-top:8px"><button class="btn small" onClick={async () => (await import('../native')).openExactAlarmSettings()}>Allow on-time reminders</button></div>
         </div>
       )}

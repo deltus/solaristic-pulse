@@ -30,11 +30,11 @@ describe('invite links', () => {
 
   it('writes an invite email with the link and install steps', () => {
     const m = inviteEmail('Alex Morgan', `${APP}?invite=abcd2345ef`, 'https://example.org/pulse.apk');
-    expect(m.subject).toBe('Alex Morgan invited you to Solaristic Pulse');
+    expect(m.subject).toBe('Alex Morgan invited you to Solaristic Radar');
     expect(m.body).toContain(`${APP}?invite=abcd2345ef`);
     expect(m.body).toContain('Add to Home Screen');
     expect(m.body).toContain('https://example.org/pulse.apk');
-    expect(inviteEmail(' ', 'x').subject).toBe('A colleague invited you to Solaristic Pulse');
+    expect(inviteEmail(' ', 'x').subject).toBe('A colleague invited you to Solaristic Radar');
   });
 
   it('names devices', () => {

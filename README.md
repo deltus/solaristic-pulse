@@ -1,4 +1,4 @@
-# Solaristic Pulse
+# Solaristic Radar
 
 
 **Live app:** https://deltus.github.io/solaristic-pulse/ (open on a phone → browser menu → *Install app* / *Add to Home Screen*). Every push to `main` runs the tests and republishes it automatically; the installed app offers to update.

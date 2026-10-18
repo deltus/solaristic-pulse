@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'au.solaristic.pulse',
-  appName: 'Solaristic Pulse',
+  appName: 'Solaristic Radar',
   webDir: 'dist',
   android: {
     // All content is bundled in the APK; no remote URLs are loaded.

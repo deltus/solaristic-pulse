@@ -24,7 +24,7 @@ import { syncWanted, turnOffSync } from '../../sync/cloudSync';
 
 const SECTIONS: [string, string, string, string][] = [
   ['profile', 'Profile', 'user', 'Name, email and school'],
-  ['account', 'Account & devices', 'devices', 'Sign in to use Pulse on your phone and PC'],
+  ['account', 'Account & devices', 'devices', 'Sign in to use Radar on your phone and PC'],
   ['invite', 'Invite a colleague', 'qr', 'QR code or email link to download and join'],
   ['checkins', 'Check-ins', 'check', 'Daily target, coverage and quick notes'],
   ['questions', 'Questions & categories', 'edit', 'Custom questions in the rotation'],
@@ -312,7 +312,7 @@ function RemindersSection({ s }: { s: Settings }) {
     <div>
       <div class="card">
         <span class="eyebrow">Notifications</span>
-        <p class="small muted">Get a nudge before each class, after it, and once a day.{isNative() ? ' They arrive even when Pulse is closed.' : ' In a browser they only arrive while Pulse is open; the Android app gets them any time.'}</p>
+        <p class="small muted">Get a nudge before each class, after it, and once a day.{isNative() ? ' They arrive even when Radar is closed.' : ' In a browser they only arrive while Radar is open; the Android app gets them any time.'}</p>
         <ReminderPrompt />
         <Switch label="Reminders on" checked={r.enabled} onChange={async (v) => {
           if (v) {
@@ -338,7 +338,7 @@ function RemindersSection({ s }: { s: Settings }) {
           if (isNative()) {
             const { testNativeNotification } = await import('../../native');
             await testNativeNotification();
-          } else await showNotification('Solaristic Pulse', 'Test reminder: notifications are working.');
+          } else await showNotification('Solaristic Radar', 'Test reminder: notifications are working.');
           toast('Test sent (if notifications are allowed)');
         }}><Icon name="bell" /> Send a test notification</button>
       </div>
@@ -381,8 +381,8 @@ function DataSection({ s }: { s: Settings }) {
   async function backup(share: boolean) {
     const data = await svc.createBackup();
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
-    const name = `solaristic-pulse-backup_${today()}.json`;
-    if (!share || !(await shareBlob(blob, name, 'Solaristic Pulse backup'))) await saveFile(blob, name, 'backup');
+    const name = `solaristic-radar-backup_${today()}.json`;
+    if (!share || !(await shareBlob(blob, name, 'Solaristic Radar backup'))) await saveFile(blob, name, 'backup');
     await saveSettings({ lastBackupAt: Date.now() });
     toast('Backup created');
   }
@@ -457,9 +457,9 @@ function AboutSection({ s }: { s: Settings }) {
       <Switch label="Show the “+1 day” test button" hint="Moves the app’s date forward to try follow-ups, rotation and overdue reminders. Records you make while testing are dated on the simulated day, so use it with test or demo data." checked={s.devTools !== false} onChange={(v) => saveSettings({ devTools: v })} />
     </div>
     <div class="card small stack">
-      <p><b>Solaristic Pulse</b> v{__APP_VERSION__}: offline classroom check-ins.</p>
+      <p><b>Solaristic Radar</b> v{__APP_VERSION__}: offline classroom check-ins.</p>
       <p><b>Works offline.</b> After the first load (or installing the Android app), everything runs on this device with no internet connection. Nothing in the app requires internet access; signing in (Settings → Account & devices) is optional and only needs a connection while you sign in.</p>
-      <p><b>Install on Android.</b> Use the Solaristic Pulse APK, or in Chrome open the app's web address and choose <i>Install app</i> / <i>Add to Home screen</i>.</p>
+      <p><b>Install on Android.</b> Use the Solaristic Radar APK, or in Chrome open the app's web address and choose <i>Install app</i> / <i>Add to Home screen</i>.</p>
       <p><b>iPhone / iPad.</b> Open the web address in Safari → Share → <i>Add to Home Screen</i>. Scheduled notifications are not available there; in-app reminders are.</p>
       <p><b>Dictation.</b> Use your keyboard's microphone button in any note field. Depending on your keyboard settings, dictation may be processed by your keyboard provider rather than on the device.</p>
       <p class="muted">Selection, follow-ups and trends use simple, deterministic rules on this device. No AI service is used.</p>

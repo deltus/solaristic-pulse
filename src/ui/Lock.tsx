@@ -65,7 +65,7 @@ export function LockScreen({ pin, name, onUnlock }: { pin: PinConfig; name?: str
 
   return (
     <div class="lock">
-      <div class="mark"><img src="icons/mark.png" alt="Solaristic Pulse" /></div>
+      <div class="mark"><img src="icons/mark.png" alt="Solaristic Radar" /></div>
       <h1>{name?.trim() || 'Welcome back'}</h1>
       <p class="lock-sub">{waiting ? `Too many attempts. Try again in ${Math.ceil((waitUntil - Date.now()) / 1000)}s` : 'Enter your PIN'}</p>
       <div class={`pin-dots ${shake ? 'shake' : ''}`} aria-live="polite" aria-label={`${entry.length} digits entered`}>

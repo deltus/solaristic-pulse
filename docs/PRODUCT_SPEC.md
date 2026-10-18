@@ -1,4 +1,4 @@
-# Solaristic Pulse — Product Specification (agreed behaviour)
+# Solaristic Radar — Product Specification (agreed behaviour)
 
 Offline-first classroom memory for individual teachers. The teacher is asked about about five students per class per day, records quick observations, and the app follows up, spots patterns and makes sure nobody is forgotten.
 

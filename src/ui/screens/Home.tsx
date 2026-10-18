@@ -1,4 +1,4 @@
-// "Solaristic Pulse · Your classes": the landing page. Today's classes with progress,
+// "Solaristic Radar · Your classes": the landing page. Today's classes with progress,
 // so finishing a class's check-ins brings you back here and closes the loop.
 
 import { db, getSettings, saveSettings } from '../../db';

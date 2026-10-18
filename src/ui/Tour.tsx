@@ -7,7 +7,7 @@ interface Step { target?: string; title: string; text: string; drawer?: boolean 
 const steps = (first: string): Step[] => [
   { title: `Welcome${first ? `, ${first}` : ''}`, text: 'A one-minute tour of where everything is. Skip whenever you like.' },
   { target: '[data-tour=menu]', title: 'Menu', text: 'Tap here, or swipe in from the left edge, to open the menu.' },
-  { target: '[data-tour=class]', title: 'Your class', text: 'Tap to switch class. During a timetabled lesson Pulse switches for you.' },
+  { target: '[data-tour=class]', title: 'Your class', text: 'Tap to switch class. During a timetabled lesson Radar switches for you.' },
   { target: '[data-tour=progress]', title: "Today's check-ins", text: 'About five students per class. Students with recent difficulties come up more often, and nobody is left out for long.' },
   { target: '[data-tour=card]', title: 'Check in', text: 'One question at a time. Tap an answer to save it and move on. Press and hold an answer to add a note; it comes back next time as a follow-up.' },
   { target: '[data-tour=absent]', title: 'Absent or skip', text: 'Absence never counts against a student. Their place goes to someone else.' },

@@ -1,6 +1,6 @@
 // Saved files (reports, backups, samples): save, remember the last few, open, share, delete.
 // Web: the browser downloads the file and a copy is kept in IndexedDB for "Recent files".
-// Android: the file is written to Documents/Solaristic Pulse and opened with the phone's apps.
+// Android: the file is written to Documents/Solaristic Radar and opened with the phone's apps.
 
 import { db, newId } from './db';
 import { isNative } from './platform';

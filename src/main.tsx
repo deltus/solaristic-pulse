@@ -17,7 +17,7 @@ if (!isNative() && 'serviceWorker' in navigator && import.meta.env.PROD) {
   import('virtual:pwa-register').then(({ registerSW }) => {
     const update = registerSW({
       onNeedRefresh() {
-        if (confirm('A new version of Solaristic Pulse is available. Update now? (Your data is not affected.)')) update(true);
+        if (confirm('A new version of Solaristic Radar is available. Update now? (Your data is not affected.)')) update(true);
       }
     });
   });

@@ -424,7 +424,7 @@ export async function createBackup() {
 
 export async function restoreBackup(data: unknown) {
   const d = data as { format?: string; tables?: Record<string, unknown[]> };
-  if (!d || d.format !== BACKUP_FORMAT || !d.tables) throw new Error('This file is not a Solaristic Pulse backup.');
+  if (!d || d.format !== BACKUP_FORMAT || !d.tables) throw new Error('This file is not a Solaristic Radar backup.');
   for (const t of TABLES) if (d.tables[t] !== undefined && !Array.isArray(d.tables[t])) throw new Error(`Backup table "${t}" is invalid.`);
   await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
     for (const t of TABLES) {

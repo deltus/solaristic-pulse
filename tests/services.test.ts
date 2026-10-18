@@ -139,7 +139,7 @@ describe('backup, restore, deletion (scenario 18)', () => {
     await svc.restoreBackup(backup);
     expect(await counts()).toEqual(before);
     expect((await getSettings()).profile.name).toBe('Demo Teacher');
-    await expect(svc.restoreBackup({ hello: 1 })).rejects.toThrow('not a Solaristic Pulse backup');
+    await expect(svc.restoreBackup({ hello: 1 })).rejects.toThrow('not a Solaristic Radar backup');
   });
 });
 

@@ -1,4 +1,4 @@
--- Solaristic Pulse: live sync of a teacher's records between their own devices.
+-- Solaristic Radar: live sync of a teacher's records between their own devices.
 -- Each row is one record from the app (a class, student, check-in, answer, note…).
 -- Names, school IDs, notes and ICP text arrive already encrypted in `enc`; the server never sees them.
 -- Ratings, dates and areas stay readable in `data` for reporting.

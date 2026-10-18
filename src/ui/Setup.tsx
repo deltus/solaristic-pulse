@@ -15,11 +15,11 @@ import { SetupDownload } from './Sync';
 import { cloudConfigured, suggestedEmail, useAccount } from '../cloud';
 
 const GUIDE = [
-  { icon: 'today', title: 'A few students each lesson', text: 'Pulse picks about five students per class each day and asks a few quick questions about each.' },
+  { icon: 'today', title: 'A few students each lesson', text: 'Radar picks about five students per class each day and asks a few quick questions about each.' },
   { icon: 'check', title: 'Tap and move on', text: 'Tap an answer and it saves straight away. Press and hold an answer to add a note.' },
   { icon: 'flag', title: 'Nobody gets missed', text: 'Students with recent difficulties come up more often, and everyone is checked regularly.' },
   { icon: 'clock', title: 'It remembers for you', text: 'Earlier concerns come back as follow-ups, and trends build up over time.' },
-  { icon: 'shield', title: 'Private by design', text: 'Student records stay on this device. An account is optional, only to use Pulse on more than one device.' }
+  { icon: 'shield', title: 'Private by design', text: 'Student records stay on this device. An account is optional, only to use Radar on more than one device.' }
 ];
 const STEPS = ['Sign in', 'How it works', 'Your class', 'Students', 'Lessons', 'Reminders', 'PIN', 'Ready'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -123,7 +123,7 @@ export function Setup() {
       {step === 0 && (
         <>
           <img class="hero-mark" src="icons/icon-192.png" alt="" style="margin:8px 0 14px" />
-          <h1>Welcome to Solaristic Pulse</h1>
+          <h1>Welcome to Solaristic Radar</h1>
           <p class="muted" style="margin:8px 0 18px">Setup takes about two minutes.</p>
           <InviteWelcome />
           <SetupSignIn email={profile.email} />
@@ -190,7 +190,7 @@ export function Setup() {
       {step === 4 && (
         <>
           <h1>When do you teach {cls.name}?</h1>
-          <p class="muted" style="margin:8px 0 18px">Pulse opens the right class during a lesson and reminds you to check in.</p>
+          <p class="muted" style="margin:8px 0 18px">Radar opens the right class during a lesson and reminds you to check in.</p>
           <span class="eyebrow">Days</span>
           <div class="chips" style="margin-bottom:14px">
             {WEEKDAYS.map((d, i) => (
@@ -231,7 +231,7 @@ export function Setup() {
           <div class="guide-icon" style="margin:0 auto 14px"><Icon name="check" /></div>
           <h1>You're ready{first ? `, ${first}` : ''}</h1>
           <p class="muted" style="margin:10px 0 22px">{cls.name}{added ? ` · ${added} students` : ''}{lessons ? ` · ${lessons} lessons a week` : ''}</p>
-          <button class="btn primary block" disabled={busy} onClick={() => finish(false)}>Start using Pulse</button>
+          <button class="btn primary block" disabled={busy} onClick={() => finish(false)}>Start using Radar</button>
           <p class="tiny muted" style="margin-top:14px">A quick tour will show you where everything is.</p>
         </div>
       )}
@@ -239,12 +239,12 @@ export function Setup() {
   );
 }
 
-/** "Already use Pulse on another device?": optional sign-in on the first screen (opened automatically from an "Add a device" QR code). */
+/** "Already use Radar on another device?": optional sign-in on the first screen (opened automatically from an "Add a device" QR code). */
 function SetupSignIn({ email }: { email: string }) {
   const acc = useAccount();
   const [open, setOpen] = useState(!!suggestedEmail());
   if (!cloudConfigured() || acc.status === 'loading') return null;
   if (acc.status === 'signedIn') return <><div class="notice info small">Signed in as <b>{acc.user.email}</b>.</div><SetupDownload /></>;
-  if (!open) return <button class="link-btn" style="padding:0 0 14px;color:var(--blue)" onClick={() => setOpen(true)}>Already use Pulse on another device? Sign in</button>;
+  if (!open) return <button class="link-btn" style="padding:0 0 14px;color:var(--blue)" onClick={() => setOpen(true)}>Already use Radar on another device? Sign in</button>;
   return <div style="margin-bottom:14px"><SignIn defaultEmail={suggestedEmail() ?? email} /></div>;
 }

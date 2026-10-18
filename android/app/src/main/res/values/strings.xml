@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Solaristic Pulse</string>
-    <string name="title_activity_main">Solaristic Pulse</string>
+    <string name="app_name">Solaristic Radar</string>
+    <string name="title_activity_main">Solaristic Radar</string>
     <string name="package_name">au.solaristic.pulse</string>
     <string name="custom_url_scheme">au.solaristic.pulse</string>
 </resources>

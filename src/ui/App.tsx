@@ -94,7 +94,7 @@ export function App() {
       <nav ref={drawerRef} class={`drawer ${drawer ? 'open' : ''}`} aria-label="Main" data-tour="drawer">
         <div class="drawer-head">
           <span class="topbar-mark"><img src="icons/mark.png" alt="" /></span>
-          <div><b>Solaristic Pulse</b><span>{settings.profile.name}</span></div>
+          <div><b>Solaristic Radar</b><span>{settings.profile.name}</span></div>
         </div>
         {NAV.map((n) => (
           <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${(page === n.path && !(page === 'settings' && (id === 'invite' || id === 'account'))) || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
@@ -114,7 +114,7 @@ export function App() {
           <button class="icon-btn menu-btn" data-tour="menu" aria-label="Open menu" onClick={() => setDrawer(true)}><Icon name="menu" /></button>
           {isToday && currentClass ? (
             <button class="class-btn" data-tour="class" onClick={() => setPicker(true)} aria-label="Change class">{currentClass.name}<Icon name="chevronDown" /></button>
-          ) : <span class="title">{isHome ? 'Solaristic Pulse' : NAV.find((n) => n.path === page)?.label ?? ''}</span>}
+          ) : <span class="title">{isHome ? 'Solaristic Radar' : NAV.find((n) => n.path === page)?.label ?? ''}</span>}
           <span class="spacer" />
           {settings.devTools !== false ? <DayButton /> : <span class="topbar-mark" aria-hidden="true"><img src="icons/mark.png" alt="" /></span>}
         </header>

@@ -46,7 +46,7 @@ export async function buildSqlScript(opts: { deidentify: boolean }): Promise<str
   };
 
   const out = [
-    `-- Solaristic Pulse data export, ${new Date().toISOString()}`,
+    `-- Solaristic Radar data export, ${new Date().toISOString()}`,
     `-- ${opts.deidentify ? 'De-identified: names replaced with pseudonyms; notes may still contain identifying details.' : 'Contains student names. Store and share according to school policy.'}`,
     '-- Standard SQL: loads into SQLite, PostgreSQL, MySQL and SQL Server. Difficulty level: 0 = meeting expectations, 1+ = needs support, NULL = not rated.',
     ''

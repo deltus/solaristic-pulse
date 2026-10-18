@@ -45,9 +45,9 @@ export function readLaunchParams(href: string): { invite?: string; signin?: stri
 export function inviteEmail(inviterName: string, link: string, apkUrl?: string): { subject: string; body: string } {
   const who = inviterName.trim() || 'A colleague';
   return {
-    subject: `${who} invited you to Solaristic Pulse`,
+    subject: `${who} invited you to Solaristic Radar`,
     body: [
-      `${who} has invited you to try Solaristic Pulse, a quick daily check-in app for teachers.`,
+      `${who} has invited you to try Solaristic Radar, a quick daily check-in app for teachers.`,
       '',
       `Open this link on your phone to get started:`,
       link,

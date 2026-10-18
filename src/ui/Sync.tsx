@@ -65,7 +65,7 @@ export function SyncCard() {
 
 function RecoveryKey({ value }: { value: string }) {
   async function save() {
-    await saveFile(new Blob([`Solaristic Pulse recovery key\n\n${value}\n\nKeep this private. You need it to read your synced records on a new device if you can't scan the code from one of your devices.\n`], { type: 'text/plain' }), 'solaristic-pulse-recovery-key.txt', 'backup');
+    await saveFile(new Blob([`Solaristic Radar recovery key\n\n${value}\n\nKeep this private. You need it to read your synced records on a new device if you can't scan the code from one of your devices.\n`], { type: 'text/plain' }), 'solaristic-radar-recovery-key.txt', 'backup');
   }
   return (
     <div>

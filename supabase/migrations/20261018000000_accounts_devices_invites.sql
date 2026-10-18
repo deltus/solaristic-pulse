@@ -1,4 +1,4 @@
--- Solaristic Pulse: accounts, linked devices and invites.
+-- Solaristic Radar: accounts, linked devices and invites.
 -- Run once in Supabase → SQL Editor (or `supabase db push`).
 -- No student data lives in these tables: only the teacher's own account details.
 

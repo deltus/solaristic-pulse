@@ -5,5 +5,5 @@ import { saveFile } from './files';
 
 export function saveSample(which: 'roster' | 'timetable') {
   const text = which === 'roster' ? roster : timetable;
-  return saveFile(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' }), `solaristic-pulse-sample-${which}.csv`, 'sample');
+  return saveFile(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' }), `solaristic-radar-sample-${which}.csv`, 'sample');
 }

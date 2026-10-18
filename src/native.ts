@@ -7,7 +7,7 @@ import { FileOpener } from '@capacitor-community/file-opener';
 import type { PlannedReminder } from './logic/reminderPlan';
 
 const SMALL_ICON = 'ic_stat_pulse';
-const FOLDER = 'Solaristic Pulse';
+const FOLDER = 'Solaristic Radar';
 
 async function toBase64(blob: Blob): Promise<string> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -18,7 +18,7 @@ async function toBase64(blob: Blob): Promise<string> {
 
 export interface NativeFile { uri: string; path: string; directory: Directory; location: string }
 
-/** Writes to Documents/Solaristic Pulse; falls back to the app's own storage if shared storage is blocked. */
+/** Writes to Documents/Solaristic Radar; falls back to the app's own storage if shared storage is blocked. */
 export async function writeNative(blob: Blob, filename: string): Promise<NativeFile> {
   const data = await toBase64(blob);
   const path = `${FOLDER}/${filename}`;
@@ -82,7 +82,7 @@ export async function openExactAlarmSettings(): Promise<void> {
 
 export async function testNativeNotification(): Promise<void> {
   await LocalNotifications.schedule({
-    notifications: [{ id: 90000, title: 'Solaristic Pulse', body: 'Test reminder: notifications are working.', smallIcon: SMALL_ICON, schedule: { at: new Date(Date.now() + 2000), allowWhileIdle: true } }]
+    notifications: [{ id: 90000, title: 'Solaristic Radar', body: 'Test reminder: notifications are working.', smallIcon: SMALL_ICON, schedule: { at: new Date(Date.now() + 2000), allowWhileIdle: true } }]
   });
 }
 

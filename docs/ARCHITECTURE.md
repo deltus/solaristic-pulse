@@ -66,7 +66,7 @@ Blitz marks are stored as observations with `blitz` set (topic id), `checkinId =
 | Offline use | Yes (bundled) | Yes after first load (service worker) | Yes after first load |
 | Lesson / daily notifications when app closed | **Yes** — scheduled 14 days ahead on the device; refreshed each time the app opens. May arrive a few minutes late (Android inexact alarms / battery optimisation). | **No** — only while the app is open | No |
 | In-app reminders (lesson banner, overdue, ICP due) | Yes | Yes | Yes |
-| Save files | Documents/Solaristic Pulse, or share sheet | Browser download | Share sheet / download |
+| Save files | Documents/Solaristic Radar, or share sheet | Browser download | Share sheet / download |
 | Dictation | Keyboard microphone | Keyboard microphone | Keyboard microphone |
 
 Internet is only needed to *install* (download the APK or open the PWA's address once) and for development (`npm install`). Keyboard dictation may be processed by the keyboard provider depending on device settings.

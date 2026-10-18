@@ -24,7 +24,7 @@ _Last updated: 15/10/2026_
 | 18. Home page "Your classes"; trend lines; class overview (stats, suggestions, class trends) | ✅ Done |
 | 19. Blitz (whole-class Yes/No on a topic, feeds matching area, own export tab) | ✅ Done |
 | 20. Outlook .ics timetable import; SQL exports (.sqlite database file and .sql script, optional de-identification) | ✅ Done |
-| 6. Android wrapper (Capacitor project, icons, native files/share/notifications) | ✅ APK builds: `npm run android:apk:win` → release/SolaristicPulse.apk |
+| 6. Android wrapper (Capacitor project, icons, native files/share/notifications) | ✅ APK builds: `npm run android:apk:win` → release/SolaristicRadar.apk |
 
 ## Test matrix (spec §13)
 Automated: `npm test` → **50 tests passing** (tests/logic, tests/services, tests/exporting). Browser: production build served locally and driven in the built-in browser at 375 px and desktop width.

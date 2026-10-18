@@ -1,4 +1,4 @@
-// Core data model for Solaristic Pulse. All records live in IndexedDB on the device.
+// Core data model for Solaristic Radar. All records live in IndexedDB on the device.
 
 /** 0 = as expected, 1 = some difficulty, 2 = significant difficulty, null = no rating (unsure). */
 export type Level = 0 | 1 | 2 | null;

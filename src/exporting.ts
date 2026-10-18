@@ -143,7 +143,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     name: 'About this report',
     layout: 'pairs',
     rows: [
-      ['Solaristic Pulse report'],
+      ['Solaristic Radar report'],
       ['Generated', `${formatDate(date)} ${new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}`],
       ['Period', `${o.from ? formatDate(o.from) : 'All records'} to ${o.to ? formatDate(o.to) : formatDate(date)}`],
       ['Classes', o.kind === 'student' ? cls(students[0]?.classId ?? '') : o.classIds.map(cls).join(', ')],
@@ -191,7 +191,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
 
   const s0 = students[0];
   const who = o.kind === 'student' && s0 ? (o.deidentify ? nameOf(s0) : `${s0.lastName}-${s0.preferredName || s0.firstName}`) : 'class-report';
-  const baseName = `solaristic-pulse_${who}`.replace(/[^\w-]+/g, '-') + `_${date}${o.deidentify ? '_deidentified' : ''}`;
+  const baseName = `solaristic-radar_${who}`.replace(/[^\w-]+/g, '-') + `_${date}${o.deidentify ? '_deidentified' : ''}`;
   return { sheets, baseName, students: students.length, observations: observations.length };
 }
 
@@ -272,7 +272,7 @@ export async function toBlob(sheets: Sheet[], format: 'xlsx' | 'csv'): Promise<B
   }
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Solaristic Pulse';
+  wb.creator = 'Solaristic Radar';
   wb.created = new Date();
   const line = { style: 'thin' as const, color: { argb: 'FFC9C1B1' } };
   const border = { top: line, left: line, bottom: line, right: line };

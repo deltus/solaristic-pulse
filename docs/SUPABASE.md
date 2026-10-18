@@ -20,7 +20,7 @@ Without sync, no student data goes to Supabase: only the teacher's email (in Sup
    - Redirect URLs: add `https://deltus.github.io/solaristic-pulse/**` and `http://localhost:5173/**` (for development).
 4. **Put the code in the sign-in email.** Authentication → **Email Templates** → *Magic Link*. Replace the body with:
    ```html
-   <h2>Your Solaristic Pulse sign-in code</h2>
+   <h2>Your Solaristic Radar sign-in code</h2>
    <p style="font-size:28px;letter-spacing:6px"><b>{{ .Token }}</b></p>
    <p>Enter this code in the app. Or, on this device, <a href="{{ .ConfirmationURL }}">tap here to sign in</a>.</p>
    <p>If you didn't ask for this, ignore this email.</p>

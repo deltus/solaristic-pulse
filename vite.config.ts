@@ -14,8 +14,8 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['icons/*.png'],
       manifest: {
-        name: 'Solaristic Pulse',
-        short_name: 'Pulse',
+        name: 'Solaristic Radar',
+        short_name: 'Radar',
         description: 'Offline classroom memory and student check-ins for teachers.',
         theme_color: '#0E1A3A',
         background_color: '#F4F0E8',

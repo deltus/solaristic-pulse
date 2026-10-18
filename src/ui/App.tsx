@@ -19,6 +19,7 @@ import { openFile } from '../files';
 import { isNative } from '../platform';
 import { useSyncStatus } from '../sync/engine';
 import { syncLine } from './Sync';
+import { useAccount } from '../cloud';
 import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort } from '../lib/dates';
 
 export const NAV = [
@@ -96,12 +97,13 @@ export function App() {
           <div><b>Solaristic Pulse</b><span>{settings.profile.name}</span></div>
         </div>
         {NAV.map((n) => (
-          <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${(page === n.path && !(page === 'settings' && id === 'invite')) || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
+          <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${(page === n.path && !(page === 'settings' && (id === 'invite' || id === 'account'))) || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
             <Icon name={n.icon} /><span>{n.label}</span>
             {n.path === 'icp' && icpDue && <i class="dot" aria-label="ICP check-ins due" />}
           </a>
         ))}
         <div class="drawer-rule" />
+        <AccountNavItem active={page === 'settings' && id === 'account'} onClick={() => setDrawer(false)} />
         <a class={`nav-item ${page === 'settings' && id === 'invite' ? 'active' : ''}`} href="#/settings/invite" onClick={() => setDrawer(false)}><Icon name="qr" /><span>Invite a colleague</span></a>
         {settings.pin && <button class="nav-item" onClick={() => { setDrawer(false); setLocked(true); }}><Icon name="lock" /><span>Lock app</span></button>}
         <SyncNavStatus />
@@ -263,4 +265,18 @@ function SyncNavStatus() {
   const s = useSyncStatus();
   if (s.state === 'off') return null;
   return <a class="nav-item" href="#/settings/account"><span class={`sync-state ${s.state}`}><i /></span><span class="small muted">{syncLine(s)}</span></a>;
+}
+
+/** "Sign in to your account" while signed out; the signed-in email (opens Account & devices) otherwise. */
+function AccountNavItem({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const acc = useAccount();
+  if (acc.status === 'off' || acc.status === 'loading') return null;
+  if (acc.status === 'signedOut') {
+    return <a class={`nav-item signin-item ${active ? 'active' : ''}`} href="#/settings/account" onClick={onClick}><Icon name="user" /><span>Sign in to your account</span></a>;
+  }
+  return (
+    <a class={`nav-item ${active ? 'active' : ''}`} href="#/settings/account" onClick={onClick}>
+      <Icon name="user" /><span class="nav-account"><span>Account</span><span class="tiny muted">{acc.user.email}</span></span>
+    </a>
+  );
 }

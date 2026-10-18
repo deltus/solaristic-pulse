@@ -8,7 +8,7 @@ import { canInstall, isInstalled, isNative, mailtoLink, promptInstall, shareText
 import { saveFile } from '../files';
 import { Field, Icon, toast } from './components';
 import { SyncCard } from './Sync';
-import { keyFragment } from '../sync/cloudSync';
+import { keyFragment, syncWanted } from '../sync/cloudSync';
 
 /* ---------- QR code ---------- */
 
@@ -70,15 +70,19 @@ function NotSetUp() {
 
 /* ---------- Account & devices ---------- */
 
+/** Set by "Sign in to another account" so the sign-in form starts empty. */
+let switchingAccount = false;
+
 export function AccountSection({ s }: { s: Settings }) {
   const acc = cloud.useAccount();
   if (acc.status === 'off') return <NotSetUp />;
   if (acc.status === 'loading') return <p class="small muted">Checking your account…</p>;
-  if (acc.status === 'signedOut') return <SignIn defaultEmail={cloud.suggestedEmail() ?? s.profile.email} />;
+  if (acc.status === 'signedOut') return <SignIn defaultEmail={switchingAccount ? '' : cloud.suggestedEmail() ?? s.profile.email} another={switchingAccount} />;
+  switchingAccount = false;
   return <SignedIn email={acc.user.email ?? ''} />;
 }
 
-export function SignIn({ defaultEmail }: { defaultEmail: string }) {
+export function SignIn({ defaultEmail, another }: { defaultEmail: string; another?: boolean }) {
   const [email, setEmail] = useState(defaultEmail);
   const [sent, setSent] = useState(false);
   const [code, setCode] = useState('');
@@ -113,7 +117,7 @@ export function SignIn({ defaultEmail }: { defaultEmail: string }) {
 
   return (
     <div class="card">
-      <span class="eyebrow">Sign in</span>
+      <span class="eyebrow">{another ? 'Sign in to another account' : 'Sign in to your account'}</span>
       <p class="small">Sign in with your email to use Pulse on more than one device, such as your phone in class and your PC for reports. No password: we email you a code.</p>
       {!sent ? (
         <>
@@ -163,6 +167,12 @@ function SignedIn({ email }: { email: string }) {
       setErr((e as Error).message);
     }
   }
+  async function switchAccount() {
+    const synced = syncWanted() ? ' Sync stops on this device; your records stay here and in this account.' : ' Your records stay on this device.';
+    if (!confirm(`Sign out of ${email} and sign in to another account?${synced}`)) return;
+    switchingAccount = true;
+    await cloud.signOut();
+  }
   async function others() {
     if (!confirm('Sign out every other device now? Use this if a phone is lost or you used a shared computer.')) return;
     try {
@@ -179,7 +189,10 @@ function SignedIn({ email }: { email: string }) {
         <span class="eyebrow">Signed in</span>
         <div class="row between wrap">
           <b>{email}</b>
-          <button class="btn small" onClick={async () => { await cloud.signOut(); toast('Signed out'); }}>Sign out</button>
+          <div class="row wrap">
+            <button class="btn small" onClick={switchAccount}>Sign in to another account</button>
+            <button class="btn small" onClick={async () => { await cloud.signOut(); toast('Signed out'); }}>Sign out</button>
+          </div>
         </div>
       </div>
 

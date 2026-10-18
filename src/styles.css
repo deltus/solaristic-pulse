@@ -632,3 +632,7 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .nav-item .sync-state { width: 22px; justify-content: center; }
 @keyframes pulse { from { opacity: 0.35; } to { opacity: 1; } }
 .recovery-key { font-size: 15px; letter-spacing: 0.04em; line-height: 1.7; word-break: break-all; padding: 12px 14px; margin: 10px 0; border: 1px dashed var(--line); border-radius: 10px; background: var(--surface-2); user-select: all; }
+.nav-account { display: flex; flex-direction: column; min-width: 0; }
+.nav-account .tiny { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 450; }
+.nav-item.signin-item { color: var(--blue); }
+.nav-item.signin-item svg { color: var(--blue); }

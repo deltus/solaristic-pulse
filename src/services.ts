@@ -348,7 +348,6 @@ export async function deleteIcpCheck(id: string) {
 
 /** "Not today" on an evidence prompt: ask again tomorrow. */
 export async function snoozeEvidence(adj: IcpAdjustment, date: string = todayISO()) {
-  if (!adj.evidence) return;
   await db.icpAdjustments.update(adj.id, { evidence: { ...adj.evidence, snoozedUntil: addDays(date, 1) } });
 }
 

@@ -105,7 +105,7 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), studentId: bill.id, title: 'Individual teacher time', details: '2–3 minute check-in at the start of independent work.', frequency: 'daily', startDate: addDays(today, -15), active: true, createdAt: Date.now() },
     { id: newId(), studentId: bill.id, title: 'Additional time for written tasks', frequency: 'weekly', startDate: addDays(today, -15), active: true, createdAt: Date.now() },
     { id: newId(), studentId: ethan.id, title: 'Chunked task with checklist', details: 'Independent work broken into three steps on a printed checklist.', frequency: 'lesson', startDate: addDays(today, -14), active: true, createdAt: Date.now(),
-      evidence: { enabled: true, kinds: ['photo', 'note'], interval: 'fortnightly', prompt: 'Photo of a completed checklist (the work, not the student)' } }
+      evidence: { prompt: 'Photo of a completed checklist (the work, not the student)' } }
   ];
 
   const checkins: Checkin[] = [];

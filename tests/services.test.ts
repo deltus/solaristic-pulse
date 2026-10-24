@@ -213,8 +213,8 @@ describe('check-outs and evidence', () => {
   it('keeps evidence on the device only, and removes it with the adjustment', async () => {
     const c = await classWithStudents('Echo', 1);
     const [s] = await db.students.where('classId').equals(c.id).toArray();
-    const a = await svc.saveAdjustment({ studentId: s.id, title: 'Scaffolded worksheet', evidence: { enabled: true, kinds: ['photo', 'note'], interval: 'weekly' } });
-    expect((await db.icpAdjustments.get(a.id))!.evidence?.interval).toBe('weekly');
+    const a = await svc.saveAdjustment({ studentId: s.id, title: 'Scaffolded worksheet', evidence: { prompt: 'Photo of the worksheet' } });
+    expect((await db.icpAdjustments.get(a.id))!.evidence?.prompt).toBe('Photo of the worksheet');
     await svc.addEvidence(a, { kind: 'note', text: 'Completed with prompts' });
     await svc.addEvidence(a, { kind: 'photo', blob: new Blob(['x'], { type: 'image/jpeg' }), name: 'work.jpg' });
     expect(await db.evidence.count()).toBe(2);

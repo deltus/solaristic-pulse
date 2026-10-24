@@ -10,6 +10,9 @@ import { icpDueStatus } from '../../logic/icp';
 import { formatShort, nowMinutes, relativeDay, today } from '../../lib/dates';
 import { go, useLive, useSettings } from '../hooks';
 import { lessonForCheckout } from '../../logic/checkout';
+import { evidenceDue } from '../../logic/evidence';
+import { hasFeature } from '../../features';
+import { EvidencePrompt, EvidenceSheet } from '../Evidence';
 import { displayName, Empty, Icon, Sheet, levelClass, toast } from '../components';
 import type { ReminderState } from '../reminders';
 import { recentStatus, STATUS_LABEL } from '../../logic/summary';
@@ -19,12 +22,13 @@ async function loadToday(classId: string, date: string) {
   const data = await svc.loadClassData(classId);
   if (!data) return null;
   const ids = data.students.map((s) => s.id);
-  const [plan, adjustments, icpChecks] = await Promise.all([
+  const [plan, adjustments, icpChecks, evidence] = await Promise.all([
     db.plans.get(svc.planId(date, classId)),
     db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
-    db.icpChecks.where('studentId').anyOf(ids).toArray()
+    db.icpChecks.where('studentId').anyOf(ids).toArray(),
+    db.evidence.where('studentId').anyOf(ids).toArray()
   ]);
-  return { ...data, plan, adjustments: adjustments.filter((a) => a.active && a.startDate <= date && (!a.endDate || a.endDate >= date)), icpChecks };
+  return { ...data, plan, evidence, adjustments: adjustments.filter((a) => a.active && a.startDate <= date && (!a.endDate || a.endDate >= date)), icpChecks };
 }
 type Bundle = NonNullable<Awaited<ReturnType<typeof loadToday>>>;
 
@@ -88,7 +92,7 @@ function LessonInfo({ reminder, classId, classes }: { reminder: ReminderState; c
 function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }: {
   bundle: Bundle; settings: Settings; date: string; activeId: string | null; setActiveId: (id: string | null) => void; openPicker: () => void;
 }) {
-  const { cls, students, observations, checkins, questions, categories, plan, adjustments, icpChecks } = bundle;
+  const { cls, students, observations, checkins, questions, categories, plan, adjustments, icpChecks, evidence } = bundle;
   const active = students.filter((s) => !s.archived);
   const todayChk = new Map(checkins.filter((c) => c.date === date && c.classId === cls.id).map((c) => [c.studentId, c]));
   const entries = plan?.entries ?? [];
@@ -167,6 +171,7 @@ function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }
           categories={categories}
           adjustments={adjustments.filter((a) => a.studentId === current.id).filter((a) => { const st = icpDueStatus(a, icpChecks, date, true); return st.due || st.doneToday; })}
           icpToday={icpChecks.filter((c) => c.date === date)}
+          evidenceDueFor={(a) => (hasFeature('evidence') ? evidenceDue(a, evidence, [...icpChecks, { adjustmentId: a.id }], date) : { due: false, reason: '' })}
           settings={settings}
           onNext={next}
           onBack={back}
@@ -244,8 +249,8 @@ const ICP_SHORT: { value: IcpOutcome; label: string; cls: string }[] = [
   { value: 'na', label: 'Not needed today', cls: 'ln' }
 ];
 
-function StepCard({ student, entry, position, classId, date, checkin, obs, questions, categories, adjustments, icpToday, settings, onNext, onBack, startAtLast }: {
-  onBack?: () => void; startAtLast?: boolean;
+function StepCard({ student, entry, position, classId, date, checkin, obs, questions, categories, adjustments, icpToday, evidenceDueFor, settings, onNext, onBack, startAtLast }: {
+  onBack?: () => void; startAtLast?: boolean; evidenceDueFor: (a: IcpAdjustment) => { due: boolean; reason: string };
   student: Student; entry?: PlanEntry; position: string; classId: string; date: string; checkin?: Checkin; obs: Observation[];
   questions: Question[]; categories: Category[]; adjustments: IcpAdjustment[]; icpToday: IcpCheck[]; settings: Settings; onNext: () => void;
 }) {
@@ -266,6 +271,8 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const [asked, setAsked] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftCtx, setDraftCtx] = useState<string | undefined>(undefined);
+  // After Yes / Partly on an ICP step with evidence due: "Do you want to add evidence?"
+  const [evAsk, setEvAsk] = useState<'ask' | 'sheet' | null>(null);
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(advanceTimer.current), []);
 
@@ -273,6 +280,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
     clearTimeout(advanceTimer.current);
     setLeaving(false);
     setNoteOpen(false);
+    setEvAsk(null);
     setIdxRaw(n);
   };
   const goBack = () => { if (idx > 0 && !finished) setIdx(idx - 1); else if (onBack) onBack(); else location.hash = '#/home'; };
@@ -332,9 +340,10 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
   const savedNote = step.kind === 'q' ? ans?.note : icpAns?.note;
 
   /** Tap: save and move on. Hold: save, then open the note box for this answer. */
-  async function answer(save: () => Promise<unknown>, held: boolean, askNote = false) {
+  async function answer(save: () => Promise<unknown>, held: boolean, askNote = false, askEvidence = false) {
     clearTimeout(advanceTimer.current);
     await save();
+    if (askEvidence && !held) { setNoteOpen(false); setEvAsk('ask'); return; }
     setAsked(askNote && !held);
     if ((held || askNote) && canNote) {
       setDraft(savedNote ?? '');
@@ -388,7 +397,7 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
         <div class="cc-opts">
           {step.kind === 'icp' && ICP_SHORT.map((o) => (
             <HoldOpt key={o.value} cls={o.cls} selected={icpAns?.outcome === o.value} label={o.label} canHold={canNote}
-              onPick={(held) => answer(() => svc.recordIcpCheck(step.a, date, o.value), held)} />
+              onPick={(held) => answer(() => svc.recordIcpCheck(step.a, date, o.value), held, false, (o.value === 'implemented' || o.value === 'partial') && evidenceDueFor(step.a).due)} />
           ))}
           {step.kind === 'q' && fu && FU_SHORT.map((o) => (
             <HoldOpt key={o.outcome} cls={o.cls} selected={ans?.followUp?.outcome === o.outcome} label={o.label} canHold={canNote}
@@ -400,7 +409,12 @@ function StepCard({ student, entry, position, classId, date, checkin, obs, quest
           ))}
         </div>
 
-        {noteOpen ? (
+        {evAsk && step.kind === 'icp' ? (
+          <>
+            <EvidencePrompt adj={step.a} reason={evidenceDueFor(step.a).reason} onAdd={() => setEvAsk('sheet')} onSkip={() => { setEvAsk(null); advance(); }} />
+            {evAsk === 'sheet' && <EvidenceSheet adj={step.a} reason={evidenceDueFor(step.a).reason} onClose={() => { setEvAsk(null); advance(); }} />}
+          </>
+        ) : noteOpen ? (
           <div class="note-box pop-in">
             <div class="note-title">{asked ? 'Any notes?' : step.kind === 'q' ? cat?.notePrompt ?? 'What happened?' : 'Note'}</div>
             {step.kind === 'q' && (

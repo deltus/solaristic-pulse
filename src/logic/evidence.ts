@@ -1,15 +1,9 @@
 // When to ask for ICP evidence (for learning support meetings).
+// Each adjustment a student has is its own evidence type: ask the first time it's recorded,
+// then again once a month has passed since the last evidence for it.
 
-import type { EvidenceInterval, EvidenceItem, EvidenceKind, IcpAdjustment } from '../types';
-import { addDays, daysBetween, formatShort } from '../lib/dates';
-
-export const EVIDENCE_INTERVALS: { value: EvidenceInterval; label: string; days: number }[] = [
-  { value: 'weekly', label: 'Weekly', days: 7 },
-  { value: 'fortnightly', label: 'Fortnightly', days: 14 },
-  { value: 'monthly', label: 'Monthly', days: 30 },
-  { value: 'termly', label: 'Once a term', days: 70 },
-  { value: 'date', label: 'Before a meeting', days: 0 }
-];
+import type { EvidenceItem, EvidenceKind, IcpAdjustment, IcpCheck } from '../types';
+import { daysBetween, formatShort, parseISODate, toISODate } from '../lib/dates';
 
 export const EVIDENCE_KINDS: { value: EvidenceKind; label: string }[] = [
   { value: 'photo', label: 'Photo' },
@@ -18,33 +12,46 @@ export const EVIDENCE_KINDS: { value: EvidenceKind; label: string }[] = [
   { value: 'voice', label: 'Voice memo' }
 ];
 
-/** For a meeting date, the prompt shows from this many days before. */
-export const MEETING_LEAD_DAYS = 7;
+export function addMonths(s: string, n: number): string {
+  const d = parseISODate(s);
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return toISODate(d);
+}
 
 export interface EvidenceDue {
   due: boolean;
-  /** e.g. "Due", "Next 12 Nov", "Meeting Fri 7 Nov". */
+  /** Why we're asking, e.g. "No evidence yet" or "5 weeks since the last evidence". */
+  reason: string;
+  /** Short status for the student's ICP page, e.g. "Next 24 Nov". */
   label: string;
   last?: string;
 }
 
-export function evidenceDue(adj: IcpAdjustment, items: Pick<EvidenceItem, 'adjustmentId' | 'date'>[], today: string): EvidenceDue {
-  const plan = adj.evidence;
-  if (!plan?.enabled || !adj.active || adj.startDate > today || (adj.endDate && adj.endDate < today)) return { due: false, label: '' };
-  const last = items.filter((i) => i.adjustmentId === adj.id).map((i) => i.date).sort().pop();
-  const snoozed = !!plan.snoozedUntil && plan.snoozedUntil > today;
-
-  if (plan.interval === 'date') {
-    if (!plan.dueDate) return { due: false, label: '', last };
-    const from = addDays(plan.dueDate, -MEETING_LEAD_DAYS);
-    const collected = !!last && last >= from;
-    const inWindow = today >= from && today <= plan.dueDate;
-    const label = today > plan.dueDate ? `Meeting was ${formatShort(plan.dueDate)}` : `Meeting ${formatShort(plan.dueDate)}`;
-    return { due: inWindow && !collected && !snoozed, label: collected ? `${label} · collected` : label, last };
-  }
-
-  const days = EVIDENCE_INTERVALS.find((x) => x.value === plan.interval)!.days;
-  const nextDate = last ? addDays(last, days) : adj.startDate;
-  const due = daysBetween(nextDate, today) >= 0 && !snoozed;
-  return { due, label: due ? 'Due' : `Next ${formatShort(snoozed && plan.snoozedUntil! > nextDate ? plan.snoozedUntil! : nextDate)}`, last };
+function since(last: string, today: string): string {
+  const n = daysBetween(last, today);
+  if (n < 14) return `${n} day${n === 1 ? '' : 's'}`;
+  if (n < 60) return `${Math.round(n / 7)} weeks`;
+  return `${Math.round(n / 30)} months`;
 }
+
+/** On unless turned off for this adjustment. */
+export const evidenceOn = (adj: IcpAdjustment) => adj.evidence?.enabled !== false;
+
+export function evidenceDue(
+  adj: IcpAdjustment, items: Pick<EvidenceItem, 'adjustmentId' | 'date'>[], checks: Pick<IcpCheck, 'adjustmentId'>[], today: string
+): EvidenceDue {
+  const last = items.filter((i) => i.adjustmentId === adj.id).map((i) => i.date).sort().pop();
+  if (!evidenceOn(adj) || !adj.active || adj.startDate > today || (adj.endDate && adj.endDate < today)) return { due: false, reason: '', label: '', last };
+  // Not until the adjustment has been recorded at least once.
+  if (!checks.some((c) => c.adjustmentId === adj.id)) return { due: false, reason: '', label: last ? '' : 'No evidence yet', last };
+  const snoozed = !!adj.evidence?.snoozedUntil && adj.evidence.snoozedUntil > today;
+  const next = last ? addMonths(last, 1) : today;
+  const due = next <= today && !snoozed;
+  const reason = last ? `It's been ${since(last, today)} since evidence for this was added.` : 'You have no evidence for this yet.';
+  const label = due ? (last ? `${since(last, today)} since last` : 'No evidence yet') : `Next ${formatShort(snoozed && adj.evidence!.snoozedUntil! > next ? adj.evidence!.snoozedUntil! : next)}`;
+  return { due, reason, label, last };
+}
+

@@ -2,12 +2,13 @@
 // Nothing opens the camera by itself; "Take a picture" is a choice. Evidence stays on this device.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { EvidenceItem, EvidenceKind, IcpAdjustment, Student } from '../types';
+import type { EvidenceItem, EvidenceKind, IcpAdjustment, IcpCheck, Student } from '../types';
 import * as svc from '../services';
 import { compressImage, buildEvidencePack } from '../evidence';
 import { saveFile, formatSize } from '../files';
-import { EVIDENCE_KINDS, evidenceDue } from '../logic/evidence';
+import { EVIDENCE_KINDS, evidenceDue, evidenceOn } from '../logic/evidence';
 import { formatShort, today } from '../lib/dates';
+import { FREE_WHILE_TESTING, hasFeature } from '../features';
 import { Icon, Sheet, toast } from './components';
 
 const canRecord = () => typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
@@ -24,15 +25,13 @@ function useBlobUrl(blob?: Blob) {
   return url;
 }
 
-export function EvidenceSheet({ adj, onClose, prompted }: { adj: IcpAdjustment; onClose: () => void; prompted?: boolean }) {
-  const kinds = adj.evidence?.kinds?.length ? adj.evidence.kinds : (['photo', 'file', 'note'] as EvidenceKind[]);
+export function EvidenceSheet({ adj, onClose, reason }: { adj: IcpAdjustment; onClose: () => void; reason?: string }) {
+  const prompted = !!reason;
   const [note, setNote] = useState('');
   const [added, setAdded] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const camera = useRef<HTMLInputElement>(null);
   const upload = useRef<HTMLInputElement>(null);
-  const has = (k: EvidenceKind) => kinds.includes(k);
-  const onlyPhotos = has('photo') && !has('file') && !has('voice');
 
   async function addFiles(list: FileList | null) {
     if (!list?.length) return;
@@ -50,25 +49,24 @@ export function EvidenceSheet({ adj, onClose, prompted }: { adj: IcpAdjustment; 
 
   return (
     <Sheet title="Add evidence" onClose={onClose}>
-      <p class="small" style="margin:0 0 4px"><b>{adj.title}</b></p>
+      <div class="row between" style="margin:0 0 4px"><b class="small">{adj.title}</b>{FREE_WHILE_TESTING && <span class="badge blue">Pro · free while testing</span>}</div>
+      {reason && <p class="small" style="margin:0 0 4px">{reason}</p>}
       {adj.evidence?.prompt && <p class="small muted" style="margin:0 0 10px">{adj.evidence.prompt}</p>}
-      {has('photo') && <p class="tiny muted evidence-tip"><Icon name="info" /> Photograph the work, not the student.</p>}
+      <p class="tiny muted evidence-tip"><Icon name="info" /> Photograph the work, not the student.</p>
 
       <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = ''; }} />
-      <input ref={upload} type="file" multiple accept={onlyPhotos ? 'image/*' : undefined} hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = ''; }} />
+      <input ref={upload} type="file" multiple hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = ''; }} />
 
       <div class="grid2 evidence-actions">
-        {(has('photo') || has('file')) && <button class="btn" disabled={busy} onClick={() => upload.current?.click()}><Icon name="upload" /> Upload {onlyPhotos ? 'a photo' : 'a file'}</button>}
-        {has('photo') && <button class="btn" disabled={busy} onClick={() => camera.current?.click()}><Icon name="camera" /> Take a picture</button>}
+        <button class="btn" disabled={busy} onClick={() => upload.current?.click()}><Icon name="upload" /> Upload a file</button>
+        <button class="btn" disabled={busy} onClick={() => camera.current?.click()}><Icon name="camera" /> Take a picture</button>
       </div>
-      {has('voice') && <VoiceRecorder adj={adj} onSaved={(label) => setAdded((a) => [...a, label])} />}
-      {has('note') && (
-        <div class="note-box">
+      <VoiceRecorder adj={adj} onSaved={(label) => setAdded((a) => [...a, label])} />
+      <div class="note-box">
           <div class="note-title">Note</div>
           <textarea class="input" value={note} placeholder="What you saw, e.g. completed all three steps with the checklist" onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)} />
           <button class="btn small" style="margin-top:8px" disabled={!note.trim()} onClick={async () => { await svc.addEvidence(adj, { kind: 'note', text: note }); setAdded((a) => [...a, 'Note']); setNote(''); }}>Save note</button>
-        </div>
-      )}
+      </div>
 
       {added.length > 0 && (
         <div class="evidence-added pop-in">
@@ -146,16 +144,17 @@ function VoiceRecorder({ adj, onSaved }: { adj: IcpAdjustment; onSaved: (label: 
 }
 
 /** Evidence on the student's ICP page: status, gallery and the meeting pack. */
-export function EvidenceSection({ adj, items, onAdd }: { adj: IcpAdjustment; items: EvidenceItem[]; onAdd: () => void }) {
-  const st = evidenceDue(adj, items, today());
+export function EvidenceSection({ adj, items, checks, onAdd }: { adj: IcpAdjustment; items: EvidenceItem[]; checks: IcpCheck[]; onAdd: () => void }) {
+  if (!hasFeature('evidence')) return null;
+  const st = evidenceDue(adj, items, checks, today());
   const mine = items.filter((i) => i.adjustmentId === adj.id).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
-  if (!adj.evidence?.enabled && !mine.length) return null;
+  if (!evidenceOn(adj) && !mine.length) return null;
   return (
     <>
       <div class="divider" />
       <div class="row between">
         <span class="eyebrow">Evidence for learning support</span>
-        {adj.evidence?.enabled && <span class={`badge ${st.due ? 'some' : ''}`}>{st.label}</span>}
+        {evidenceOn(adj) && st.label && <span class={`badge ${st.due ? 'some' : ''}`}>{st.label}</span>}
       </div>
       <div class="evidence-grid">
         {mine.map((e) => <EvidenceTile key={e.id} e={e} />)}
@@ -199,14 +198,14 @@ export async function downloadEvidencePack(s: Student, name: string) {
 }
 
 /** Small nudge after an ICP answer when evidence is due. */
-export function EvidencePrompt({ adj, onAdd, onSkip }: { adj: IcpAdjustment; onAdd: () => void; onSkip: () => void }) {
+export function EvidencePrompt({ adj, reason, onAdd, onSkip }: { adj: IcpAdjustment; reason: string; onAdd: () => void; onSkip: () => void }) {
   return (
     <div class="note-box evidence-prompt pop-in">
       <div class="row" style="gap:10px;align-items:flex-start">
         <span class="guide-icon small"><Icon name="camera" /></span>
         <div class="grow">
-          <b class="small">Evidence due for learning support</b>
-          <p class="tiny muted" style="margin:2px 0 8px">{adj.evidence?.prompt || 'A photo of the work, a file, a note or a voice memo.'}</p>
+          <b class="small">Do you want to add evidence?</b>
+          <p class="tiny muted" style="margin:2px 0 8px">{reason}{adj.evidence?.prompt ? ` ${adj.evidence.prompt}.` : ''}</p>
           <div class="row">
             <button class="btn small primary" onClick={onAdd}>Add evidence</button>
             <button class="btn small ghost" onClick={async () => { await svc.snoozeEvidence(adj); onSkip(); }}>Not today</button>

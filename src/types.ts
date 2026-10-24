@@ -144,19 +144,16 @@ export interface IcpAdjustment {
   endDate?: string;
   active: boolean;
   createdAt: number;
-  /** Ask for evidence (for learning support meetings) at an interval. */
+  /** Evidence prompts for this adjustment (on by default). */
   evidence?: EvidencePlan;
 }
 
 export type EvidenceKind = 'photo' | 'file' | 'note' | 'voice';
-export type EvidenceInterval = 'weekly' | 'fortnightly' | 'monthly' | 'termly' | 'date';
 
+/** Asked the first time the adjustment is recorded, then monthly. */
 export interface EvidencePlan {
-  enabled: boolean;
-  kinds: EvidenceKind[];
-  interval: EvidenceInterval;
-  /** For 'date': the meeting date; the prompt shows in the week before it. */
-  dueDate?: string;
+  /** false = don't ask for this adjustment. */
+  enabled?: boolean;
   /** What to collect, e.g. "Photo of the scaffolded worksheet". */
   prompt?: string;
   /** "Not today": no prompt until this date. */

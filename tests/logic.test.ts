@@ -392,7 +392,7 @@ describe('Outlook calendar (.ics) import', () => {
 });
 
 import { checkoutId, lessonForCheckout, lessonLength, pendingCheckout, splitMinutes, zoneFor, CHECKOUT_START } from '../src/logic/checkout';
-import { evidenceDue } from '../src/logic/evidence';
+import { addMonths, evidenceDue } from '../src/logic/evidence';
 import type { IcpAdjustment, TimetableEntry } from '../src/types';
 
 describe('class focus check-out', () => {
@@ -424,22 +424,22 @@ describe('class focus check-out', () => {
 });
 
 describe('ICP evidence prompts', () => {
-  const adj = (evidence: IcpAdjustment['evidence']): IcpAdjustment => ({ id: 'a', studentId: 's', title: 'Seating', frequency: 'lesson', startDate: '2026-10-01', active: true, createdAt: 0, evidence });
-  it('is due at the interval after the last piece of evidence, and can be snoozed', () => {
-    const a = adj({ enabled: true, kinds: ['photo'], interval: 'fortnightly' });
-    expect(evidenceDue(a, [], '2026-10-01').due).toBe(true);
-    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-10-05' }], '2026-10-18').due).toBe(false);
-    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-10-05' }], '2026-10-19').due).toBe(true);
-    expect(evidenceDue({ ...a, evidence: { ...a.evidence!, snoozedUntil: '2026-10-20' } }, [], '2026-10-19').due).toBe(false);
-    expect(evidenceDue({ ...a, evidence: { ...a.evidence!, enabled: false } }, [], '2026-10-19').due).toBe(false);
-    expect(evidenceDue({ ...a, active: false }, [], '2026-10-19').due).toBe(false);
+  const adj = (evidence?: IcpAdjustment['evidence']): IcpAdjustment => ({ id: 'a', studentId: 's', title: 'Seating', frequency: 'lesson', startDate: '2026-10-01', active: true, createdAt: 0, evidence });
+  const checked = [{ adjustmentId: 'a' }];
+  it('asks the first time an adjustment is recorded, then a month after the last evidence', () => {
+    expect(evidenceDue(adj(), [], [], '2026-10-01').due).toBe(false); // not recorded yet
+    expect(evidenceDue(adj(), [], checked, '2026-10-01')).toMatchObject({ due: true, reason: 'You have no evidence for this yet.' });
+    expect(evidenceDue(adj(), [{ adjustmentId: 'a', date: '2026-10-05' }], checked, '2026-11-04').due).toBe(false);
+    const d = evidenceDue(adj(), [{ adjustmentId: 'a', date: '2026-10-05' }], checked, '2026-11-12');
+    expect(d.due).toBe(true);
+    expect(d.reason).toBe("It's been 5 weeks since evidence for this was added.");
+    expect(evidenceDue(adj(), [{ adjustmentId: 'other', date: '2026-10-30' }], checked, '2026-11-01').due).toBe(true); // per adjustment
   });
-  it('before a meeting: prompts in the week before until something is collected', () => {
-    const a = adj({ enabled: true, kinds: ['note'], interval: 'date', dueDate: '2026-11-06' });
-    expect(evidenceDue(a, [], '2026-10-29').due).toBe(false);
-    expect(evidenceDue(a, [], '2026-10-30').due).toBe(true);
-    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-10-25' }], '2026-11-02').due).toBe(true); // collected before the window
-    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-11-01' }], '2026-11-02').due).toBe(false);
-    expect(evidenceDue(a, [], '2026-11-07').due).toBe(false);
+  it('respects Not today, turning it off and ended adjustments', () => {
+    expect(evidenceDue(adj({ snoozedUntil: '2026-10-20' }), [], checked, '2026-10-19').due).toBe(false);
+    expect(evidenceDue(adj({ snoozedUntil: '2026-10-20' }), [], checked, '2026-10-20').due).toBe(true);
+    expect(evidenceDue(adj({ enabled: false }), [], checked, '2026-10-19').due).toBe(false);
+    expect(evidenceDue({ ...adj(), active: false }, [], checked, '2026-10-19').due).toBe(false);
+    expect(addMonths('2026-01-31', 1)).toBe('2026-02-28');
   });
 });

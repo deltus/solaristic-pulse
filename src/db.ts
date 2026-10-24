@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Category, Checkin, DayPlan, IcpAdjustment, IcpCheck, Observation, Question,
+  Category, Checkin, Checkout, DayPlan, EvidenceItem, IcpAdjustment, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -20,6 +20,9 @@ export class PulseDB extends Dexie {
   icpChecks!: Table<IcpCheck, string>;
   timetable!: Table<TimetableEntry, string>;
   kv!: Table<{ key: string; value: unknown }, string>;
+  checkouts!: Table<Checkout, string>;
+  /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
+  evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
   /** Changes waiting to be sent to the cloud, and the sync position (not part of backups). */
   outbox!: Table<OutboxEntry, [string, string]>;
@@ -57,6 +60,8 @@ export class PulseDB extends Dexie {
     });
     // v5: live sync bookkeeping.
     this.version(5).stores({ outbox: '[tbl+id], at', syncState: 'key' });
+    // v6: class focus check-outs, and ICP evidence kept on the device.
+    this.version(6).stores({ checkouts: 'id, classId, date', evidence: 'id, studentId, adjustmentId, date' });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -67,7 +72,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 

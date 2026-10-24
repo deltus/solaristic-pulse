@@ -24,6 +24,8 @@ _Last updated: 15/10/2026_
 | 18. Home page "Your classes"; trend lines; class overview (stats, suggestions, class trends) | ✅ Done |
 | 19. Blitz (whole-class Yes/No on a topic, feeds matching area, own export tab) | ✅ Done |
 | 20. Outlook .ics timetable import; SQL exports (.sqlite database file and .sql script, optional de-identification) | ✅ Done |
+| 21. Class focus check-out: one dial (0–100%, starts at 50%, last reading never shown), live working/distracted minutes, hold Save for a note; from "End lesson" on the check-in screen or a dismissible card on Your classes after a timetabled lesson; synced (note encrypted); Check-outs tab in class reports and `checkouts` in SQL exports | ✅ Done |
+| 22. ICP evidence for learning support meetings: per adjustment (photo, file, note, voice memo; weekly / fortnightly / monthly / termly / before a meeting); offered after Yes or Partly, "Evidence due" list, gallery on the student's ICP page, evidence pack ZIP; photos shrunk to 1600 px JPEG. **Stays on the device**: not synced, not in JSON backups; listed (not attached) in student reports | ✅ Done — camera and microphone untested on a device |
 | 6. Android wrapper (Capacitor project, icons, native files/share/notifications) | ✅ APK builds: `npm run android:apk:win` → release/SolaristicRadar.apk |
 
 ## Test matrix (spec §13)
@@ -66,6 +68,7 @@ Automated: `npm test` → **50 tests passing** (tests/logic, tests/services, tes
 - Mockups of the five UI directions: docs/mockups/ui-options.html.
 - Web notifications only fire while the app is open; documented in-app.
 - When a new web version is deployed, the PWA asks before updating (`confirm` dialog).
+- ICP evidence lives only in this device's database. Clearing site data, uninstalling the app or "Delete all data" removes it; use the Evidence pack button to keep a copy.
 - Students belong to one class. A student taught in two classes needs two entries.
 - The built-in browser profile used for testing contains demo data plus a test class "11E Biology"; harmless, and it can be cleared in Settings → Data.
 

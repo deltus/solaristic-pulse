@@ -7,8 +7,9 @@ import { allOpenFollowUps, openFollowUp } from '../../logic/followups';
 import type { FollowUpOutcome } from '../../types';
 import { dueQuestions } from '../../logic/schedule';
 import { icpDueStatus } from '../../logic/icp';
-import { formatShort, relativeDay, today } from '../../lib/dates';
-import { useLive, useSettings } from '../hooks';
+import { formatShort, nowMinutes, relativeDay, today } from '../../lib/dates';
+import { go, useLive, useSettings } from '../hooks';
+import { lessonForCheckout } from '../../logic/checkout';
 import { displayName, Empty, Icon, Sheet, levelClass, toast } from '../components';
 import type { ReminderState } from '../reminders';
 import { recentStatus, STATUS_LABEL } from '../../logic/summary';
@@ -130,6 +131,11 @@ function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }
     toast(n ? `${n} more added` : `Everyone in ${cls.name} is done today`);
   }
   const open = async (id: string) => { await svc.addToPlan(cls.id, date, id); pick(id); };
+  /** Class focus check-out for the lesson on now (or the latest one today). */
+  async function endLesson() {
+    const lesson = lessonForCheckout(await db.timetable.where('classId').equals(cls.id).toArray(), cls.id, date, nowMinutes());
+    go(`checkout/${cls.id}${lesson ? `/${lesson.id}` : ''}`);
+  }
   const pick = (id: string | null) => { setOpenLast(false); setActiveId(id); window.scrollTo({ top: 0, behavior: 'smooth' }); };
   const next = () => {
     if (currentId) setTrail((t) => [...t.filter((x) => x !== currentId), currentId]);
@@ -171,7 +177,8 @@ function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }
           <div class="check"><Icon name="check" /></div>
           <h2>{done >= target ? 'All done for today' : 'Queue is empty'}</h2>
           <p class="muted small">{cls.name} · {done} checked</p>
-          <a class="btn primary" href="#/home" style="margin-top:10px"><Icon name="back" /> Back to your classes</a>
+          <button class="btn primary" style="margin-top:10px" onClick={endLesson}><Icon name="gauge" /> End lesson</button>
+          <a class="btn ghost small" href="#/home" style="margin-top:6px"><Icon name="back" /> Back to your classes</a>
           {back && <button class="btn small ghost" style="margin-top:6px" onClick={back}>Review the last student</button>}
         </div>
       )}
@@ -180,6 +187,7 @@ function TodayBody({ bundle, settings, date, activeId, setActiveId, openPicker }
         <button class="btn" disabled={more} onClick={checkMore}><Icon name="plus" /> Check more</button>
         <button class="btn" onClick={openPicker}><Icon name="search" /> Choose student</button>
       </div>
+      {current && <button class="btn block end-lesson" onClick={endLesson}><Icon name="gauge" /> End lesson</button>}
 
       <div class="section"><h3 class="grow">Today</h3><span class="tiny muted mono">{done}/{target}</span></div>
       <div class="card flat" style="padding:4px 14px">

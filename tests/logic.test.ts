@@ -390,3 +390,56 @@ describe('Outlook calendar (.ics) import', () => {
     expect(c.some((x) => x.summary === 'Long title that isfolded onto two lines' || x.summary.startsWith('Long title that is'))).toBe(true);
   });
 });
+
+import { checkoutId, lessonForCheckout, lessonLength, pendingCheckout, splitMinutes, zoneFor, CHECKOUT_START } from '../src/logic/checkout';
+import { evidenceDue } from '../src/logic/evidence';
+import type { IcpAdjustment, TimetableEntry } from '../src/types';
+
+describe('class focus check-out', () => {
+  const mon = '2026-10-19'; // a Monday
+  const tt: TimetableEntry[] = [
+    { id: 't1', classId: 'c1', day: 1, start: '09:00', end: '09:50' },
+    { id: 't2', classId: 'c2', day: 1, start: '10:00', end: '11:10' },
+    { id: 't3', classId: 'c1', day: 1, start: '13:00', end: '13:50' }
+  ];
+  it('zones, minutes and starting point', () => {
+    expect(CHECKOUT_START).toBe(50);
+    expect([0, 49, 50, 74, 75, 100].map((p) => zoneFor(p).zone)).toEqual(['low', 'low', 'mixed', 'mixed', 'focused', 'focused']);
+    expect(splitMinutes(50, 76)).toEqual({ working: 38, distracted: 12 });
+    expect(splitMinutes(70, 100)).toEqual({ working: 70, distracted: 0 });
+    expect(lessonLength(tt[1])).toBe(70);
+    expect(lessonLength()).toBe(50);
+  });
+  it('finds the lesson to check out and the one to suggest on Your classes', () => {
+    expect(lessonForCheckout(tt, 'c1', mon, 9 * 60 + 40)?.id).toBe('t1');
+    expect(lessonForCheckout(tt, 'c1', mon, 14 * 60)?.id).toBe('t3');
+    expect(lessonForCheckout(tt, 'c1', mon, 8 * 60)).toBeUndefined();
+    const all = new Set(['c1', 'c2']);
+    expect(pendingCheckout(tt, mon, 9 * 60 + 30, [], [], all)).toBeUndefined(); // still on
+    expect(pendingCheckout(tt, mon, 11 * 60 + 20, [], [], all)?.id).toBe('t2'); // latest ended
+    expect(pendingCheckout(tt, mon, 11 * 60 + 20, [{ id: checkoutId(mon, 'c2', 't2') }], [], all)?.id).toBe('t1');
+    expect(pendingCheckout(tt, mon, 11 * 60 + 20, [], [checkoutId(mon, 'c2', 't2'), checkoutId(mon, 'c1', 't1')], all)).toBeUndefined();
+    expect(pendingCheckout(tt, mon, 17 * 60, [], [], all)).toBeUndefined(); // more than 3 hours later
+  });
+});
+
+describe('ICP evidence prompts', () => {
+  const adj = (evidence: IcpAdjustment['evidence']): IcpAdjustment => ({ id: 'a', studentId: 's', title: 'Seating', frequency: 'lesson', startDate: '2026-10-01', active: true, createdAt: 0, evidence });
+  it('is due at the interval after the last piece of evidence, and can be snoozed', () => {
+    const a = adj({ enabled: true, kinds: ['photo'], interval: 'fortnightly' });
+    expect(evidenceDue(a, [], '2026-10-01').due).toBe(true);
+    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-10-05' }], '2026-10-18').due).toBe(false);
+    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-10-05' }], '2026-10-19').due).toBe(true);
+    expect(evidenceDue({ ...a, evidence: { ...a.evidence!, snoozedUntil: '2026-10-20' } }, [], '2026-10-19').due).toBe(false);
+    expect(evidenceDue({ ...a, evidence: { ...a.evidence!, enabled: false } }, [], '2026-10-19').due).toBe(false);
+    expect(evidenceDue({ ...a, active: false }, [], '2026-10-19').due).toBe(false);
+  });
+  it('before a meeting: prompts in the week before until something is collected', () => {
+    const a = adj({ enabled: true, kinds: ['note'], interval: 'date', dueDate: '2026-11-06' });
+    expect(evidenceDue(a, [], '2026-10-29').due).toBe(false);
+    expect(evidenceDue(a, [], '2026-10-30').due).toBe(true);
+    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-10-25' }], '2026-11-02').due).toBe(true); // collected before the window
+    expect(evidenceDue(a, [{ adjustmentId: 'a', date: '2026-11-01' }], '2026-11-02').due).toBe(false);
+    expect(evidenceDue(a, [], '2026-11-07').due).toBe(false);
+  });
+});

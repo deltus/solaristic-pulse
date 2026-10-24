@@ -4,6 +4,7 @@
 
 import { db, getSettings } from './db';
 import { makeScrubber, pseudonymMap } from './logic/deidentify';
+import { splitMinutes } from './logic/checkout';
 
 type Val = string | number | null | undefined;
 const q = (v: Val) => (v === null || v === undefined || v === '' ? 'NULL' : typeof v === 'number' ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
@@ -19,13 +20,14 @@ const SCHEMA: Record<string, string[]> = {
   notes: ['id VARCHAR(64) PRIMARY KEY', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'text TEXT'],
   icp_adjustments: ['id VARCHAR(64) PRIMARY KEY', 'student_id VARCHAR(64)', 'title TEXT', 'details TEXT', 'frequency VARCHAR(16)', 'start_date VARCHAR(10)', 'end_date VARCHAR(10)', 'active INTEGER'],
   icp_checks: ['id VARCHAR(160) PRIMARY KEY', 'adjustment_id VARCHAR(64)', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'outcome VARCHAR(16)', 'note TEXT'],
-  timetable: ['id VARCHAR(64) PRIMARY KEY', 'class_id VARCHAR(64)', 'day INTEGER', 'start_time VARCHAR(5)', 'end_time VARCHAR(5)', 'room TEXT', 'notes TEXT']
+  timetable: ['id VARCHAR(64) PRIMARY KEY', 'class_id VARCHAR(64)', 'day INTEGER', 'start_time VARCHAR(5)', 'end_time VARCHAR(5)', 'room TEXT', 'notes TEXT'],
+  checkouts: ['id VARCHAR(160) PRIMARY KEY', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'timetable_id VARCHAR(64)', 'lesson_start VARCHAR(5)', 'lesson_minutes INTEGER', 'pct_working INTEGER', 'minutes_working INTEGER', 'minutes_distracted INTEGER', 'note TEXT']
 };
 
 export async function buildSqlScript(opts: { deidentify: boolean }): Promise<string> {
-  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable] = await Promise.all([
+  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable, checkouts] = await Promise.all([
     getSettings(), db.classes.toArray(), db.students.toArray(), db.categories.toArray(), db.questions.toArray(), db.checkins.toArray(),
-    db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray()
+    db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(), db.checkouts.toArray()
   ]);
   const pseudo = pseudonymMap(students);
   const scrub = opts.deidentify ? makeScrubber(students, pseudo, [settings.profile.name, settings.profile.school ?? '']) : (t?: string) => t ?? '';
@@ -42,7 +44,8 @@ export async function buildSqlScript(opts: { deidentify: boolean }): Promise<str
     notes: notes.map((n) => [n.id, n.studentId, n.date, scrub(n.text)]),
     icp_adjustments: adjustments.map((a) => [a.id, a.studentId, scrub(a.title), scrub(a.details), a.frequency, a.startDate, a.endDate, b(a.active)]),
     icp_checks: icpChecks.map((c) => [c.id, c.adjustmentId, c.studentId, c.date, c.outcome, scrub(c.note)]),
-    timetable: timetable.map((t) => [t.id, t.classId, t.day, t.start, t.end, t.room, t.notes])
+    timetable: timetable.map((t) => [t.id, t.classId, t.day, t.start, t.end, t.room, t.notes]),
+    checkouts: checkouts.map((c) => { const m = splitMinutes(c.lessonMin, c.pctWorking); return [c.id, c.classId, c.date, c.timetableId, c.start, c.lessonMin, c.pctWorking, m.working, m.distracted, scrub(c.note)]; })
   };
 
   const out = [

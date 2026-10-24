@@ -8,6 +8,8 @@ import { categoryTrend } from './logic/trends';
 import { compareBeforeAfter, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from './logic/icp';
 import { makeScrubber, pseudonymMap } from './logic/deidentify';
 import { blitzTopic } from './logic/blitz';
+import { splitMinutes, zoneFor } from './logic/checkout';
+import { EVIDENCE_KINDS } from './logic/evidence';
 import { addDays, daysBetween, formatDate, parseISODate, toISODate, today } from './lib/dates';
 
 export type Cell = string | number | null;
@@ -59,10 +61,12 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     ? allStudents.filter((s) => s.id === o.studentId)
     : allStudents.filter((s) => o.classIds.includes(s.classId));
   const ids = students.map((s) => s.id);
-  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll] = await Promise.all([
+  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll] = await Promise.all([
     db.observations.where('studentId').anyOf(ids).toArray(), db.checkins.where('studentId').anyOf(ids).toArray(),
     db.notes.where('studentId').anyOf(ids).toArray(), db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
-    db.icpChecks.where('studentId').anyOf(ids).toArray()
+    db.icpChecks.where('studentId').anyOf(ids).toArray(),
+    o.kind === 'class' ? db.checkouts.where('classId').anyOf(o.classIds).toArray() : Promise.resolve([]),
+    o.kind === 'student' && o.includeIcp ? db.evidence.where('studentId').anyOf(ids).toArray() : Promise.resolve([])
   ]);
   const inRange = (d: string) => (!o.from || d >= o.from) && (!o.to || d <= o.to);
   const cats = new Set(o.categoryIds);
@@ -71,6 +75,8 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
   const checkins = checkinsAll.filter((x) => inRange(x.date));
   const notes = notesAll.filter((x) => inRange(x.date));
   const icpChecks = icpAll.filter((x) => inRange(x.date));
+  const checkouts = checkoutsAll.filter((x) => inRange(x.date));
+  const evidence = evidenceAll.filter((x) => inRange(x.date));
 
   // Pseudonyms are assigned over every student in the selected classes so they stay stable across the report.
   const pseudoPool = o.kind === 'student' ? allStudents.filter((s) => s.classId === students[0]?.classId) : students;
@@ -139,6 +145,21 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       })] }]
     : [];
 
+  // Class focus check-outs: one row per lesson.
+  const checkoutSheet = (): Sheet[] => checkouts.length
+    ? [{ name: 'Check-outs', rows: [['Class', 'Date', 'Lesson start', 'Lesson length (min)', 'Working %', 'Focus zone', 'Working (min)', 'Distracted (min)', ...(o.includeNotes ? ['Note'] : [])],
+        ...[...checkouts].sort((a, b) => a.date.localeCompare(b.date) || (a.start ?? '').localeCompare(b.start ?? '')).map((x) => {
+          const m = splitMinutes(x.lessonMin, x.pctWorking);
+          return [cls(x.classId), formatDate(x.date), x.start ?? '', x.lessonMin, x.pctWorking, zoneFor(x.pctWorking).label, m.working, m.distracted, ...(o.includeNotes ? [text(x.note)] : [])];
+        })] }]
+    : [];
+
+  // ICP evidence is listed only; the files themselves stay on the device.
+  const evidenceSheet = (): Sheet[] => o.includeIcp && evidence.length
+    ? [{ name: 'ICP evidence', rows: [['Date', 'Adjustment', 'Type', ...(o.deidentify ? [] : ['File']), ...(o.includeNotes ? ['Note'] : [])],
+        ...[...evidence].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [formatDate(x.date), scrub(adjustments.find((a) => a.id === x.adjustmentId)?.title), EVIDENCE_KINDS.find((k) => k.value === x.kind)?.label ?? x.kind, ...(o.deidentify ? [] : [x.name ?? '']), ...(o.includeNotes ? [text(x.text)] : [])])] }]
+    : [];
+
   const about: Sheet = {
     name: 'About this report',
     layout: 'pairs',
@@ -150,6 +171,8 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       ['Categories', usedCats.map((c) => c.name).join(', ')],
       ['Teacher notes included', o.includeNotes ? 'Yes' : 'No'],
       ['ICP information included', o.includeIcp ? 'Yes' : 'No'],
+      ...(evidence.length ? [['ICP evidence', "Listed only. Photos, files and voice memos stay on the teacher's device and are not included in this report."]] : []),
+      ...(checkouts.length ? [['Check-outs', "Teacher's estimate at the end of each lesson of the share of the lesson the class spent working. Low focus 0–49%, Mixed 50–74%, Focused 75–100%."]] : []),
       ['De-identified', o.deidentify ? 'Yes: names replaced with stable pseudonyms (Student 001 …) within this report' : 'No: contains student names'],
       ...(o.deidentify ? [['Warning', DEID_WARNING]] : []),
       ['Generated locally', 'This file was created on the teacher\'s device. No data was uploaded.'],
@@ -180,13 +203,13 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       const s = students.find((st) => st.id === c.studentId)!;
       chkRows.push([...studentCols(s), cls(c.classId), formatDate(c.date), c.status, c.source === 'daily' ? 'Daily rotation' : c.source === 'extra' ? 'Check More Students' : 'Teacher', c.weight ?? '']);
     }
-    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...blitzSheet(), ...notesSheet(notes), ...icpSheets(), about];
+    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
   } else {
     sheets = buildStudentSheets(students[0], {
       o, date, observations, observationsAll, checkins, notes, adjustments, icpChecks, usedCats, categories,
       p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, blitzSheet, studentHead
     });
-    sheets.push(about);
+    sheets.push(...evidenceSheet(), about);
   }
 
   const s0 = students[0];

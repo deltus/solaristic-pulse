@@ -36,7 +36,7 @@ const base = (): ExportOptions => ({
 describe('exports (scenarios 11, 13, 14)', () => {
   it('class export contains the expected sheets and names', async () => {
     const { wb, text, r } = await readBack({ ...base(), categoryIds: await allCats() });
-    expect(wb.SheetNames).toEqual(['Summary', 'Observations', 'Check-ins', 'Teacher notes', 'ICP adjustments', 'ICP check-ins', 'About this report']);
+    expect(wb.SheetNames).toEqual(['Summary', 'Observations', 'Check-ins', 'Check-outs', 'Teacher notes', 'ICP adjustments', 'ICP check-ins', 'About this report']);
     expect(text).toContain('Bill Harris');
     expect(r.students).toBe(36);
     expect(r.observations).toBeGreaterThan(100);
@@ -104,6 +104,8 @@ describe('SQL exports', () => {
     const sq = new SQL.Database(new Uint8Array(await blob.arrayBuffer()));
     const n = sq.exec('SELECT COUNT(*) FROM observations')[0].values[0][0] as number;
     expect(n).toBe(await db.observations.count());
+    const co = sq.exec('SELECT COUNT(*), MIN(pct_working) >= 0, SUM(minutes_working + minutes_distracted = lesson_minutes) = COUNT(*) FROM checkouts')[0].values[0];
+    expect(co).toEqual([await db.checkouts.count(), 1, 1]);
     const byArea = sq.exec("SELECT category_id, ROUND(AVG(level > 0), 2) FROM observations WHERE level IS NOT NULL GROUP BY category_id");
     expect(byArea[0].values.length).toBeGreaterThan(2);
     sq.close();

@@ -7,6 +7,7 @@ import { Tour } from './Tour';
 import { TodayScreen } from './screens/Today';
 import { HomeScreen } from './screens/Home';
 import { BlitzScreen } from './screens/Blitz';
+import { CheckoutScreen } from './screens/Checkout';
 import { ClassesScreen, ClassDetail } from './screens/Classes';
 import { StudentsScreen, StudentProfile } from './screens/Students';
 import { IcpScreen } from './screens/Icp';
@@ -83,6 +84,7 @@ export function App() {
     case 'settings': screen = <SettingsScreen section={id} sub={sub} />; break;
     case 'today': screen = <TodayScreen reminder={reminder} />; break;
     case 'blitz': screen = <BlitzScreen classId={id} />; break;
+    case 'checkout': screen = id ? <CheckoutScreen classId={id} timetableId={sub} /> : <HomeScreen reminder={reminder} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }
   const isToday = page === 'today';

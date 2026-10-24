@@ -194,3 +194,34 @@ describe('Blitz', () => {
     expect(await svc.loadBlitz(c.id, d, 'homework')).toEqual({ [a.id]: 'yes' });
   });
 });
+
+describe('check-outs and evidence', () => {
+  it('saves one check-out per lesson, keeps notes, and is part of backups', async () => {
+    const c = await classWithStudents('Delta', 2);
+    const d = today();
+    await svc.saveCheckout({ classId: c.id, date: d, timetableId: 't1', lessonMin: 50, pctWorking: 76 });
+    const again = await svc.saveCheckout({ classId: c.id, date: d, timetableId: 't1', lessonMin: 50, pctWorking: 140, note: 'Fire drill' });
+    expect(await db.checkouts.count()).toBe(1);
+    expect(again).toMatchObject({ pctWorking: 100, note: 'Fire drill' });
+    expect(again.updatedAt).toBeDefined();
+    const backup = await svc.createBackup();
+    expect(backup.tables.checkouts).toHaveLength(1);
+    await svc.deleteClassPermanently(c.id);
+    expect(await db.checkouts.count()).toBe(0);
+  });
+
+  it('keeps evidence on the device only, and removes it with the adjustment', async () => {
+    const c = await classWithStudents('Echo', 1);
+    const [s] = await db.students.where('classId').equals(c.id).toArray();
+    const a = await svc.saveAdjustment({ studentId: s.id, title: 'Scaffolded worksheet', evidence: { enabled: true, kinds: ['photo', 'note'], interval: 'weekly' } });
+    expect((await db.icpAdjustments.get(a.id))!.evidence?.interval).toBe('weekly');
+    await svc.addEvidence(a, { kind: 'note', text: 'Completed with prompts' });
+    await svc.addEvidence(a, { kind: 'photo', blob: new Blob(['x'], { type: 'image/jpeg' }), name: 'work.jpg' });
+    expect(await db.evidence.count()).toBe(2);
+    expect(Object.keys((await svc.createBackup()).tables)).not.toContain('evidence');
+    await svc.snoozeEvidence(a, '2026-10-19');
+    expect((await db.icpAdjustments.get(a.id))!.evidence?.snoozedUntil).toBe('2026-10-20');
+    await svc.deleteAdjustment(a.id);
+    expect(await db.evidence.count()).toBe(0);
+  });
+});

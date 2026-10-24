@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { db, sortedCategories } from '../../db';
-import type { IcpAdjustment, IcpCheck, IcpFrequency, IcpOutcome, Student, TimetableEntry } from '../../types';
+import type { EvidenceInterval, EvidenceItem, EvidenceKind, IcpAdjustment, IcpCheck, IcpFrequency, IcpOutcome, Student, TimetableEntry } from '../../types';
 import * as svc from '../../services';
 import { compareBeforeAfter, icpDueStatus, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from '../../logic/icp';
 import { formatDate, formatShort, relativeDay, today, weekday } from '../../lib/dates';
 import { useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, Switch, toast } from '../components';
 import { HoldOpt } from './Today';
+import { EVIDENCE_INTERVALS, EVIDENCE_KINDS, evidenceDue } from '../../logic/evidence';
+import { downloadEvidencePack, EvidencePrompt, EvidenceSection, EvidenceSheet } from '../Evidence';
 
 const TEMPLATES = ['Preferential seating', 'Individual teacher time', 'Additional time provided', 'Adjusted task or resource provided', 'Agreed support implemented'];
 
@@ -18,15 +20,19 @@ function hasLesson(timetable: TimetableEntry[], classId: string, date: string) {
 export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: string }) {
   const date = today();
   const data = useLive(async () => {
-    const [classes, students, adjustments, checks, timetable, observations, categories] = await Promise.all([
+    const [classes, students, adjustments, checks, timetable, observations, categories, evidence] = await Promise.all([
       db.classes.toArray(), db.students.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(),
-      studentId ? db.observations.where('studentId').equals(studentId).toArray() : Promise.resolve([]), sortedCategories()
+      studentId ? db.observations.where('studentId').equals(studentId).toArray() : Promise.resolve([]), sortedCategories(),
+      studentId ? db.evidence.where('studentId').equals(studentId).toArray() : db.evidence.toArray()
     ]);
-    return { classes, students, adjustments, checks, timetable, observations, categories };
+    return { classes, students, adjustments, checks, timetable, observations, categories, evidence };
   }, [studentId]);
   const [classId, setClassId] = useState('');
   const [form, setForm] = useState<{ adj?: IcpAdjustment; studentId?: string } | null>(null);
+  const [evFor, setEvFor] = useState<{ adj: IcpAdjustment; prompted?: boolean } | null>(null);
   if (!data) return null;
+  const evidenceSheet = evFor && <EvidenceSheet adj={data.adjustments.find((a) => a.id === evFor.adj.id) ?? evFor.adj} prompted={evFor.prompted} onClose={() => setEvFor(null)} />;
+  const evDue = (a: IcpAdjustment) => evidenceDue(a, data.evidence, date).due;
 
   const studentOf = (id: string) => data.students.find((s) => s.id === id);
   const classOf = (id: string) => data.classes.find((c) => c.id === id);
@@ -39,13 +45,13 @@ export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: stri
       .map((a) => ({ a, st: icpDueStatus(a, data.checks, date, hasLesson(data.timetable, s.classId, date)) }))
       .filter((x) => x.st.due || x.st.doneToday)
       .map((x) => x.a);
-    return <IcpSurvey s={s} className={classOf(s.classId)?.name ?? ''} items={items} checks={data.checks} date={date} />;
+    return <><IcpSurvey s={s} className={classOf(s.classId)?.name ?? ''} items={items} checks={data.checks} date={date} evDue={evDue} onEvidence={(adj) => setEvFor({ adj, prompted: true })} />{evidenceSheet}</>;
   }
 
   if (studentId) {
     const s = studentOf(studentId);
     if (!s) return <p>Student not found.</p>;
-    return <StudentIcp s={s} className={classOf(s.classId)?.name ?? ''} data={data} date={date} onEdit={(adj) => setForm({ adj, studentId })} form={form} closeForm={() => setForm(null)} />;
+    return <><StudentIcp s={s} className={classOf(s.classId)?.name ?? ''} data={data} date={date} onEdit={(adj) => setForm({ adj, studentId })} form={form} closeForm={() => setForm(null)} onEvidence={(adj) => setEvFor({ adj })} />{evidenceSheet}</>;
   }
 
   const active = data.adjustments.filter((a) => {
@@ -103,7 +109,11 @@ export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: stri
                 <div class="small" style="font-weight:600">{a.title}</div>
                 <div class="seg" role="group" aria-label={a.title}>
                   {ICP_OUTCOMES.map((o) => (
-                    <button key={o.value} class={c?.outcome === o.value ? 'sel' : ''} onClick={() => svc.recordIcpCheck(a, date, o.value)}>
+                    <button key={o.value} class={c?.outcome === o.value ? 'sel' : ''} onClick={async () => {
+                      await svc.recordIcpCheck(a, date, o.value);
+                      // Evidence due: offer it straight away (the sheet has upload / take a picture / not today).
+                      if ((o.value === 'implemented' || o.value === 'partial') && evDue(a)) setEvFor({ adj: a, prompted: true });
+                    }}>
                       {o.value === 'implemented' ? 'Yes' : o.value === 'partial' ? 'Partly' : o.value === 'not' ? 'No' : 'N/A'}
                     </button>
                   ))}
@@ -129,6 +139,27 @@ export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: stri
         </>
       )}
 
+      {(() => {
+        const due = data.adjustments.filter((a) => { const s = studentOf(a.studentId); return s && !s.archived && (!classId || s.classId === classId) && evDue(a); });
+        return due.length > 0 && (
+          <>
+            <div class="section"><h2>Evidence due</h2><span class="tiny muted mono">{due.length}</span></div>
+            <div class="list">
+              {due.map((a) => {
+                const s = studentOf(a.studentId)!;
+                return (
+                  <button key={a.id} class="list-item" onClick={() => setEvFor({ adj: a, prompted: true })}>
+                    <Avatar s={s} />
+                    <span class="grow"><span class="title">{displayName(s)}</span><div class="sub">{a.title}{a.evidence?.prompt ? ` · ${a.evidence.prompt}` : ''}</div></span>
+                    <Icon name="camera" />
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        );
+      })()}
+
       <div class="section"><h2>Students with adjustments</h2></div>
       {studentsWithAdj.length ? (
         <div class="list">
@@ -146,6 +177,7 @@ export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: stri
         </div>
       ) : <p class="small muted">None yet.</p>}
       {form && <AdjustmentForm adj={form.adj} studentId={form.studentId} students={data.students.filter((s) => !s.archived)} classes={data.classes} onClose={() => setForm(null)} />}
+      {evidenceSheet}
     </div>
   );
 }
@@ -168,9 +200,9 @@ function OutcomeButtons({ adj, date, current }: { adj: IcpAdjustment; date: stri
   );
 }
 
-function StudentIcp({ s, className, data, date, onEdit, form, closeForm }: {
-  s: Student; className: string; date: string; onEdit: (a?: IcpAdjustment) => void; form: { adj?: IcpAdjustment } | null; closeForm: () => void;
-  data: { adjustments: IcpAdjustment[]; checks: IcpCheck[]; timetable: TimetableEntry[]; observations: import('../../types').Observation[]; categories: import('../../types').Category[]; students: Student[]; classes: import('../../types').SchoolClass[] };
+function StudentIcp({ s, className, data, date, onEdit, form, closeForm, onEvidence }: {
+  s: Student; className: string; date: string; onEdit: (a?: IcpAdjustment) => void; form: { adj?: IcpAdjustment } | null; closeForm: () => void; onEvidence: (a: IcpAdjustment) => void;
+  data: { evidence: EvidenceItem[]; adjustments: IcpAdjustment[]; checks: IcpCheck[]; timetable: TimetableEntry[]; observations: import('../../types').Observation[]; categories: import('../../types').Category[]; students: Student[]; classes: import('../../types').SchoolClass[] };
 }) {
   const adjs = data.adjustments.filter((a) => a.studentId === s.id).sort((a, b) => Number(b.active) - Number(a.active) || b.startDate.localeCompare(a.startDate));
   const cats = data.categories.filter((c) => c.builtIn || data.observations.some((o) => o.categoryId === c.id));
@@ -182,6 +214,7 @@ function StudentIcp({ s, className, data, date, onEdit, form, closeForm }: {
       <div class="row wrap" style="margin-bottom:12px">
         <a class="btn small" href={`#/students/${s.id}`}><Icon name="user" /> Profile</a>
         <a class="btn small" href={`#/reports/${s.id}`}><Icon name="download" /> Student report</a>
+        {data.evidence.length > 0 && <button class="btn small" onClick={() => downloadEvidencePack(s, displayName(s))}><Icon name="download" /> Evidence pack ({data.evidence.length})</button>}
       </div>
       {!adjs.length && <div class="card"><Empty icon="icp">No adjustments recorded for {s.preferredName || s.firstName}.</Empty></div>}
       {adjs.map((a) => {
@@ -205,6 +238,7 @@ function StudentIcp({ s, className, data, date, onEdit, form, closeForm }: {
               <span class="tiny muted">{sum.implemented} yes · {sum.partial} partly · {sum.not} no · {sum.na} n/a</span>
             </div>
             {a.active && <OutcomeButtons adj={a} date={date} current={checks.find((c) => c.date === date)} />}
+            <EvidenceSection adj={a} items={data.evidence} onAdd={() => onEvidence(a)} />
 
             <div class="divider" />
             <span class="eyebrow">Observations before and after this adjustment</span>
@@ -235,10 +269,20 @@ function AdjustmentForm({ adj, studentId, students, classes, onClose }: { adj?: 
     studentId: adj?.studentId ?? studentId ?? '', title: adj?.title ?? '', details: adj?.details ?? '',
     frequency: adj?.frequency ?? ('lesson' as IcpFrequency), startDate: adj?.startDate ?? today(), endDate: adj?.endDate ?? '', active: adj?.active ?? true
   });
+  const [ev, setEv] = useState({
+    enabled: adj?.evidence?.enabled ?? false, kinds: adj?.evidence?.kinds ?? (['photo', 'note'] as EvidenceKind[]),
+    interval: adj?.evidence?.interval ?? ('fortnightly' as EvidenceInterval), dueDate: adj?.evidence?.dueDate ?? '', prompt: adj?.evidence?.prompt ?? ''
+  });
+  const toggleKind = (k: EvidenceKind) => setEv({ ...ev, kinds: ev.kinds.includes(k) ? ev.kinds.filter((x) => x !== k) : [...ev.kinds, k] });
   const set = (k: keyof typeof f) => (e: Event) => setF({ ...f, [k]: (e.target as HTMLInputElement).value });
   async function save() {
     if (!f.studentId || !f.title.trim()) return toast('Choose a student and describe the adjustment');
-    await svc.saveAdjustment({ ...adj, ...f, endDate: f.endDate || undefined });
+    if (ev.enabled && !ev.kinds.length) return toast('Choose at least one kind of evidence');
+    if (ev.enabled && ev.interval === 'date' && !ev.dueDate) return toast('Choose the meeting date');
+    const evidence = ev.enabled || adj?.evidence
+      ? { ...adj?.evidence, enabled: ev.enabled, kinds: ev.kinds, interval: ev.interval, dueDate: ev.interval === 'date' ? ev.dueDate : undefined, prompt: ev.prompt.trim() || undefined }
+      : undefined;
+    await svc.saveAdjustment({ ...adj, ...f, endDate: f.endDate || undefined, evidence });
     toast('Adjustment saved');
     onClose();
   }
@@ -271,6 +315,23 @@ function AdjustmentForm({ adj, studentId, students, classes, onClose }: { adj?: 
         <Field label="Start date"><input class="input" type="date" value={f.startDate} onInput={set('startDate')} /></Field>
         <Field label="End date (optional)"><input class="input" type="date" value={f.endDate} onInput={set('endDate')} /></Field>
       </div>
+      <Switch label="Collect evidence" checked={ev.enabled} onChange={(v) => setEv({ ...ev, enabled: v })} hint="For learning support meetings. You'll be asked for it at the interval. Evidence stays on this device." />
+      {ev.enabled && (
+        <div class="evidence-settings pop-in">
+          <div class="chips" style="flex-wrap:wrap;margin-bottom:10px">
+            {EVIDENCE_KINDS.map((k) => <button key={k.value} class={`chip small ${ev.kinds.includes(k.value) ? 'active' : ''}`} onClick={() => toggleKind(k.value)}>{k.label}</button>)}
+          </div>
+          <div class="grid2">
+            <Field label="How often">
+              <select class="input" value={ev.interval} onChange={(e) => setEv({ ...ev, interval: (e.target as HTMLSelectElement).value as EvidenceInterval })}>
+                {EVIDENCE_INTERVALS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+              </select>
+            </Field>
+            {ev.interval === 'date' && <Field label="Meeting date" hint="Asks in the week before"><input class="input" type="date" value={ev.dueDate} onInput={(e) => setEv({ ...ev, dueDate: (e.target as HTMLInputElement).value })} /></Field>}
+          </div>
+          <Field label="What to collect (optional)"><input class="input" value={ev.prompt} onInput={(e) => setEv({ ...ev, prompt: (e.target as HTMLInputElement).value })} placeholder="e.g. Photo of the scaffolded worksheet" /></Field>
+        </div>
+      )}
       {adj && <Switch label="Active" checked={f.active} onChange={(v) => setF({ ...f, active: v })} hint="Inactive adjustments keep their history but stop reminders." />}
       <div class="actions">
         {adj && <button class="btn danger" onClick={remove}><Icon name="trash" /></button>}
@@ -303,7 +364,7 @@ const ICP_PICK: { value: IcpOutcome; label: string; cls: string }[] = [
 ];
 
 /** One adjustment at a time, like the daily check-ins; ends with a summary. */
-function IcpSurvey({ s, className, items, checks, date }: { s: Student; className: string; items: IcpAdjustment[]; checks: IcpCheck[]; date: string }) {
+function IcpSurvey({ s, className, items, checks, date, evDue, onEvidence }: { s: Student; className: string; items: IcpAdjustment[]; checks: IcpCheck[]; date: string; evDue: (a: IcpAdjustment) => boolean; onEvidence: (a: IcpAdjustment) => void }) {
   const answered = (a: IcpAdjustment) => checks.find((c) => c.adjustmentId === a.id && c.date === date);
   const first = items.findIndex((a) => !answered(a));
   const [idx, setIdx] = useState(first < 0 ? 0 : first);
@@ -311,6 +372,7 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
   const [leaving, setLeaving] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [draft, setDraft] = useState('');
+  const [askEvidence, setAskEvidence] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const back = '#/icp';
@@ -323,7 +385,7 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       setLeaving(true);
-      timer.current = setTimeout(() => { setLeaving(false); setNoteOpen(false); if (idx < items.length - 1) setIdx(idx + 1); else setSummary(true); }, 220);
+      timer.current = setTimeout(() => { setLeaving(false); setNoteOpen(false); setAskEvidence(false); if (idx < items.length - 1) setIdx(idx + 1); else setSummary(true); }, 220);
     }, 160);
   };
 
@@ -374,7 +436,9 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
               onPick={async (held) => {
                 clearTimeout(timer.current);
                 await svc.recordIcpCheck(a, date, o.value);
-                if (held) { setDraft(cur?.note ?? ''); setNoteOpen(true); } else next();
+                if (held) { setDraft(cur?.note ?? ''); setNoteOpen(true); }
+                else if ((o.value === 'implemented' || o.value === 'partial') && evDue(a)) setAskEvidence(true);
+                else next();
               }} />
           ))}
         </div>
@@ -384,6 +448,8 @@ function IcpSurvey({ s, className, items, checks, date }: { s: Student; classNam
             <textarea class="input" autoFocus value={draft} placeholder="Context for this adjustment" onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)} />
             <button class="btn primary block" style="margin-top:10px" onClick={async () => { await svc.updateIcpNote(`${a.id}|${date}`, draft.trim()); next(); }}>{draft.trim() ? 'Save and next' : 'Next'} <Icon name="arrow" /></button>
           </div>
+        ) : askEvidence && evDue(a) ? (
+          <EvidencePrompt adj={a} onAdd={() => onEvidence(a)} onSkip={next} />
         ) : <p class="hold-hint">{cur?.note ? `“${cur.note}” · hold to edit` : 'Hold an answer to add a note'}</p>}
       </div>
       <div class="cc-foot">

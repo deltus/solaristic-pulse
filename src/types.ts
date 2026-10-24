@@ -144,6 +144,53 @@ export interface IcpAdjustment {
   endDate?: string;
   active: boolean;
   createdAt: number;
+  /** Ask for evidence (for learning support meetings) at an interval. */
+  evidence?: EvidencePlan;
+}
+
+export type EvidenceKind = 'photo' | 'file' | 'note' | 'voice';
+export type EvidenceInterval = 'weekly' | 'fortnightly' | 'monthly' | 'termly' | 'date';
+
+export interface EvidencePlan {
+  enabled: boolean;
+  kinds: EvidenceKind[];
+  interval: EvidenceInterval;
+  /** For 'date': the meeting date; the prompt shows in the week before it. */
+  dueDate?: string;
+  /** What to collect, e.g. "Photo of the scaffolded worksheet". */
+  prompt?: string;
+  /** "Not today": no prompt until this date. */
+  snoozedUntil?: string;
+}
+
+/** A piece of evidence. Stays on this device (not synced, not in JSON backups). */
+export interface EvidenceItem {
+  id: string;
+  studentId: string;
+  adjustmentId: string;
+  date: string;
+  kind: EvidenceKind;
+  blob?: Blob;
+  name?: string;
+  mime?: string;
+  size?: number;
+  text?: string;
+  createdAt: number;
+}
+
+/** Class focus check-out at the end of a lesson. */
+export interface Checkout {
+  id: string; // `${date}|${classId}|${timetableId or 'manual'}`
+  classId: string;
+  date: string;
+  timetableId?: string;
+  start?: string;
+  lessonMin: number;
+  /** Share of the lesson the class was working, 0–100. */
+  pctWorking: number;
+  note?: string;
+  createdAt: number;
+  updatedAt?: number;
 }
 
 export interface IcpCheck {
@@ -199,6 +246,8 @@ export interface Settings {
   currentClassId?: string;
   tutorialDone?: boolean;
   reminderCardDismissed?: boolean;
+  /** Check-out prompts dismissed on Your classes ("Not now"), for one day. */
+  checkoutSkipped?: { date: string; ids: string[] };
   /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
   devTools?: boolean;
 }

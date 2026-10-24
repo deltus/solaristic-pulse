@@ -638,3 +638,50 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .nav-item.signin-item svg { color: var(--blue); }
 .sync-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .sync-banner .grow { flex: 1 1 220px; }
+
+/* Class focus check-out */
+.end-lesson { margin-top: 10px; }
+.speedo-wrap { margin: 18px auto 6px; max-width: 360px; }
+.speedo { display: block; width: 100%; height: auto; touch-action: none; cursor: pointer; outline: none; user-select: none; -webkit-user-select: none; }
+.speedo:focus-visible { outline: 2px solid var(--blue); outline-offset: 4px; border-radius: 12px; }
+.speedo-zone { transition: opacity 0.2s; }
+.speedo-tick { font: 600 10px var(--mono); fill: var(--muted); }
+.speedo-needle { transition: transform 0.18s ease-out; }
+.speedo.dragging .speedo-needle { transition: none; }
+.speedo-readout { display: flex; align-items: center; gap: 12px; text-align: center; margin-top: 4px; }
+.speedo-value { font-size: 40px; font-weight: 750; letter-spacing: -0.03em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.speedo-zone-label { font-size: 13px; font-weight: 650; transition: color 0.2s; }
+.round-btn { width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); display: grid; place-items: center; flex: none; }
+.round-btn:active { transform: scale(0.94); background: var(--surface-2); }
+.round-btn svg { width: 22px; height: 22px; }
+.checkout-mins { margin-top: 14px; }
+.checkout-mins .stat b { font-variant-numeric: tabular-nums; }
+.checkout-length { gap: 8px; margin-top: 10px; align-items: center; }
+.checkout-length .input { width: 76px; text-align: right; padding: 6px 8px; }
+.opt.save-opt { justify-content: center; background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 650; }
+.opt.save-opt .tick { display: none; }
+.opt.save-opt .hold-fill { background: rgba(255, 255, 255, 0.28); }
+.checkout-prompt { position: relative; border-color: #cfe0d9; background: #f5faf8; }
+.checkout-prompt .close { position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; }
+
+/* ICP evidence */
+.evidence-tip { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
+.evidence-tip svg { width: 14px; height: 14px; flex: none; }
+.evidence-actions { margin-bottom: 10px; }
+.evidence-settings { padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); margin: -2px 0 12px; }
+.evidence-added { margin-top: 10px; padding: 8px 12px; border-radius: 12px; background: var(--ok-50); color: var(--ok); display: grid; gap: 3px; }
+.evidence-added svg { width: 12px; height: 12px; vertical-align: -1px; }
+.evidence-prompt { border-color: #ecd9ae; background: #fffaf0; }
+.evidence-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin-top: 8px; }
+.evidence-tile, .evidence-add { position: relative; aspect-ratio: 1; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2); overflow: hidden; padding: 0; display: grid; place-items: center; color: var(--ink-2); }
+.evidence-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.evidence-ico svg { width: 26px; height: 26px; }
+.evidence-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 3px 6px; font-size: 10.5px; text-align: left; background: rgba(253, 251, 246, 0.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.evidence-add { border-style: dashed; color: var(--blue); gap: 2px; align-content: center; font-size: 12px; font-weight: 600; }
+.evidence-add svg { width: 20px; height: 20px; }
+.evidence-full { width: 100%; border-radius: 12px; display: block; margin-bottom: 10px; }
+.voice-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.voice-row svg { width: 16px; height: 16px; }
+.voice-row.recording { color: var(--sig); }
+.rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--sig); animation: recPulse 1s ease-in-out infinite; }
+@keyframes recPulse { 50% { opacity: 0.3; } }

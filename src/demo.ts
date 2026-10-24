@@ -3,12 +3,13 @@
 
 import { db, newId, getSettings, saveSettings } from './db';
 import type {
-  Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
+  Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
 } from './types';
 import { rankStudents } from './logic/priority';
 import { openFollowUp, followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
 import { dueQuestions } from './logic/schedule';
 import { addDays, today as todayISO, weekday } from './lib/dates';
+import { checkoutId, lessonLength } from './logic/checkout';
 import { planId, checkinIdFor } from './services';
 
 function rng(seed: number) {
@@ -103,7 +104,8 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), studentId: bill.id, title: 'Preferential seating near the teacher', details: 'Front row, away from the door.', frequency: 'lesson', startDate: addDays(today, -15), active: true, createdAt: Date.now() },
     { id: newId(), studentId: bill.id, title: 'Individual teacher time', details: '2–3 minute check-in at the start of independent work.', frequency: 'daily', startDate: addDays(today, -15), active: true, createdAt: Date.now() },
     { id: newId(), studentId: bill.id, title: 'Additional time for written tasks', frequency: 'weekly', startDate: addDays(today, -15), active: true, createdAt: Date.now() },
-    { id: newId(), studentId: ethan.id, title: 'Chunked task with checklist', details: 'Independent work broken into three steps on a printed checklist.', frequency: 'lesson', startDate: addDays(today, -14), active: true, createdAt: Date.now() }
+    { id: newId(), studentId: ethan.id, title: 'Chunked task with checklist', details: 'Independent work broken into three steps on a printed checklist.', frequency: 'lesson', startDate: addDays(today, -14), active: true, createdAt: Date.now(),
+      evidence: { enabled: true, kinds: ['photo', 'note'], interval: 'fortnightly', prompt: 'Photo of a completed checklist (the work, not the student)' } }
   ];
 
   const checkins: Checkin[] = [];
@@ -183,13 +185,26 @@ export async function loadDemoData(): Promise<void> {
     }
   }
 
+  // Class focus check-outs for most past lessons (own random stream, so the check-in history is unchanged).
+  const rc = rng(7);
+  const checkouts: Checkout[] = [];
+  for (let back = 27; back >= 1; back--) {
+    const date = addDays(today, -back);
+    for (const t of timetable.filter((x) => x.day === weekday(date) && !x.notes)) {
+      if (rc() < 0.25) continue;
+      const pct = Math.round(45 + rc() * 50);
+      checkouts.push({ id: checkoutId(date, t.classId, t.id), classId: t.classId, date, timetableId: t.id, start: t.start, lessonMin: lessonLength(t), pctWorking: pct, note: pct < 55 && rc() < 0.5 ? 'Relief lesson the period before; unsettled start.' : undefined, createdAt: Date.now() });
+    }
+  }
+
   notes.push(
     { id: newId(), studentId: bill.id, date: addDays(today, -16), text: 'Parent meeting: agreed to trial front seating and short check-ins (see ICP).', createdAt: Date.now() },
     { id: newId(), studentId: ethan.id, date: addDays(today, -14), text: 'Responds well to a printed checklist during practical write-ups.', createdAt: Date.now() },
     { id: newId(), studentId: jack.id, date: addDays(today, -10), text: 'Moved to the front table this week.', createdAt: Date.now() }
   );
 
-  await db.transaction('rw', [db.classes, db.students, db.timetable, db.categories, db.questions, db.checkins, db.observations, db.icpAdjustments, db.icpChecks, db.notes, db.plans], async () => {
+  await db.transaction('rw', [db.classes, db.students, db.timetable, db.categories, db.questions, db.checkins, db.observations, db.icpAdjustments, db.icpChecks, db.notes, db.plans, db.checkouts], async () => {
+    await db.checkouts.bulkAdd(checkouts);
     await db.classes.bulkAdd(classes);
     await db.students.bulkAdd(students);
     await db.timetable.bulkAdd(timetable);

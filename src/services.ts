@@ -2,7 +2,7 @@
 
 import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from './db';
 import type {
-  Category, Checkin, CheckinSource, CheckinStatus, DayPlan, FollowUpOutcome, IcpAdjustment, IcpOutcome,
+  Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
   Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
@@ -11,6 +11,8 @@ import { followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
 import type { RosterRow, TimetableRow } from './logic/importers';
 import { today as todayISO } from './lib/dates';
 import { blitzTopic, type BlitzMark } from './logic/blitz';
+import { checkoutId, clampPct } from './logic/checkout';
+import { addDays } from './lib/dates';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -33,7 +35,8 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts], async () => {
+    await db.checkouts.where('classId').equals(id).delete();
     await db.timetable.where('classId').equals(id).delete();
     await db.plans.where('classId').equals(id).delete();
     await db.checkins.where('classId').equals(id).delete();
@@ -60,7 +63,8 @@ export async function updateStudent(id: string, patch: Partial<Student>) {
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence], async () => {
+    await db.evidence.where('studentId').equals(id).delete();
     await db.observations.where('studentId').equals(id).delete();
     await db.checkins.where('studentId').equals(id).delete();
     await db.notes.where('studentId').equals(id).delete();
@@ -311,14 +315,15 @@ export async function saveAdjustment(a: Partial<IcpAdjustment> & { studentId: st
   const full: IcpAdjustment = {
     id: a.id ?? newId(), studentId: a.studentId, title: a.title.trim(), details: clean(a.details) || undefined,
     frequency: a.frequency ?? 'lesson', startDate: a.startDate ?? todayISO(), endDate: a.endDate || undefined,
-    active: a.active ?? true, createdAt: a.createdAt ?? Date.now()
+    active: a.active ?? true, createdAt: a.createdAt ?? Date.now(), evidence: a.evidence
   };
   await db.icpAdjustments.put(full);
   return full;
 }
 
 export async function deleteAdjustment(id: string) {
-  await db.transaction('rw', db.icpAdjustments, db.icpChecks, async () => {
+  await db.transaction('rw', db.icpAdjustments, db.icpChecks, db.evidence, async () => {
+    await db.evidence.where('adjustmentId').equals(id).delete();
     await db.icpChecks.where('adjustmentId').equals(id).delete();
     await db.icpAdjustments.delete(id);
   });
@@ -339,6 +344,48 @@ export async function updateIcpNote(id: string, note: string) {
 
 export async function deleteIcpCheck(id: string) {
   await db.icpChecks.delete(id);
+}
+
+/** "Not today" on an evidence prompt: ask again tomorrow. */
+export async function snoozeEvidence(adj: IcpAdjustment, date: string = todayISO()) {
+  if (!adj.evidence) return;
+  await db.icpAdjustments.update(adj.id, { evidence: { ...adj.evidence, snoozedUntil: addDays(date, 1) } });
+}
+
+export async function addEvidence(adj: Pick<IcpAdjustment, 'id' | 'studentId'>, item: { kind: EvidenceKind; blob?: Blob; name?: string; text?: string }, date: string = todayISO()): Promise<EvidenceItem> {
+  const e: EvidenceItem = {
+    id: newId(), studentId: adj.studentId, adjustmentId: adj.id, date, kind: item.kind, createdAt: Date.now(),
+    ...(item.blob ? { blob: item.blob, mime: item.blob.type, size: item.blob.size, name: item.name } : {}),
+    ...(clean(item.text) ? { text: clean(item.text) } : {})
+  };
+  await db.evidence.add(e);
+  return e;
+}
+
+export async function updateEvidenceText(id: string, text: string) {
+  await db.evidence.update(id, { text: clean(text) || undefined });
+}
+
+export async function deleteEvidence(id: string) {
+  await db.evidence.delete(id);
+}
+
+/* ---------------- Check-outs ---------------- */
+
+export async function saveCheckout(c: { classId: string; date: string; timetableId?: string; start?: string; lessonMin: number; pctWorking: number; note?: string }): Promise<Checkout> {
+  const id = checkoutId(c.date, c.classId, c.timetableId);
+  const existing = await db.checkouts.get(id);
+  const row: Checkout = {
+    id, classId: c.classId, date: c.date, timetableId: c.timetableId, start: c.start,
+    lessonMin: Math.max(1, Math.round(c.lessonMin)), pctWorking: clampPct(c.pctWorking),
+    note: clean(c.note) || existing?.note, createdAt: existing?.createdAt ?? Date.now(), ...(existing ? { updatedAt: Date.now() } : {})
+  };
+  await db.checkouts.put(row);
+  return row;
+}
+
+export async function updateCheckoutNote(id: string, note: string) {
+  await db.checkouts.update(id, { note: clean(note) || undefined });
 }
 
 /* ---------------- Timetable ---------------- */
@@ -439,6 +486,7 @@ export async function restoreBackup(data: unknown) {
 
 export async function deleteAllData() {
   await db.files.clear();
+  await db.evidence.clear();
   await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
     for (const t of TABLES) await db.table(t).clear();
     await db.categories.bulkAdd(CORE_CATEGORIES);

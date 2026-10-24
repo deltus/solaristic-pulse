@@ -3,24 +3,27 @@
 
 import { db, getSettings, saveSettings } from '../../db';
 import { icpDueStatus } from '../../logic/icp';
-import { formatShort, today, weekday } from '../../lib/dates';
-import { go, useLive } from '../hooks';
+import { formatShort, nowMinutes, today, weekday } from '../../lib/dates';
+import { go, useLive, useTick } from '../hooks';
+import { checkoutId, pendingCheckout } from '../../logic/checkout';
+import type { SchoolClass, Settings, TimetableEntry } from '../../types';
 import { Empty, Icon } from '../components';
 import type { ReminderState } from '../reminders';
 
 async function loadHome(date: string) {
-  const [settings, classes, students, checkins, timetable, adjustments, icpChecks] = await Promise.all([
+  const [settings, classes, students, checkins, timetable, adjustments, icpChecks, checkouts] = await Promise.all([
     getSettings(), db.classes.toArray(), db.students.toArray(), db.checkins.where('date').equals(date).toArray(),
-    db.timetable.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray()
+    db.timetable.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.checkouts.where('date').equals(date).toArray()
   ]);
-  return { settings, classes: classes.filter((c) => !c.archived), students, checkins, timetable, adjustments, icpChecks };
+  return { settings, classes: classes.filter((c) => !c.archived), students, checkins, timetable, adjustments, icpChecks, checkouts };
 }
 
 export function HomeScreen({ reminder }: { reminder: ReminderState }) {
   const date = today();
   const data = useLive(() => loadHome(date), [date]);
+  useTick(60_000);
   if (!data) return null;
-  const { settings, classes, students, checkins, timetable, adjustments, icpChecks } = data;
+  const { settings, classes, students, checkins, timetable, adjustments, icpChecks, checkouts } = data;
   const first = settings.profile.name.trim().split(/\s+/)[0];
 
   if (!classes.length) {
@@ -62,9 +65,35 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
       <span class="eyebrow">{formatShort(date)}</span>
       <h1 class="home-title">{allDone ? `All done for today${first ? `, ${first}` : ''}` : 'Your classes'}</h1>
       <p class="muted small" style="margin:4px 0 16px">{allDone ? 'Every class has had its check-ins. See you next lesson.' : todays.length ? 'Tap a class to start its check-ins.' : 'No lessons on your timetable today. Pick any class.'}</p>
+      <CheckoutPrompt date={date} classes={classes} timetable={timetable} done={checkouts} settings={settings} />
       {allDone && <div class="done-state" style="padding:4px 0 14px"><div class="check"><Icon name="check" /></div></div>}
       {todays.length > 0 && <><div class="section" style="margin-top:6px"><h3 class="grow">Today</h3></div><div class="class-grid">{todays.map(card)}</div></>}
       {others.length > 0 && <><div class="section"><h3 class="grow">{todays.length ? 'Other classes' : 'Classes'}</h3></div><div class="class-grid">{others.map(card)}</div></>}
+    </div>
+  );
+}
+
+/** After a timetabled lesson ends: a gentle, dismissible nudge to do the class check-out. */
+function CheckoutPrompt({ date, classes, timetable, done, settings }: { date: string; classes: SchoolClass[]; timetable: TimetableEntry[]; done: { id: string }[]; settings: Settings }) {
+  const skipped = settings.checkoutSkipped?.date === date ? settings.checkoutSkipped.ids : [];
+  const lesson = pendingCheckout(timetable, date, nowMinutes(), done, skipped, new Set(classes.map((c) => c.id)));
+  if (!lesson) return null;
+  const name = classes.find((c) => c.id === lesson.classId)?.name ?? 'the class';
+  const skip = () => saveSettings({ checkoutSkipped: { date, ids: [...skipped, checkoutId(date, lesson.classId, lesson.id)] } });
+  return (
+    <div class="card checkout-prompt pop-in">
+      <button class="icon-btn close" aria-label="Not now" onClick={skip}><Icon name="x" /></button>
+      <div class="row" style="align-items:flex-start;gap:12px">
+        <span class="guide-icon small"><Icon name="gauge" /></span>
+        <div class="grow">
+          <b>How focused was {name}?</b>
+          <p class="small muted" style="margin:2px 0 10px">Lesson ended at {lesson.end}. A quick check-out takes a few seconds.</p>
+          <div class="row">
+            <a class="btn primary small" href={`#/checkout/${lesson.classId}/${lesson.id}`}>Check out</a>
+            <button class="btn ghost small" onClick={skip}>Not now</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

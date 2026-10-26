@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Category, Checkin, Checkout, DayPlan, EvidenceItem, HomeworkCheck, IcpAdjustment, IssueTag, IcpCheck, Observation, Question,
+  Category, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, Lesson, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -23,6 +23,8 @@ export class PulseDB extends Dexie {
   checkouts!: Table<Checkout, string>;
   issueTags!: Table<IssueTag, string>;
   homework!: Table<HomeworkCheck, string>;
+  lessons!: Table<Lesson, string>;
+  coldCalls!: Table<ColdCall, string>;
   /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
   evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
@@ -69,6 +71,11 @@ export class PulseDB extends Dexie {
     this.version(7).stores({ issueTags: 'id, studentId, checkinId, classId, date', homework: 'id, studentId, classId, lessonId, date' }).upgrade(async (tx) => {
       await migrateToSwipe(tx);
     });
+    // v8: lessons are records (open, close, teacher check) and cold calls. Days that already had
+    // check-ins become closed "historical" lessons whose ids match the ids those check-ins already use.
+    this.version(8).stores({ lessons: 'id, classId, date, status', coldCalls: 'id, studentId, classId, lessonId, date' }).upgrade(async (tx) => {
+      await addHistoricalLessons(tx);
+    });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -79,7 +86,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 
@@ -165,4 +172,18 @@ export async function migrateToSwipe(tx: { table: (n: string) => Table<any, any>
     .filter((o) => !o.blitz && !o.source && (o.level ?? 0) >= 1)
     .map((o) => ({ id: `${o.checkinId}|focus|low_effort`, checkinId: o.checkinId, studentId: o.studentId, classId: o.classId, date: o.date, areaId: 'focus', tagId: 'low_effort', source: 'migrated', createdAt: o.createdAt }));
   if (tags.length) await tx.table('issueTags').bulkPut(tags);
+}
+
+/** v8 upgrade (also used by tests): one closed historical lesson per class per day that has records. */
+export async function addHistoricalLessons(tx: { table: (n: string) => Table<any, any> }) {
+  const ids = new Map<string, { date: string; classId: string }>();
+  const add = (id: string | undefined, date: string, classId: string) => { const k = id ?? `${date}|${classId}`; if (!ids.has(k)) ids.set(k, { date, classId }); };
+  await tx.table('checkins').each((c: Checkin) => add(c.lessonId, c.date, c.classId));
+  await tx.table('homework').each((h: HomeworkCheck) => add(h.lessonId, h.date, h.classId));
+  const existing = new Set(await tx.table('lessons').toCollection().primaryKeys());
+  const rows: Lesson[] = [...ids].filter(([id]) => !existing.has(id)).map(([id, x]) => {
+    const t = new Date(`${x.date}T09:00:00`).getTime();
+    return { id, classId: x.classId, date: x.date, openedAt: t, closedAt: t + 3_600_000, status: 'closed', historical: true, createdAt: t };
+  });
+  if (rows.length) await tx.table('lessons').bulkPut(rows);
 }

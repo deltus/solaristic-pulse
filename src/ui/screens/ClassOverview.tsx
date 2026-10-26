@@ -3,7 +3,6 @@
 import { db, getSettings, sortedCategories } from '../../db';
 import { lastCheckedDate } from '../../logic/priority';
 import { needByStudent } from '../../logic/need';
-import { lessonIdFor } from '../../logic/checkin';
 import { classSuggestions, recentChange, weeklyShare, weekStart } from '../../logic/insights';
 import { implementationSummary } from '../../logic/icp';
 import { daysBetween, formatShort, today } from '../../lib/dates';
@@ -21,14 +20,15 @@ async function load(classId: string) {
     db.icpAdjustments.where('studentId').anyOf(ids).toArray(), db.icpChecks.where('studentId').anyOf(ids).toArray(), getSettings(),
     db.issueTags.where('classId').equals(classId).toArray(), db.homework.where('classId').equals(classId).toArray()
   ]);
-  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework };
+  const lessons = await db.lessons.where('classId').equals(classId).toArray();
+  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons };
 }
 
 export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: () => void }) {
   const date = today();
   const d = useLive(() => load(classId), [classId, date]);
   if (!d || !d.students.length) return null;
-  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework } = d;
+  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons } = d;
 
   const wk = weekStart(date);
   const thisWeek = checkins.filter((c) => c.date >= wk && c.date <= date && (c.status === 'complete' || c.status === 'partial')).length;
@@ -36,7 +36,7 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
   const icpRate = implementationSummary(icpChecks.filter((c) => daysBetween(c.date, date) <= 14)).rate;
   const tips = classSuggestions({ students, checkins, observations, categories, adjustments, icpChecks, today: date, maxGapDays: settings.maxGapDays });
   const core = categories.filter((c) => c.builtIn);
-  const need = needByStudent(students, checkins.filter((c) => c.classId === classId), observations.filter((o) => o.classId === classId), tags, homework, date, lessonIdFor);
+  const need = needByStudent(students, checkins.filter((c) => c.classId === classId), observations.filter((o) => o.classId === classId), tags, homework, date, lessons);
   const ranked = [...need.values()].filter((r) => r.concern > 0).sort((a, b) => b.concern - a.concern).slice(0, 3)
     .map((r) => ({ s: students.find((x) => x.id === r.studentId)!, r }));
 

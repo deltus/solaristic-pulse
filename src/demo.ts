@@ -4,7 +4,7 @@
 
 import { db, newId, getSettings, saveSettings } from './db';
 import type {
-  HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
+  ColdCall, Lesson, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
 } from './types';
 import { rankStudents } from './logic/priority';
 import { openFollowUp, followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
@@ -12,12 +12,25 @@ import { dueQuestions } from './logic/schedule';
 import { addDays, today as todayISO, weekday } from './lib/dates';
 import { checkoutId, lessonLength } from './logic/checkout';
 import { planId, checkinIdFor } from './services';
-import { buildAllGood, buildIssue, lessonIdFor } from './logic/checkin';
+import { buildAllGood, buildIssue } from './logic/checkin';
+import { pickColdCall, STRUGGLE_TAGS } from './logic/coldcall';
 import { rankByNeed } from './logic/need';
 import { CHECKIN_AREAS, HOMEWORK_REASONS } from './config/checkin';
 
 /** Swipe check-ins start this many days ago in the demo; older days use the previous format. */
 const SWIPE_FROM = 12;
+
+/** Learning intentions for the demo lessons, by subject. */
+const INTENTIONS: Record<string, string[]> = {
+  English: ['Identify persuasive techniques', 'Plan a persuasive paragraph', 'Use evidence to support a point', 'Edit for sentence variety', 'Analyse a character’s motives', 'Compare two poems'],
+  Science: ['Explain how rivers form meanders', 'Describe types of erosion', 'Read a topographic map', 'Plan a fair test', 'Record results in a table', 'Draw conclusions from data'],
+  Mathematics: ['Solve linear equations', 'Graph straight lines', 'Find the gradient', 'Simultaneous equations by substitution', 'Apply Pythagoras’ theorem', 'Interpret scatter plots']
+};
+const HOMEWORK: Record<string, string[]> = {
+  English: ['Finish the persuasive paragraph', 'Read chapter 4'],
+  Science: ['Finish the river worksheet', 'Label the erosion diagram'],
+  Mathematics: ['Exercise 3B, questions 1–10', 'Textbook page 112']
+};
 
 function rng(seed: number) {
   return () => {
@@ -122,6 +135,8 @@ export async function loadDemoData(): Promise<void> {
 
   const tags: IssueTag[] = [];
   const homework: HomeworkCheck[] = [];
+  const lessons: Lesson[] = [];
+  const coldCalls: ColdCall[] = [];
   const swipeRand = rng(99);
   for (let back = 27; back >= 1; back--) {
     const date = addDays(today, -back);
@@ -133,7 +148,7 @@ export async function loadDemoData(): Promise<void> {
       const classStudents = students.filter((s) => s.classId === cls.id);
       const ids = new Set(classStudents.map((s) => s.id));
       if (back <= SWIPE_FROM) {
-        swipeLesson(cls.id, classStudents, date, wd === c.days[0]);
+        swipeLesson(cls.id, classStudents, date, ci, c.start);
         icpForLesson(cls.id, date, wd);
         continue;
       }
@@ -189,6 +204,14 @@ export async function loadDemoData(): Promise<void> {
     }
   }
 
+  for (const c of checkins) {
+    const id = c.lessonId ?? `${c.date}|${c.classId}`;
+    if (!lessons.some((l) => l.id === id)) {
+      const t = new Date(`${c.date}T09:00:00`).getTime();
+      lessons.push({ id, classId: c.classId, date: c.date, openedAt: t, closedAt: t + 3_600_000, status: 'closed', historical: true, createdAt: t });
+    }
+  }
+
   // Older format: Effort difficulties get a "low effort" detail, as the v7 upgrade does.
   for (const o of observations) {
     if (!o.source && o.questionId === 'q-focus' && (o.level ?? 0) >= 1) tags.push({ id: `${o.checkinId}|focus|low_effort`, checkinId: o.checkinId, studentId: o.studentId, classId: o.classId, date: o.date, areaId: 'focus', tagId: 'low_effort', source: 'migrated', createdAt: o.createdAt });
@@ -208,23 +231,34 @@ export async function loadDemoData(): Promise<void> {
       }
   }
 
-  /** One lesson of swipe check-ins (about 8 students, most need first), plus a homework check once a week. */
-  function swipeLesson(classId: string, classStudents: Student[], date: string, homeworkDay: boolean) {
-    const lessonId = lessonIdFor(date, classId);
+  /**
+   * One recent lesson: opened with a learning intention, homework from last lesson checked, about
+   * 8 swipe check-ins (most need first), a few cold calls, then closed with the teacher's answers.
+   */
+  function swipeLesson(classId: string, classStudents: Student[], date: string, ci: number, start: string) {
+    const subject = CLASSES[ci].subject;
+    const openedAt = new Date(`${date}T${start}:00`).getTime();
+    const n = lessons.filter((l) => l.classId === classId && !l.historical).length;
+    const lesson: Lesson = { id: newId(), classId, date, openedAt, closedAt: openedAt + 3_540_000, status: 'closed', createdAt: openedAt,
+      intention: swipeRand() < 0.85 ? INTENTIONS[subject][n % INTENTIONS[subject].length] : undefined };
+    const lessonId = lesson.id;
     const inClass = <T extends { classId: string }>(xs: T[]) => xs.filter((x) => x.classId === classId);
-    if (homeworkDay) {
+    const prev = lessons.filter((l) => l.classId === classId).pop();
+    lessons.push(lesson);
+    if (prev?.homeworkSet) {
       for (const s of classStudents) {
-        const p = (profiles.get(s.id)!.homework ?? 0.08) * 1.6;
+        const p = (profiles.get(s.id)!.homework ?? 0.08) * (prev.homeworkText ? 1.4 : 2.4);
         const r = swipeRand();
-        homework.push({ id: `${lessonId}|${s.id}`, lessonId, classId, studentId: s.id, date, done: r >= p, ...(r < p && swipeRand() < 0.7 ? { reason: HOMEWORK_REASONS[Math.floor(swipeRand() * 3)].id } : {}), createdAt: Date.now() });
+        homework.push({ id: `${lessonId}|${s.id}`, lessonId, forLessonId: prev.id, classId, studentId: s.id, date, done: r >= p, ...(r < p && swipeRand() < 0.7 ? { reason: HOMEWORK_REASONS[Math.floor(swipeRand() * 3)].id } : {}), createdAt: openedAt + 60_000 });
       }
     }
     const logged = new Set<string>();
+    let issues = 0;
     for (let k = 0; k < 8; k++) {
-      const next = rankByNeed({ students: classStudents, checkins: inClass(checkins), observations: inClass(observations), tags: inClass(tags), homework: inClass(homework), lessonId, today: date, excludeIds: logged })[0];
+      const next = rankByNeed({ students: classStudents, checkins: inClass(checkins), observations: inClass(observations), tags: inClass(tags), homework: inClass(homework), lessons: inClass(lessons), lessonId, today: date, excludeIds: logged })[0];
       if (!next) break;
       logged.add(next.studentId);
-      const t = { studentId: next.studentId, classId, date, lessonId, now: Date.now() + checkins.length };
+      const t = { studentId: next.studentId, classId, date, lessonId, now: openedAt + 120_000 + k * 60_000 };
       if (swipeRand() < 0.05) {
         checkins.push({ id: `${lessonId}|${next.studentId}`, studentId: next.studentId, classId, date, lessonId, createdAt: t.now, status: 'absent', source: 'daily' });
         continue;
@@ -236,6 +270,7 @@ export async function loadDemoData(): Promise<void> {
         const p = (profile[a.id] ?? 0.08) * (helped && a.id === 'focus' ? 0.35 : 1);
         if (swipeRand() < p) areas[a.id] = a.subs.filter(() => swipeRand() < 0.3).map((x) => x.id).slice(0, 2);
       }
+      if (Object.keys(areas).length) issues++;
       const r = Object.keys(areas).length
         ? buildIssue(t, { areas, note: areas.coping ? 'Quiet and withdrawn during group work.' : swipeRand() < 0.4 ? 'Needed several reminders.' : undefined })
         : buildAllGood(t);
@@ -243,6 +278,27 @@ export async function loadDemoData(): Promise<void> {
       observations.push(...r.observations);
       tags.push(...r.tags);
     }
+    // A few cold calls (fair pick; "Not here" left out).
+    const absent = new Set(checkins.filter((c) => c.lessonId === lessonId && c.status === 'absent').map((c) => c.studentId));
+    for (let k = 0; k < 3 + Math.floor(swipeRand() * 3); k++) {
+      const st = pickColdCall(classStudents, inClass(coldCalls), absent, swipeRand);
+      if (!st) break;
+      const good = swipeRand() < 0.7 - (profiles.get(st.id)!.focus ?? 0.08);
+      const ccTags = good ? [] : STRUGGLE_TAGS.filter(() => swipeRand() < 0.35).map((x) => x.id).slice(0, 2);
+      const c: ColdCall = { id: newId(), lessonId, classId, studentId: st.id, date, result: good ? 'good' : 'struggled', ...(ccTags.length ? { tags: ccTags } : {}), createdAt: openedAt + 1_200_000 + k * 120_000 };
+      coldCalls.push(c);
+      if (ccTags.includes('not_listening')) observations.push({ id: `cold|${c.id}`, checkinId: `cold|${lessonId}`, studentId: st.id, classId, date, createdAt: c.createdAt, questionId: 'cold-call', categoryId: 'focus', response: "Wasn't listening (cold call)", level: 1, source: 'observed', lessonId, coldCallId: c.id });
+    }
+    // Close: attention, homework set, and the teacher's own check. 10A's lessons feel harder to the
+    // teacher even though students are mostly fine, so "My teaching" has a pattern to show.
+    const tough = CLASSES[ci].name.startsWith('10A');
+    lesson.attentionPct = Math.round(Math.min(95, Math.max(35, 82 - issues * 6 + (swipeRand() - 0.5) * 20)));
+    lesson.homeworkSet = swipeRand() < 0.5;
+    if (lesson.homeworkSet && swipeRand() < 0.7) lesson.homeworkText = HOMEWORK[subject][Math.floor(swipeRand() * 2)];
+    const hr = swipeRand();
+    lesson.happy = tough ? (hr < 0.65 ? 'no' : 'mostly') : hr < 0.55 ? 'yes' : hr < 0.9 ? 'mostly' : 'no';
+    lesson.planDone = lesson.attentionPct > 70 ? (swipeRand() < 0.8 ? 'yes' : 'partly') : swipeRand() < 0.35 ? 'yes' : 'partly';
+    if (tough && lesson.happy === 'no' && swipeRand() < 0.5) lesson.note = 'Ran out of time for the practice questions.';
   }
 
   // Class focus check-outs for most past lessons (own random stream, so the check-in history is unchanged).
@@ -250,6 +306,7 @@ export async function loadDemoData(): Promise<void> {
   const checkouts: Checkout[] = [];
   for (let back = 27; back >= 1; back--) {
     const date = addDays(today, -back);
+    if (back <= SWIPE_FROM) continue; // later lessons record attention when they're closed
     for (const t of timetable.filter((x) => x.day === weekday(date) && !x.notes)) {
       if (rc() < 0.25) continue;
       const pct = Math.round(45 + rc() * 50);
@@ -263,7 +320,9 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), studentId: jack.id, date: addDays(today, -10), text: 'Moved to the front table this week.', createdAt: Date.now() }
   );
 
-  await db.transaction('rw', [db.classes, db.students, db.timetable, db.categories, db.questions, db.checkins, db.observations, db.icpAdjustments, db.icpChecks, db.notes, db.plans, db.checkouts, db.issueTags, db.homework], async () => {
+  await db.transaction('rw', [db.classes, db.students, db.timetable, db.categories, db.questions, db.checkins, db.observations, db.icpAdjustments, db.icpChecks, db.notes, db.plans, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls], async () => {
+    await db.lessons.bulkAdd(lessons);
+    await db.coldCalls.bulkAdd(coldCalls);
     await db.issueTags.bulkAdd(tags);
     await db.homework.bulkAdd(homework);
     await db.checkouts.bulkAdd(checkouts);

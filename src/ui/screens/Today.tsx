@@ -1,15 +1,19 @@
 // "Today": the class page for the current class (switches automatically when a timetabled
-// lesson starts). Four big buttons: Daily check-in, Homework check, Blitz, Select student.
+// lesson starts). Opens with "Open lesson?"; then Daily check-in, Homework check (when last
+// lesson set homework), Cold call, Blitz and Select student, and Close lesson.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { db, saveSettings } from '../../db';
-import { formatShort, nowMinutes, today } from '../../lib/dates';
-import { go, useLive, useSettings } from '../hooks';
-import { Empty, Icon } from '../components';
+import * as svc from '../../services';
+import { formatShort, nowMs, today } from '../../lib/dates';
+import { useLive, useSettings, useTick } from '../hooks';
+import { displayName, Empty, Icon } from '../components';
+import { homeworkToCheck, minutesOpen } from '../../logic/lessons';
+import { classColdCallSummary } from '../../logic/coldcall';
+import { promptToClose } from '../lessonPrompts';
 import type { ReminderState } from '../reminders';
 import { ReminderPrompt } from '../ReminderPrompt';
-import { lessonForCheckout } from '../../logic/checkout';
-import { lessonIdFor, lessonOf } from '../../logic/checkin';
+import { lessonOf } from '../../logic/checkin';
 
 export function TodayScreen({ reminder }: { reminder: ReminderState }) {
   const settings = useSettings();
@@ -35,41 +39,97 @@ export function TodayScreen({ reminder }: { reminder: ReminderState }) {
 
 export function ClassHub({ classId, reminder }: { classId: string; reminder: ReminderState }) {
   const settings = useSettings();
-  const date = today();
-  const lessonId = lessonIdFor(date, classId);
-  const data = useLive(async () => {
-    const [cls, checkins, homework, lessonCount, classes] = await Promise.all([
-      db.classes.get(classId), db.checkins.where('classId').equals(classId).toArray(), db.homework.where('lessonId').equals(lessonId).toArray(),
-      db.timetable.count(), db.classes.toArray()
-    ]);
-    return { cls, checkins, homework, lessonCount, classes };
-  }, [classId, lessonId]);
-  useEffect(() => { if (data?.cls && settings && settings.currentClassId !== classId) saveSettings({ currentClassId: classId }); }, [classId, !!data?.cls]);
-  if (!data || !settings) return null;
-  if (!data.cls) return <p class="muted">Class not found. <a href="#/home">Your classes</a></p>;
-  const here = data.checkins.filter((c) => lessonOf(c) === lessonId);
-  const seen = here.filter((c) => c.status === 'complete' || c.status === 'partial').length;
+  const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
+  const classes = useLive(() => db.classes.toArray(), []);
+  const lessonCount = useLive(() => db.timetable.count(), []);
+  const [askIntention, setAskIntention] = useState(false);
+  const [intention, setIntention] = useState('');
+  const [editing, setEditing] = useState(false);
+  useTick(60_000);
+  useEffect(() => { if (ctx?.cls && settings && settings.currentClassId !== classId) saveSettings({ currentClassId: classId }); }, [classId, !!ctx?.cls]);
+  if (!ctx || !settings || !classes) return ctx === null ? <p class="muted">Class not found. <a href="#/home">Your classes</a></p> : null;
+  const { cls, lesson } = ctx;
+  const top = <div class="row between today-top"><a class="link-btn back-btn" href="#/home"><Icon name="back" /> Your classes</a><LessonInfo reminder={reminder} classId={classId} classes={classes} /></div>;
 
-  async function endLesson() {
-    const lesson = lessonForCheckout(await db.timetable.where('classId').equals(classId).toArray(), classId, date, nowMinutes());
-    go(`checkout/${classId}${lesson ? `/${lesson.id}` : ''}`);
+  async function open() {
+    const l = await svc.openLesson(classId);
+    promptToClose(l, cls.name);
+    setIntention('');
+    setAskIntention(true);
   }
+
+  if (!lesson) {
+    return (
+      <div>
+        {top}
+        <div class="open-lesson fade-up" data-tour="hub">
+          <span class="eyebrow">{formatShort(today())}</span>
+          <h1 class="home-title">{cls.name}</h1>
+          <p class="muted" style="margin:6px 0 18px">Open lesson?</p>
+          <button class="btn primary big block" onClick={open}><Icon name="clock" /> Open lesson</button>
+          <a class="btn ghost block" style="margin-top:8px" href="#/home">Not now</a>
+          <p class="tiny muted" style="margin-top:14px">Check-ins, homework checks, Blitz and cold calls are saved to the lesson. Close it at the end to note how it went.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (askIntention || editing) {
+    const save = async () => { await svc.setIntention(lesson.id, intention); setAskIntention(false); setEditing(false); };
+    return (
+      <div>
+        {top}
+        <div class="open-lesson fade-up">
+          <span class="eyebrow">{cls.name} · lesson open</span>
+          <h2 style="margin:6px 0 12px">Learning intention</h2>
+          <input class="input" autoFocus maxLength={120} value={intention} placeholder="e.g. Explain how rivers form meanders" onInput={(e) => setIntention((e.target as HTMLInputElement).value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+          <p class="tiny muted" style="margin:6px 0 14px">Optional. One line. It names this lesson in history and reports.</p>
+          <div class="grid2">
+            <button class="btn" onClick={() => { setAskIntention(false); setEditing(false); }}>{editing ? 'Cancel' : 'Skip'}</button>
+            <button class="btn primary" onClick={save}>Continue <Icon name="arrow" /></button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const here = ctx.checkins.filter((c) => lessonOf(c) === lesson.id);
+  const seen = here.filter((c) => c.status === 'complete' || c.status === 'partial').length;
+  const hwFor = homeworkToCheck(ctx.lessons, classId, lesson);
+  const hwDone = ctx.homework.filter((h) => h.lessonId === lesson.id).length;
+  const calls = ctx.coldCalls.filter((c) => c.lessonId === lesson.id).length;
+  const cc = classColdCallSummary(ctx.students, ctx.coldCalls, today());
+  const mins = minutesOpen(lesson, nowMs());
 
   return (
     <div>
-      <div class="row between today-top"><a class="link-btn back-btn" href="#/home"><Icon name="back" /> Your classes</a><LessonInfo reminder={reminder} classId={classId} classes={data.classes} /></div>
-      {!!data.lessonCount && !settings.reminders.enabled && !settings.reminderCardDismissed && <ReminderCard />}
-      <span class="eyebrow">{formatShort(date)}</span>
-      <h1 class="home-title">{data.cls.name}</h1>
-      <p class="muted small" style="margin:4px 0 16px">{seen} seen this lesson{here.length > seen ? ` · ${here.length - seen} not here` : ''}{data.homework.length ? ` · ${data.homework.length} homework checked` : ''}</p>
+      {top}
+      {!!lessonCount && !settings.reminders.enabled && !settings.reminderCardDismissed && <ReminderCard />}
+      <span class="eyebrow">{formatShort(lesson.date)} · open {mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`}</span>
+      <h1 class="home-title">{cls.name}</h1>
+      <button class="intention-line" onClick={() => { setIntention(lesson.intention ?? ''); setEditing(true); }}>
+        {lesson.intention ? <>{lesson.intention} <Icon name="edit" /></> : <span class="muted">+ Add a learning intention</span>}
+      </button>
+      <p class="muted small" style="margin:2px 0 14px">{seen} seen{here.length > seen ? ` · ${here.length - seen} not here` : ''}{hwDone ? ` · ${hwDone} homework checked` : ''}{calls ? ` · ${calls} cold call${calls === 1 ? '' : 's'}` : ''}</p>
+      {lesson.status === 'finishing' && <div class="notice">You started closing this lesson. <a href={`#/class/${classId}/close`}>Finish closing</a></div>}
       <div class="hub-grid" data-tour="hub">
         <a class="hub-btn primary" href={`#/class/${classId}/checkin`}><Icon name="today" /><b>Daily check-in</b><span>Swipe through the class, most need first</span></a>
-        <a class="hub-btn" href={`#/class/${classId}/homework`}><Icon name="reports" /><b>Homework check</b><span>Done or not done, whole class</span></a>
+        {hwFor && <a class="hub-btn" href={`#/class/${classId}/homework`}><Icon name="reports" /><b>Homework check</b><span>{hwFor.homeworkText || 'Homework from last lesson'}</span></a>}
+        <a class="hub-btn" href={`#/class/${classId}/coldcall`}><Icon name="user" /><b>Cold call</b><span>Pick a student fairly</span></a>
         <a class="hub-btn" href={`#/classes/${classId}/blitz`}><Icon name="bolt" /><b>Blitz</b><span>One question, whole class</span></a>
         <a class="hub-btn" href={`#/class/${classId}/select`}><Icon name="search" /><b>Select student</b><span>Log one student now</span></a>
       </div>
+      {ctx.students.length > 0 && (
+        <div class="card flat cc-summary">
+          <span class="eyebrow">Cold calls</span>
+          <div class="small">
+            {cc.weekGoodPct === null ? 'None this week.' : `${cc.weekGoodPct}% answered well this week (${cc.weekCount}).`}{' '}
+            Not called in a while: {cc.waiting.map((w) => `${displayName(w.s)} (${w.last ? formatShort(w.last) : 'never'})`).join(', ')}
+          </div>
+        </div>
+      )}
       <div class="row wrap" style="margin-top:16px;gap:8px">
-        <button class="btn small" onClick={endLesson}><Icon name="gauge" /> End lesson</button>
+        <a class="btn primary" href={`#/class/${classId}/close`}><Icon name="check" /> Close lesson</a>
         <a class="btn small ghost" href={`#/classes/${classId}`}><Icon name="classes" /> Manage class</a>
       </div>
     </div>

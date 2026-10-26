@@ -743,3 +743,28 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 @media (prefers-reduced-motion: reduce) { .good-tick { animation: none; opacity: 0; } }
 .checkin .link-btn { display: inline-flex; align-items: center; gap: 4px; }
 .checkin .link-btn svg { width: 16px; height: 16px; }
+
+/* Lessons */
+.open-lesson { margin-top: 18px; }
+.intention-line { display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; border: 0; background: none; font-size: 15px; font-weight: 600; color: var(--ink-2); text-align: left; }
+.intention-line svg { width: 14px; height: 14px; color: var(--muted); }
+.cc-summary { margin-top: 12px; padding: 10px 14px; }
+.close-part { margin: 16px 0; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.close-part h3 { display: flex; align-items: baseline; gap: 8px; }
+.close-part .speedo-wrap { margin-top: 8px; }
+.hw-from { margin: 4px 0 0; font-size: 14px; }
+.hw-now { margin-top: 12px; padding: 8px 10px; border-radius: 10px; background: var(--blue-50); font-size: 13.5px; }
+.hw-history .ellipsis { max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shuffle-box { margin: 20px 0 16px; min-height: 120px; border-radius: 20px; border: 1px dashed var(--line-strong); display: grid; place-items: center; padding: 16px; text-align: center; font-size: 14px; }
+.shuffle-box.spinning { border-style: solid; background: var(--surface); }
+.shuffle-name { font-size: 26px; font-weight: 750; letter-spacing: -0.02em; }
+.insight { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); margin-bottom: 8px; font-size: 14.5px; }
+.insight svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+.insight.positive { border-color: #cfe3dc; background: var(--ok-50); }
+.insight.positive svg { color: var(--ok); }
+.insight.question svg, .insight.observation svg { color: var(--blue); }
+.lesson-row { padding: 9px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+.lesson-row:first-child { border-top: 0; }
+.lesson-prompt { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border-radius: 14px; background: var(--navy); color: #fff; font-size: 14px; }
+.lesson-prompt .btn { min-height: 34px; }
+.lesson-prompt .later { background: none; border: 0; color: #c9d4f5; font-weight: 600; }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { useRoute, useSettings, useLive } from './hooks';
+import { useRoute, useSettings, useLive, useTick } from './hooks';
 import { Icon, Sheet, ToastHost } from './components';
 import { LockScreen } from './Lock';
 import { Setup } from './Setup';
@@ -7,6 +7,10 @@ import { Tour } from './Tour';
 import { ClassHub, TodayScreen } from './screens/Today';
 import { CheckinScreen, SelectStudentScreen } from './screens/Checkin';
 import { HomeworkScreen } from './screens/Homework';
+import { CloseLessonScreen } from './screens/CloseLesson';
+import { ColdCallScreen } from './screens/ColdCall';
+import { TeachingScreen } from './screens/Teaching';
+import { lessonsToClose, lessonName } from '../logic/lessons';
 import { HomeScreen } from './screens/Home';
 import { BlitzScreen } from './screens/Blitz';
 import { CheckoutScreen } from './screens/Checkout';
@@ -23,7 +27,7 @@ import { isNative } from '../platform';
 import { useSyncStatus } from '../sync/engine';
 import { SyncAttentionBanner, syncLine } from './Sync';
 import { useAccount } from '../cloud';
-import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort } from '../lib/dates';
+import { today, dayOffset, setDayOffset, DAY_CHANGE_EVENT, formatShort, nowMs } from '../lib/dates';
 
 export const NAV = [
   { path: 'home', label: 'Today', icon: 'today' },
@@ -32,6 +36,7 @@ export const NAV = [
   { path: 'blitz', label: 'Blitz', icon: 'bolt' },
   { path: 'icp', label: 'ICP Check-In', icon: 'icp' },
   { path: 'reports', label: 'Reports', icon: 'reports' },
+  { path: 'teaching', label: 'My teaching', icon: 'edit' },
   { path: 'settings', label: 'Settings', icon: 'settings' }
 ];
 
@@ -90,10 +95,13 @@ export function App() {
         : sub === 'checkin' ? <CheckinScreen classId={id} />
         : sub === 'student' && extra ? <CheckinScreen key={extra} classId={id} studentId={extra} />
         : sub === 'homework' ? <HomeworkScreen classId={id} />
+        : sub === 'close' ? <CloseLessonScreen classId={id} />
+        : sub === 'coldcall' ? <ColdCallScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />
         : <ClassHub classId={id} reminder={reminder} />;
       break;
     case 'blitz': screen = <BlitzScreen classId={id} />; break;
+    case 'teaching': screen = <TeachingScreen />; break;
     case 'checkout': screen = id ? <CheckoutScreen classId={id} timetableId={sub} /> : <HomeScreen reminder={reminder} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }
@@ -130,7 +138,7 @@ export function App() {
           <span class="spacer" />
           {settings.devTools !== false ? <DayButton /> : <span class="topbar-mark" aria-hidden="true"><img src="icons/mark.png" alt="" /></span>}
         </header>
-        <main class="main"><SyncAttentionBanner />{screen}</main>
+        <main class="main"><SyncAttentionBanner />{!(page === 'class' && sub === 'close') && <LessonPrompt />}{screen}</main>
       </div>
       {picker && classes && <ClassPicker classes={classes} current={currentClass?.id} reminder={reminder} onClose={() => setPicker(false)} />}
       {!settings.tutorialDone && <Tour name={settings.profile.name} setDrawer={setDrawer} onDone={() => saveSettings({ tutorialDone: true })} />}
@@ -241,7 +249,7 @@ function useNotificationTaps() {
         if (rec) openFile(rec);
       } else if (classId) {
         await saveSettings({ currentClassId: classId });
-        location.hash = '#/today';
+        location.hash = `#/class/${classId}`;
       }
     }));
   }, []);
@@ -290,5 +298,28 @@ function AccountNavItem({ active, onClick }: { active: boolean; onClick: () => v
     <a class={`nav-item ${active ? 'active' : ''}`} href="#/settings/account" onClick={onClick}>
       <Icon name="user" /><span class="nav-account"><span>Account</span><span class="tiny muted">{acc.user.email}</span></span>
     </a>
+  );
+}
+
+/**
+ * "Close your lesson?": a lesson open for an hour or more, one left open from earlier (shown the
+ * next time the app opens), or a "Remind me in 30 minutes" that has come due. "Later" hides it for 30 minutes.
+ */
+function LessonPrompt() {
+  const data = useLive(async () => ({ lessons: await db.lessons.where('status').anyOf('open', 'finishing').toArray(), classes: await db.classes.toArray() }), []);
+  const [later, setLater] = useState<Record<string, number>>({});
+  useTick(60_000);
+  if (!data) return null;
+  const now = nowMs();
+  const l = lessonsToClose(data.lessons, now).find((x) => !(later[x.id] > now));
+  if (!l) return null;
+  const name = data.classes.find((c) => c.id === l.classId)?.name ?? 'Class';
+  const when = l.date === today() ? `opened ${new Date(l.openedAt).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })}` : `from ${formatShort(l.date)}`;
+  return (
+    <div class="lesson-prompt pop-in" role="status">
+      <span class="grow"><b>Close your lesson?</b> {name}{l.intention ? ` · ${lessonName(l)}` : ''} · {l.status === 'finishing' ? 'to finish' : when}</span>
+      <a class="btn small primary" href={`#/class/${l.classId}/close`}>Close</a>
+      <button class="later" onClick={() => setLater({ ...later, [l.id]: now + 30 * 60_000 })}>Later</button>
+    </div>
   );
 }

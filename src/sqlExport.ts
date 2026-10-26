@@ -21,15 +21,17 @@ const SCHEMA: Record<string, string[]> = {
   icp_adjustments: ['id VARCHAR(64) PRIMARY KEY', 'student_id VARCHAR(64)', 'title TEXT', 'details TEXT', 'frequency VARCHAR(16)', 'start_date VARCHAR(10)', 'end_date VARCHAR(10)', 'active INTEGER'],
   icp_checks: ['id VARCHAR(160) PRIMARY KEY', 'adjustment_id VARCHAR(64)', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'outcome VARCHAR(16)', 'note TEXT'],
   timetable: ['id VARCHAR(64) PRIMARY KEY', 'class_id VARCHAR(64)', 'day INTEGER', 'start_time VARCHAR(5)', 'end_time VARCHAR(5)', 'room TEXT', 'notes TEXT'],
+  lessons: ['id VARCHAR(64) PRIMARY KEY', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'learning_intention TEXT', 'status VARCHAR(10)', 'attention_pct INTEGER', 'homework_set INTEGER', 'homework TEXT'],
+  cold_calls: ['id VARCHAR(64) PRIMARY KEY', 'lesson_id VARCHAR(64)', 'class_id VARCHAR(64)', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'result VARCHAR(10)', 'tags TEXT'],
   issue_tags: ['id VARCHAR(300) PRIMARY KEY', 'checkin_id VARCHAR(160)', 'student_id VARCHAR(64)', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'area_id VARCHAR(64)', 'tag_id VARCHAR(64)', 'recorded_as VARCHAR(10)'],
   homework_checks: ['id VARCHAR(200) PRIMARY KEY', 'lesson_id VARCHAR(120)', 'class_id VARCHAR(64)', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'done INTEGER', 'reason VARCHAR(32)'],
   checkouts: ['id VARCHAR(160) PRIMARY KEY', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'timetable_id VARCHAR(64)', 'lesson_start VARCHAR(5)', 'lesson_minutes INTEGER', 'pct_working INTEGER', 'minutes_working INTEGER', 'minutes_distracted INTEGER', 'note TEXT']
 };
 
 export async function buildSqlScript(opts: { deidentify: boolean }): Promise<string> {
-  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable, checkouts, tags, homework] = await Promise.all([
+  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable, checkouts, tags, homework, lessons, coldCalls] = await Promise.all([
     getSettings(), db.classes.toArray(), db.students.toArray(), db.categories.toArray(), db.questions.toArray(), db.checkins.toArray(),
-    db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(), db.checkouts.toArray(), db.issueTags.toArray(), db.homework.toArray()
+    db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(), db.checkouts.toArray(), db.issueTags.toArray(), db.homework.toArray(), db.lessons.toArray(), db.coldCalls.toArray()
   ]);
   const pseudo = pseudonymMap(students);
   const scrub = opts.deidentify ? makeScrubber(students, pseudo, [settings.profile.name, settings.profile.school ?? '']) : (t?: string) => t ?? '';
@@ -43,6 +45,9 @@ export async function buildSqlScript(opts: { deidentify: boolean }): Promise<str
     questions: questions.map((x) => [x.id, x.text, x.categoryId, b(x.builtIn), b(x.enabled)]),
     checkins: checkins.map((c) => [c.id, c.studentId, c.classId, c.date, c.status, c.source, c.weight, c.lessonId, c.result, c.result === 'issue' ? b(c.followUp !== false) : null, scrub(c.note)]),
     observations: observations.map((o) => [o.id, o.checkinId, o.studentId, o.classId, o.date, o.questionId, o.categoryId, o.response, o.level, o.followUp?.outcome, o.followUp?.previousId, o.context, scrub(o.note), o.blitz, o.source ?? 'observed', b(o.exceeding)]),
+    // The teacher's own close-of-lesson answers are never exported.
+    lessons: lessons.filter((l) => !l.historical).map((l) => [l.id, l.classId, l.date, scrub(l.intention), l.status, l.attentionPct, b(l.homeworkSet), scrub(l.homeworkText)]),
+    cold_calls: coldCalls.map((c) => [c.id, c.lessonId, c.classId, c.studentId, c.date, c.result, (c.tags ?? []).join(',')]),
     issue_tags: tags.map((t) => [t.id, t.checkinId, t.studentId, t.classId, t.date, t.areaId, t.tagId, t.source]),
     homework_checks: homework.map((h) => [h.id, h.lessonId, h.classId, h.studentId, h.date, b(h.done), h.reason]),
     notes: notes.map((n) => [n.id, n.studentId, n.date, scrub(n.text)]),

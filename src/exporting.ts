@@ -4,7 +4,9 @@ import { db, getSettings, sortedCategories } from './db';
 import type { Category, Checkin, IcpAdjustment, IcpCheck, Observation, Student, StudentNote } from './types';
 import { lastCheckedDate } from './logic/priority';
 import { needByStudent, needWords, type NeedRow } from './logic/need';
-import { lessonIdFor, openFollow, type OpenFollow } from './logic/checkin';
+import { openFollow, type OpenFollow } from './logic/checkin';
+import { coldCallText } from './logic/coldcall';
+import { studentTimeline } from './logic/timeline';
 import { HOMEWORK_REASONS, subLabel } from './config/checkin';
 import { categoryTrend } from './logic/trends';
 import { compareBeforeAfter, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from './logic/icp';
@@ -64,14 +66,15 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     : allStudents.filter((s) => o.classIds.includes(s.classId));
   const ids = students.map((s) => s.id);
   const classIds = [...new Set(students.map((s) => s.classId))];
-  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework] = await Promise.all([
+  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework, classLessons, coldCallsAll] = await Promise.all([
     db.observations.where('studentId').anyOf(ids).toArray(), db.checkins.where('studentId').anyOf(ids).toArray(),
     db.notes.where('studentId').anyOf(ids).toArray(), db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
     o.kind === 'class' ? db.checkouts.where('classId').anyOf(o.classIds).toArray() : Promise.resolve([]),
     o.kind === 'student' && o.includeIcp ? db.evidence.where('studentId').anyOf(ids).toArray() : Promise.resolve([]),
     db.checkins.where('classId').anyOf(classIds).toArray(), db.observations.where('classId').anyOf(classIds).toArray(),
-    db.issueTags.where('classId').anyOf(classIds).toArray(), db.homework.where('classId').anyOf(classIds).toArray()
+    db.issueTags.where('classId').anyOf(classIds).toArray(), db.homework.where('classId').anyOf(classIds).toArray(),
+    db.lessons.where('classId').anyOf(classIds).toArray(), db.coldCalls.where('studentId').anyOf(ids).toArray()
   ]);
   const tagsAll = classTags.filter((t) => ids.includes(t.studentId));
   const homeworkAll = classHomework.filter((h) => ids.includes(h.studentId));
@@ -86,7 +89,10 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
   const evidence = evidenceAll.filter((x) => inRange(x.date));
   const tags = tagsAll.filter((x) => inRange(x.date));
   const homework = homeworkAll.filter((x) => inRange(x.date));
-  const need = needByStudent(allStudents.filter((s) => classIds.includes(s.classId)), classCheckins, classObs, classTags, classHomework, date, lessonIdFor);
+  const need = needByStudent(allStudents.filter((s) => classIds.includes(s.classId)), classCheckins, classObs, classTags, classHomework, date, classLessons);
+  const coldCalls = coldCallsAll.filter((x) => inRange(x.date));
+  const lessonsInRange = classLessons.filter((l) => inRange(l.date));
+  const lessonTitle = (id: string) => { const l = classLessons.find((x) => x.id === id); return l?.intention ? scrub(l.intention) : ''; };
 
   // Pseudonyms are assigned over every student in the selected classes so they stay stable across the report.
   const pseudoPool = o.kind === 'student' ? allStudents.filter((s) => s.classId === students[0]?.classId) : students;
@@ -176,6 +182,16 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
         ...[...homework].sort((a, b) => a.date.localeCompare(b.date)).map((h) => [...studentCols(students.find((s) => s.id === h.studentId)!), cls(h.classId), formatDate(h.date), h.done ? 'Done' : 'Not done', h.reason ? HOMEWORK_REASONS.find((r) => r.id === h.reason)?.label ?? h.reason : ''])] }]
     : [];
 
+  const coldCallSheet = (): Sheet[] => coldCalls.length
+    ? [{ name: 'Cold calls', rows: [[...studentHead, 'Class', 'Date', 'Lesson', 'Result', 'Details'],
+        ...[...coldCalls].sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt).map((c) => [...studentCols(students.find((s) => s.id === c.studentId)!), cls(c.classId), formatDate(c.date), lessonTitle(c.lessonId), c.result === 'good' ? 'Answered well' : 'Struggled', c.result === 'good' ? '' : coldCallText(c).replace(/^struggled,? ?/, '')])] }]
+    : [];
+  // Lessons of the class. The teacher's own close-of-lesson answers (happy, plan, note) are never exported.
+  const lessonsSheet = (): Sheet[] => lessonsInRange.some((l) => !l.historical)
+    ? [{ name: 'Lessons', rows: [['Class', 'Date', 'Learning intention', 'Status', 'Class attention %', 'Homework set', ...(o.includeNotes ? ['Homework'] : [])],
+        ...[...lessonsInRange].filter((l) => !l.historical).sort((a, b) => a.openedAt - b.openedAt).map((l) => [cls(l.classId), formatDate(l.date), scrub(l.intention), l.status === 'closed' ? 'Closed' : 'Open', l.attentionPct ?? '', l.homeworkSet ? 'Yes' : 'No', ...(o.includeNotes ? [text(l.homeworkText)] : [])])] }]
+    : [];
+
   const about: Sheet = {
     name: 'About this report',
     layout: 'pairs',
@@ -191,6 +207,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       ...(checkouts.length ? [['Check-outs', "Teacher's estimate at the end of each lesson of the share of the lesson the class spent working. Low focus 0–49%, Mixed 50–74%, Focused 75–100%."]] : []),
       ['De-identified', o.deidentify ? 'Yes: names replaced with stable pseudonyms (Student 001 …) within this report' : 'No: contains student names'],
       ...(o.deidentify ? [['Warning', DEID_WARNING]] : []),
+      ['Teacher reflections', "Not included. Close-of-lesson answers and 'My teaching' patterns stay private to the teacher."],
       ['Generated locally', 'This file was created on the teacher\'s device. No data was uploaded.'],
       [],
       ['Limitations'],
@@ -199,6 +216,14 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       ['Difficulty level', '0 = meeting expectations, 1 = needs support (2 = significant difficulty, older records only), blank = not rated'],
       ['Recorded as', 'observed = the teacher tapped it; implied = from All good or an area not tapped on an Issue; migrated = converted from an older version of the app']
     ]
+  };
+
+  // Student report: lesson-by-lesson, joining check-in, homework and cold calls.
+  const lessonTimelineSheet = (): Sheet[] => {
+    const s = students[0];
+    if (!s) return [];
+    const rows = studentTimeline({ lessons: lessonsInRange, checkins: checkinsAll, observations: observationsAll, tags: tagsAll, homework: homeworkAll, coldCalls, studentId: s.id }, 500);
+    return rows.length ? [{ name: 'Lesson by lesson', rows: [['Date', 'Lesson', 'Check-in', 'Homework', 'Cold call'], ...rows.reverse().map((r) => [formatDate(r.date), scrub(r.name), r.checkin ?? '', r.homework ?? '', r.coldCall ?? ''])] }] : [];
   };
 
   let sheets: Sheet[];
@@ -220,11 +245,11 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       const s = students.find((st) => st.id === c.studentId)!;
       chkRows.push([...studentCols(s), cls(c.classId), formatDate(c.date), c.status === 'absent' ? 'Not here' : c.status, c.result === 'good' ? 'All good' : c.result === 'issue' ? 'Issue' : '', c.result === 'issue' ? (c.followUp === false ? 'No' : 'Yes') : '', ...(o.includeNotes ? [text(c.note)] : []), c.weight ?? '']);
     }
-    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...issueSheet(), ...homeworkSheet(), ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
+    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...issueSheet(), ...homeworkSheet(), ...coldCallSheet(), ...lessonsSheet(), ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
   } else {
     sheets = buildStudentSheets(students[0], {
       o, date, observations, observationsAll, checkins, notes, adjustments, icpChecks, usedCats, categories,
-      p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, blitzSheet, studentHead, extra: [...issueSheet(), ...homeworkSheet()]
+      p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, blitzSheet, studentHead, extra: [...lessonTimelineSheet(), ...issueSheet(), ...homeworkSheet(), ...coldCallSheet()]
     });
     sheets.push(...evidenceSheet(), about);
   }

@@ -7,7 +7,6 @@ import { pickFile, readSpreadsheet } from '../../platform';
 import { saveSample } from '../../samples';
 import { DAY_NAMES, today } from '../../lib/dates';
 import { needByStudent } from '../../logic/need';
-import { lessonIdFor } from '../../logic/checkin';
 import { NeedBadge } from './Students';
 import { ClassOverview } from './ClassOverview';
 import { go, useLive } from '../hooks';
@@ -201,14 +200,15 @@ export function ClassDetail({ id }: { id: string }) {
     observations: await db.observations.where('classId').equals(id).toArray(),
     checkins: await db.checkins.where('classId').equals(id).toArray(),
     tags: await db.issueTags.where('classId').equals(id).toArray(),
-    homework: await db.homework.where('classId').equals(id).toArray()
+    homework: await db.homework.where('classId').equals(id).toArray(),
+    lessons: await db.lessons.where('classId').equals(id).toArray()
   }), [id]);
   const [sheet, setSheet] = useState<'edit' | 'student' | 'import' | 'lesson' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   if (!data) return null;
   const { cls, students, timetable } = data;
   if (!cls) return <p>Class not found. <a href="#/classes">Back to classes</a></p>;
-  const need = needByStudent(students, data.checkins, data.observations, data.tags, data.homework, today(), lessonIdFor);
+  const need = needByStudent(students, data.checkins, data.observations, data.tags, data.homework, today(), data.lessons);
   const shown = students.filter((s) => s.archived === showArchived).sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
 
   async function archive() {

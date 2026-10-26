@@ -116,3 +116,22 @@ export async function scheduleNativeReminders(items: PlannedReminder[]): Promise
 export function onNotificationTap(handler: (extra: { fileId?: string; classId?: string }) => void): void {
   LocalNotifications.addListener('localNotificationActionPerformed', (a) => handler((a.notification.extra ?? {}) as { fileId?: string; classId?: string }));
 }
+
+/** Notification ids for lesson prompts (95000+; reminders use ids below 90000). */
+const lessonNoteId = (lessonId: string) => {
+  let h = 0;
+  for (let i = 0; i < lessonId.length; i++) h = (h * 31 + lessonId.charCodeAt(i)) >>> 0;
+  return 95000 + (h % 4000);
+};
+
+/** "Close your lesson?" at a set time. Replaces any earlier one for the same lesson. */
+export async function scheduleLessonPrompt(lessonId: string, at: Date, body: string, classId: string): Promise<void> {
+  const id = lessonNoteId(lessonId);
+  await LocalNotifications.cancel({ notifications: [{ id }] });
+  if ((await notificationState()) !== 'granted' || at.getTime() <= Date.now()) return;
+  await LocalNotifications.schedule({ notifications: [{ id, title: 'Close your lesson?', body, smallIcon: SMALL_ICON, extra: { classId, lessonId }, schedule: { at, allowWhileIdle: true } }] });
+}
+
+export async function cancelLessonPrompt(lessonId: string): Promise<void> {
+  await LocalNotifications.cancel({ notifications: [{ id: lessonNoteId(lessonId) }] });
+}

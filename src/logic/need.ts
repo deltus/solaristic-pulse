@@ -4,14 +4,15 @@
 //
 // recentConcern: issues in recent check-ins, Blitz "No"s and homework not done, each halving
 //   in value every couple of weeks, plus an open follow-up and a teacher flag. Starts at 0.
-// lessonsSinceSeen: lessons of this class since the student was last logged. Never seen scores
+// lessonsSinceSeen: Lesson records of this class since the student was last logged. Never seen scores
 //   very high, so a new class works through everyone before anyone comes up twice.
 // The weights live in src/config/checkin.ts (RANKING).
 
-import type { Checkin, HomeworkCheck, IssueTag, Observation, Student } from '../types';
+import type { Checkin, HomeworkCheck, IssueTag, Lesson, Observation, Student } from '../types';
 import { RANKING } from '../config/checkin';
 import { daysBetween } from '../lib/dates';
 import { lessonOf, openFollow } from './checkin';
+import { openLessonFor } from './lessons';
 
 export interface NeedRow {
   studentId: string;
@@ -50,12 +51,16 @@ export function recentConcern(
   return { value: round1(v), reasons };
 }
 
-/** This class's lessons in order (oldest first), from anything logged in them, plus the current one. */
-export function lessonOrder(checkins: Checkin[], homework: HomeworkCheck[], current?: string): string[] {
-  const ids = new Set<string>([...checkins.map(lessonOf), ...homework.map((h) => h.lessonId)]);
-  if (current) ids.add(current);
-  // Lesson ids start with the date, so sorting them sorts by time.
-  return [...ids].sort();
+/**
+ * This class's lessons in order (oldest first): its Lesson records by opening time, plus any
+ * older lesson ids found on records (by date), plus the current lesson (last if not yet a record).
+ */
+export function lessonOrder(checkins: Checkin[], homework: HomeworkCheck[], current?: string, lessons: Lesson[] = []): string[] {
+  const time = new Map<string, number>(lessons.map((l) => [l.id, l.openedAt]));
+  const fromDate = (id: string) => { const t = new Date(`${id.slice(0, 10)}T00:00:00`).getTime(); return Number.isNaN(t) ? 0 : t; };
+  for (const id of [...checkins.map(lessonOf), ...homework.map((h) => h.lessonId)]) if (!time.has(id)) time.set(id, fromDate(id));
+  if (current && !time.has(current)) time.set(current, Number.MAX_SAFE_INTEGER);
+  return [...time].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0])).map(([id]) => id);
 }
 
 /** Lessons since the student was last logged (0 = seen in the current lesson). */
@@ -73,6 +78,8 @@ export interface NeedInput {
   observations: Observation[];
   tags: IssueTag[];
   homework: HomeworkCheck[];
+  /** This class's Lesson records (optional: older data and tests can do without). */
+  lessons?: Lesson[];
   lessonId: string;
   today: string;
   excludeIds?: Set<string>;
@@ -87,7 +94,7 @@ export function tieHash(s: string): number {
 
 export function rankByNeed(input: NeedInput): NeedRow[] {
   const { students, checkins, observations, tags, homework, lessonId, today, excludeIds } = input;
-  const order = lessonOrder(checkins, homework, lessonId);
+  const order = lessonOrder(checkins, homework, lessonId, input.lessons);
   return students
     .filter((s) => !s.archived && !excludeIds?.has(s.id))
     .map((s) => {
@@ -100,16 +107,20 @@ export function rankByNeed(input: NeedInput): NeedRow[] {
     .sort((a, b) => b.need - a.need || tieHash(lessonId + a.studentId) - tieHash(lessonId + b.studentId));
 }
 
-/** Need rows for students across several classes (each ranked within its own class, at today's lesson). */
+/**
+ * Need rows for students across several classes (each ranked within its own class). The current
+ * lesson is the class's open lesson, or the next one if none is open.
+ */
 export function needByStudent(
-  students: Student[], checkins: Checkin[], observations: Observation[], tags: IssueTag[], homework: HomeworkCheck[], today: string, lessonIdFor: (date: string, classId: string) => string
+  students: Student[], checkins: Checkin[], observations: Observation[], tags: IssueTag[], homework: HomeworkCheck[], today: string, lessons: Lesson[]
 ): Map<string, NeedRow> {
   const out = new Map<string, NeedRow>();
   for (const classId of new Set(students.map((s) => s.classId))) {
     const rows = rankByNeed({
       students: students.filter((s) => s.classId === classId), checkins: checkins.filter((c) => c.classId === classId),
       observations: observations.filter((o) => o.classId === classId), tags: tags.filter((t) => t.classId === classId),
-      homework: homework.filter((h) => h.classId === classId), lessonId: lessonIdFor(today, classId), today
+      homework: homework.filter((h) => h.classId === classId), lessons: lessons.filter((l) => l.classId === classId),
+      lessonId: openLessonFor(lessons, classId)?.id ?? `next|${classId}`, today
     });
     for (const r of rows) out.set(r.studentId, r);
   }

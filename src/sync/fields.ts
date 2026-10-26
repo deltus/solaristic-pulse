@@ -2,7 +2,7 @@
 
 export const SYNCED_TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls'
 ] as const;
 // Not synced: `evidence` (photos, files, voice memos stay on the device in this version).
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
@@ -23,7 +23,10 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   timetable: ['notes'],
   checkouts: ['note'],
   issueTags: [],
-  homework: []
+  homework: [],
+  // Learning intention, homework text and the teacher's own answers about the lesson.
+  lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note'],
+  coldCalls: []
 };
 
 type Row = Record<string, unknown>;

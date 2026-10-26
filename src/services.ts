@@ -3,7 +3,7 @@
 import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from './db';
 import { CHECKIN_AREAS } from './config/checkin';
 import type {
-  HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
+  ColdCall, ColdCallResult, Happy, Lesson, PlanDone, HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
   Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
@@ -14,7 +14,8 @@ import { today as todayISO } from './lib/dates';
 import { blitzTopic, type BlitzMark } from './logic/blitz';
 import { checkoutId, clampPct } from './logic/checkout';
 import { buildAllGood, buildIssue, checkinIdFor as swipeCheckinId, type CheckinTarget, type IssueInput, type SavedRecords } from './logic/checkin';
-import { addDays } from './lib/dates';
+import { addDays, nowMs } from './lib/dates';
+import { REMIND_LATER_MIN, openLessonFor } from './logic/lessons';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -37,7 +38,9 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls], async () => {
+    await db.lessons.where('classId').equals(id).delete();
+    await db.coldCalls.where('classId').equals(id).delete();
     await db.issueTags.where('classId').equals(id).delete();
     await db.homework.where('classId').equals(id).delete();
     await db.checkouts.where('classId').equals(id).delete();
@@ -67,7 +70,8 @@ export async function updateStudent(id: string, patch: Partial<Student>) {
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls], async () => {
+    await db.coldCalls.where('studentId').equals(id).delete();
     await db.issueTags.where('studentId').equals(id).delete();
     await db.homework.where('studentId').equals(id).delete();
     await db.evidence.where('studentId').equals(id).delete();
@@ -352,23 +356,94 @@ export async function loadLessonContext(classId: string) {
   if (!cls) return null;
   const students = (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived);
   const ids = students.map((s) => s.id);
-  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence] = await Promise.all([
+  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls] = await Promise.all([
     db.checkins.where('classId').equals(classId).toArray(),
     db.observations.where('classId').equals(classId).toArray(),
     db.issueTags.where('classId').equals(classId).toArray(),
     db.homework.where('classId').equals(classId).toArray(),
     db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
-    db.evidence.where('studentId').anyOf(ids).toArray()
+    db.evidence.where('studentId').anyOf(ids).toArray(),
+    db.lessons.where('classId').equals(classId).toArray(),
+    db.coldCalls.where('classId').equals(classId).toArray()
   ]);
-  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence };
+  const lesson = openLessonFor(lessons, classId);
+  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, lesson };
 }
 export type LessonContext = NonNullable<Awaited<ReturnType<typeof loadLessonContext>>>;
 
+/* ---------------- Lessons ---------------- */
+
+/** Open lesson: one Lesson record (class, start time). If the class already has one open, that one continues. */
+export async function openLesson(classId: string, intention?: string): Promise<Lesson> {
+  const existing = openLessonFor(await db.lessons.where('classId').equals(classId).toArray(), classId);
+  if (existing) return existing;
+  const now = nowMs();
+  const l: Lesson = { id: newId(), classId, date: todayISO(), openedAt: now, status: 'open', createdAt: now, ...(clean(intention) ? { intention: clean(intention) } : {}) };
+  await db.lessons.add(l);
+  return l;
+}
+
+export async function setIntention(lessonId: string, text: string) {
+  await db.lessons.update(lessonId, { intention: clean(text) || undefined });
+}
+
+export interface CloseAnswers {
+  attentionPct?: number;
+  homeworkSet?: boolean;
+  homeworkText?: string;
+  happy?: Happy;
+  planDone?: PlanDone;
+  note?: string;
+}
+const tidy = (a: CloseAnswers) => ({
+  attentionPct: a.attentionPct === undefined ? undefined : clampPct(a.attentionPct),
+  homeworkSet: !!a.homeworkSet, homeworkText: a.homeworkSet ? clean(a.homeworkText) || undefined : undefined,
+  happy: a.happy, planDone: a.planDone, note: clean(a.note) || undefined
+});
+
+/** Close lesson. The two teacher questions are required; everything else is optional. */
+export async function closeLesson(lessonId: string, a: CloseAnswers) {
+  if (!a.happy || !a.planDone) throw new Error('Answer the two teacher questions to close the lesson');
+  await db.lessons.update(lessonId, { ...tidy(a), status: 'closed', closedAt: nowMs(), remindAt: undefined });
+}
+
+/** "Remind me in 30 minutes": keep what's filled in, mark the lesson "to finish". */
+export async function finishLessonLater(lessonId: string, a: CloseAnswers, minutes = REMIND_LATER_MIN) {
+  const remindAt = nowMs() + minutes * 60_000;
+  await db.lessons.update(lessonId, { ...tidy(a), status: 'finishing', remindAt });
+  return remindAt;
+}
+
+/* ---------------- Cold call ---------------- */
+
+/** Saves a cold call. "Wasn't listening" also records an Attention concern for that lesson. */
+export async function logColdCall(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, studentId: string, result: ColdCallResult, tags: string[] = []): Promise<ColdCall> {
+  const now = Date.now();
+  const c: ColdCall = { id: newId(), lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, result, ...(result === 'struggled' && tags.length ? { tags } : {}), createdAt: now };
+  await db.transaction('rw', db.coldCalls, db.observations, async () => {
+    await db.coldCalls.add(c);
+    if (result === 'struggled' && tags.includes('not_listening')) {
+      await db.observations.put({
+        id: `cold|${c.id}`, checkinId: `cold|${lesson.id}`, studentId, classId: lesson.classId, date: lesson.date, createdAt: now,
+        questionId: 'cold-call', categoryId: 'focus', response: "Wasn't listening (cold call)", level: 1, source: 'observed', lessonId: lesson.id, coldCallId: c.id
+      });
+    }
+  });
+  return c;
+}
+
+export async function undoColdCall(id: string) {
+  await db.transaction('rw', db.coldCalls, db.observations, async () => {
+    await db.observations.where('id').equals(`cold|${id}`).delete();
+    await db.coldCalls.delete(id);
+  });
+}
+
 /* ---------------- Homework check ---------------- */
 
-export async function saveHomeworkCheck(t: CheckinTarget, done: boolean, reason?: string) {
-  const row: HomeworkCheck = { id: `${t.lessonId}|${t.studentId}`, lessonId: t.lessonId, classId: t.classId, studentId: t.studentId, date: t.date, done, ...(reason ? { reason } : {}), createdAt: Date.now() };
+export async function saveHomeworkCheck(t: CheckinTarget, done: boolean, reason?: string, forLessonId?: string) {
+  const row: HomeworkCheck = { id: `${t.lessonId}|${t.studentId}`, lessonId: t.lessonId, ...(forLessonId ? { forLessonId } : {}), classId: t.classId, studentId: t.studentId, date: t.date, done, ...(reason ? { reason } : {}), createdAt: Date.now() };
   await db.homework.put(row);
   return row;
 }
@@ -603,7 +678,7 @@ export async function loadBlitz(classId: string, date: string, topic: string): P
  * Saves a Blitz. Marks are stored as observations flagged `blitz` (separate from check-ins,
  * so they don't count as a check-in) but in the matching area, so they feed trends and reports.
  */
-export async function saveBlitz(classId: string, date: string, topicId: string, marks: Record<string, BlitzMark>) {
+export async function saveBlitz(classId: string, date: string, topicId: string, marks: Record<string, BlitzMark>, lessonId?: string) {
   const topic = blitzTopic(topicId);
   if (!topic) throw new Error('Unknown Blitz topic');
   const checkinId = `blitz|${date}|${classId}`;
@@ -612,7 +687,7 @@ export async function saveBlitz(classId: string, date: string, topicId: string, 
     const now = Date.now();
     await db.observations.bulkPut(Object.entries(marks).map(([studentId, m], i) => ({
       id: blitzObsId(date, topicId, studentId), checkinId, studentId, classId, date, createdAt: now + i,
-      questionId: `blitz-${topicId}`, categoryId: topic.categoryId, blitz: topicId,
+      questionId: `blitz-${topicId}`, categoryId: topic.categoryId, blitz: topicId, ...(lessonId ? { lessonId } : {}),
       response: m === 'yes' ? 'Yes' : m === 'no' ? 'No' : 'Absent', level: m === 'absent' ? null : m === 'no' ? 1 : 0
     })));
   });

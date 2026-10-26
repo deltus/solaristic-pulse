@@ -30,6 +30,11 @@ export function setDayOffset(n: number) {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(DAY_CHANGE_EVENT));
 }
 
+/** Now in ms, including the "+1 day" test offset (used for lesson times). */
+export function nowMs(): number {
+  return Date.now() + offsetDays * 86_400_000;
+}
+
 export function today(): string {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);

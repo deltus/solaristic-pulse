@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IcpAdjustment, IcpOutcome, Student } from '../../types';
 import * as svc from '../../services';
 import { CHECKIN_AREAS, UNDO_SECONDS, type CheckinArea } from '../../config/checkin';
-import { lessonIdFor, lessonOf, openFollow, followLead, recentSummaries, streakDue, summaryText, type CheckinTarget } from '../../logic/checkin';
+import { lessonOf, openFollow, followLead, recentSummaries, streakDue, summaryText, type CheckinTarget } from '../../logic/checkin';
 import { needWords, rankByNeed, type NeedRow } from '../../logic/need';
 import { icpDueStatus } from '../../logic/icp';
 import { evidenceDue } from '../../logic/evidence';
@@ -28,8 +28,8 @@ const ICP_PICK: { value: IcpOutcome; label: string; cls: string }[] = [
 
 export function CheckinScreen({ classId, studentId }: { classId: string; studentId?: string }) {
   const date = today();
-  const lessonId = lessonIdFor(date, classId);
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
+  const lessonId = ctx?.lesson?.id ?? '';
   const [skipped, setSkipped] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(studentId ?? null);
   const [step, setStep] = useState<Step>('card');
@@ -53,6 +53,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   useEffect(() => { if (!single && !activeId && queue[0]) setActiveId(queue[0].studentId); }, [activeId, queue[0]?.studentId]);
 
   if (!ctx) return ctx === null ? <p class="muted">Class not found.</p> : null;
+  if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
   const { cls, students } = ctx;
   const s = students.find((x) => x.id === activeId);
   const back = `#/class/${classId}`;
@@ -286,12 +287,27 @@ function IcpStep({ s, due, ctx, date, onDone }: { s: Student; due: IcpAdjustment
   );
 }
 
+/** Shown when a class screen is opened without an open lesson. */
+export function NeedLesson({ classId, name }: { classId: string; name: string }) {
+  return (
+    <div class="cc">
+      <a class="link-btn back-btn" href={`#/class/${classId}`}><Icon name="back" /> {name}</a>
+      <div class="done-state">
+        <h2>Open a lesson first</h2>
+        <p class="muted small">Everything you log is saved to the lesson.</p>
+        <a class="btn primary" href={`#/class/${classId}`} style="margin-top:10px">Open lesson</a>
+      </div>
+    </div>
+  );
+}
+
 /** "Select student": search the class, then the same card for one student. */
 export function SelectStudentScreen({ classId }: { classId: string }) {
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
   const [q, setQ] = useState('');
   if (!ctx) return null;
-  const lessonId = lessonIdFor(today(), classId);
+  if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
+  const lessonId = ctx.lesson.id;
   const logged = new Set(ctx.checkins.filter((c) => lessonOf(c) === lessonId).map((c) => c.studentId));
   const list = [...ctx.students].sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName))
     .filter((s) => !q || displayName(s).toLowerCase().includes(q.toLowerCase()));

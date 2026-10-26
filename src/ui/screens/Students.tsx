@@ -4,7 +4,10 @@ import { db, getSettings, saveSettings, sortedCategories } from '../../db';
 import * as svc from '../../services';
 import { lastCheckedDate } from '../../logic/priority';
 import { needByStudent, needWords, type NeedRow } from '../../logic/need';
-import { lessonIdFor, openFollow, followLead } from '../../logic/checkin';
+import { openFollow, followLead } from '../../logic/checkin';
+import { homeworkHistory } from '../../logic/lessons';
+import { coldCallHistory, coldCallStats } from '../../logic/coldcall';
+import { studentTimeline } from '../../logic/timeline';
 import { categoryTrend } from '../../logic/trends';
 import { rollingShare } from '../../logic/insights';
 import { TrendLine } from '../TrendLine';
@@ -24,18 +27,18 @@ export function StudentsScreen() {
   const [filter, setFilter] = useState<Filter>('all');
   const [classId, setClassId] = useState('');
   const data = useLive(async () => {
-    const [classes, students, observations, checkins, tags, homework, settings] = await Promise.all([
+    const [classes, students, observations, checkins, tags, homework, settings, lessons] = await Promise.all([
       db.classes.toArray(), db.students.toArray(), db.observations.toArray(), db.checkins.toArray(),
-      db.issueTags.toArray(), db.homework.toArray(), getSettings()
+      db.issueTags.toArray(), db.homework.toArray(), getSettings(), db.lessons.toArray()
     ]);
-    return { classes, students, observations, checkins, tags, homework, settings };
+    return { classes, students, observations, checkins, tags, homework, settings, lessons };
   }, []);
   if (!data) return null;
   const date = today();
   const obsBy = group(data.observations, (o) => o.studentId);
   const chkBy = group(data.checkins, (c) => c.studentId);
   const className = (id: string) => data.classes.find((c) => c.id === id)?.name ?? '';
-  const need = needByStudent(data.students, data.checkins, data.observations, data.tags, data.homework, date, lessonIdFor);
+  const need = needByStudent(data.students, data.checkins, data.observations, data.tags, data.homework, date, data.lessons);
   const tagBy = group(data.tags, (t) => t.studentId);
 
   const rows = data.students
@@ -97,19 +100,20 @@ export function StudentProfile({ id }: { id: string }) {
   const data = useLive(async () => {
     const student = await db.students.get(id);
     if (!student) return { student: undefined };
-    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework] = await Promise.all([
+    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls] = await Promise.all([
       db.classes.get(student.classId), db.observations.where('studentId').equals(id).toArray(), db.checkins.where('studentId').equals(id).toArray(),
       db.questions.filter((q) => q.enabled).toArray(), db.questions.toArray(), sortedCategories(), db.notes.where('studentId').equals(id).toArray(),
       db.icpAdjustments.where('studentId').equals(id).toArray(), db.icpChecks.where('studentId').equals(id).toArray(),
       db.timetable.where('classId').equals(student.classId).toArray(),
       db.students.where('classId').equals(student.classId).toArray(), db.checkins.where('classId').equals(student.classId).toArray(),
       db.observations.where('classId').equals(student.classId).toArray(), db.issueTags.where('classId').equals(student.classId).toArray(),
-      db.homework.where('classId').equals(student.classId).toArray()
+      db.homework.where('classId').equals(student.classId).toArray(), db.lessons.where('classId').equals(student.classId).toArray(),
+      db.coldCalls.where('studentId').equals(id).toArray()
     ]);
-    const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), lessonIdFor).get(id);
+    const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), classLessons).get(id);
     const tags = classTags.filter((t) => t.studentId === id);
     const homework = classHomework.filter((h) => h.studentId === id);
-    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework };
+    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls };
   }, [id]);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
@@ -117,7 +121,11 @@ export function StudentProfile({ id }: { id: string }) {
 
   if (!data) return null;
   if (!data.student) return <p>Student not found. <a href="#/students">Back</a></p>;
-  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework } = data as Required<typeof data>;
+  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls } = data as Required<typeof data>;
+  const hwHistory = homeworkHistory(classLessons, homework, s.classId, s.id);
+  const ccStats = coldCallStats(coldCalls, date);
+  const ccRecent = coldCallHistory(coldCalls, classLessons, s.id, 5);
+  const byLesson = studentTimeline({ lessons: classLessons, checkins, observations, tags, homework, coldCalls, studentId: s.id }, 10);
   const follow = openFollow(checkins, observations, tags);
   const catName = (cid: string) => categories.find((c) => c.id === cid)?.name ?? cid;
   const usedCats = categories.filter((c) => c.builtIn || observations.some((o) => o.categoryId === c.id));
@@ -212,13 +220,33 @@ export function StudentProfile({ id }: { id: string }) {
       <div class="section"><h2>Place in the queue</h2></div>
       {row && <NeedCard r={row} />}
 
-      {homework.length > 0 && (
+      {hwHistory.length > 0 && (
         <>
-          <div class="section"><h2>Homework</h2><span class="tiny muted">last 5 checks</span></div>
+          <div class="section"><h2>Homework</h2><span class="tiny muted">last 5 lessons with homework</span></div>
           <div class="card flat" style="padding:4px 14px">
-            {[...homework].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5).map((h) => (
-              <div key={h.id} class="recent-row"><span class="grow">{formatShort(h.date)}</span><span class={`status ${h.done ? 'meeting' : 'support'}`}>{homeworkText(h)}</span></div>
+            {hwHistory.map((h) => (
+              <div key={h.key} class="recent-row"><span class="grow">{h.label}{h.what ? <div class="tiny muted">{h.what}</div> : null}</span><span class={`status ${h.done === null ? 'none' : h.done ? 'meeting' : 'support'}`}>{h.result}</span></div>
             ))}
+          </div>
+        </>
+      )}
+
+      {ccStats.total > 0 && (
+        <>
+          <div class="section"><h2>Cold calls</h2><span class="tiny muted">{ccStats.total} total</span></div>
+          <div class="card">
+            <div class="row between"><b>{ccStats.goodPct}% answered well</b>{ccStats.topStruggle && <span class="tiny muted">Most common struggle: {ccStats.topStruggle.toLowerCase()}</span>}</div>
+            <TrendLine values={ccStats.weekly.map((w) => w.share)} height={40} labels={['8 weeks ago', 'this week']} />
+            <div style="margin-top:8px">{ccRecent.map((h) => <div key={h.call.id} class="tiny"><span class={h.call.result === 'good' ? 'ok' : 'warn'}>●</span> {h.text}</div>)}</div>
+          </div>
+        </>
+      )}
+
+      {byLesson.length > 0 && (
+        <>
+          <div class="section"><h2>Lesson by lesson</h2><span class="tiny muted">last {byLesson.length}</span></div>
+          <div class="card flat" style="padding:4px 14px">
+            {byLesson.map((r) => <div key={r.lesson.id} class="lesson-row">{r.text}</div>)}
           </div>
         </>
       )}

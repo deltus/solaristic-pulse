@@ -1,11 +1,14 @@
-// Homework check: the whole class in roster order, Done / Not done, with optional reasons.
+// Homework check: the homework set in the previous lesson of this class, checked for the whole
+// class in roster order. Done / Not done, with optional reasons.
 // Saved as Homework records (not a daily check-in), shown in reports and counted in the ranking.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import * as svc from '../../services';
 import { HOMEWORK_REASONS, UNDO_SECONDS } from '../../config/checkin';
-import { lessonIdFor, type CheckinTarget } from '../../logic/checkin';
-import { formatShort, today } from '../../lib/dates';
+import type { CheckinTarget } from '../../logic/checkin';
+import { homeworkHistory, homeworkToCheck, lessonName } from '../../logic/lessons';
+import { today } from '../../lib/dates';
+import { NeedLesson } from './Checkin';
 import { useLive } from '../hooks';
 import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
@@ -16,8 +19,8 @@ export const homeworkText = (h: Pick<HomeworkCheck, 'done' | 'reason'>) =>
 
 export function HomeworkScreen({ classId }: { classId: string }) {
   const date = today();
-  const lessonId = lessonIdFor(date, classId);
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
+  const lessonId = ctx?.lesson?.id ?? '';
   const [skipped, setSkipped] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
@@ -31,12 +34,23 @@ export function HomeworkScreen({ classId }: { classId: string }) {
   useEffect(() => { if (!activeId && queue[0]) setActiveId(queue[0].id); }, [activeId, queue[0]?.id]);
 
   if (!ctx) return null;
+  if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
   const back = `#/class/${classId}`;
+  const forLesson = homeworkToCheck(ctx.lessons, classId, ctx.lesson);
+  if (!forLesson) {
+    return (
+      <div class="cc">
+        <a class="link-btn back-btn" href={back}><Icon name="back" /> {ctx.cls.name}</a>
+        <div class="done-state"><h2>No homework to check</h2><p class="muted small">The last lesson of {ctx.cls.name} wasn't closed with homework set.</p></div>
+      </div>
+    );
+  }
+  const setWhat = forLesson.homeworkText || 'Homework';
   const s = ctx.students.find((x) => x.id === activeId);
   const target = (id: string): CheckinTarget => ({ studentId: id, classId, date, lessonId });
 
   async function save(id: string, done: boolean, reason?: string) {
-    const row = await svc.saveHomeworkCheck(target(id), done, reason);
+    const row = await svc.saveHomeworkCheck(target(id), done, reason, forLesson!.id);
     setJustChecked((j) => new Set([...j, id]));
     const name = displayName(ctx!.students.find((x) => x.id === id)!);
     toast(`${done ? 'Done' : 'Not done'} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { await svc.undoHomeworkCheck(row.id); setJustChecked((j) => { const n = new Set(j); n.delete(id); return n; }); setAsking(false); setActiveId(id); } });
@@ -69,7 +83,7 @@ export function HomeworkScreen({ classId }: { classId: string }) {
     );
   }
 
-  const history = ctx.homework.filter((h) => h.studentId === s.id).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
+  const history = homeworkHistory(ctx.lessons, ctx.homework, classId, s.id, 6).filter((h) => h.key !== forLesson.id).slice(0, 5);
   const done = <button class="btn big good-btn" onClick={() => card.current?.fling('good')}><Icon name="check" /> Done</button>;
   const notDone = <button class="btn big issue-btn" onClick={() => card.current?.fling('issue')}><Icon name="x" /> Not done</button>;
 
@@ -77,6 +91,7 @@ export function HomeworkScreen({ classId }: { classId: string }) {
     <div class="cc checkin">
       {header}
       <div class="cc-eyebrow" style="margin-top:8px">Homework check</div>
+      <p class="hw-from">Homework from last lesson: <b>{setWhat}</b></p>
       {asking ? (
         <div class="fade-up student-card">
           <h1 class="card-name">{displayName(s)}</h1>
@@ -96,10 +111,11 @@ export function HomeworkScreen({ classId }: { classId: string }) {
               <span class="avatar big">{initials(s)}</span>
               <h1 class="card-name grow">{displayName(s)}</h1>
             </div>
+            <div class="hw-now">Checking: <b>{setWhat}</b>, from {lessonName(forLesson)}</div>
             <div class="hw-history">
               {history.length ? history.map((h) => (
-                <div key={h.id} class="row between tiny"><span class="muted">{formatShort(h.date)}</span><span class={h.done ? 'ok' : 'warn'}>{homeworkText(h)}</span></div>
-              )) : <span class="tiny muted">No homework checks yet</span>}
+                <div key={h.key} class="row between tiny"><span class="muted ellipsis">{h.label}</span><span class={h.done === null ? 'muted' : h.done ? 'ok' : 'warn'}>{h.result}</span></div>
+              )) : <span class="tiny muted">No earlier homework</span>}
             </div>
           </SwipeCard>
           <div class="grid2 swipe-buttons">{sideOf('good') === 'left' ? [done, notDone] : [notDone, done]}</div>

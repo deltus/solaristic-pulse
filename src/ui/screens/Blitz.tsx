@@ -94,7 +94,8 @@ function BlitzClass({ classId, back }: { classId: string; back: string }) {
 
   async function save() {
     setBusy(true);
-    await svc.saveBlitz(cls!.id, date, t.id, marks);
+    const lesson = await db.lessons.where('classId').equals(cls!.id).filter((l) => l.status !== 'closed').last();
+    await svc.saveBlitz(cls!.id, date, t.id, marks, lesson?.id);
     setBusy(false);
     toast(`${t.label} blitz saved: ${counts.yes} yes, ${counts.no} no`);
     location.hash = back;

@@ -114,10 +114,54 @@ export interface IssueTag {
   createdAt: number;
 }
 
+export type LessonStatus = 'open' | 'finishing' | 'closed';
+export type Happy = 'yes' | 'mostly' | 'no';
+export type PlanDone = 'yes' | 'partly' | 'no';
+
+/** One lesson of one class, from Open lesson to Close lesson. */
+export interface Lesson {
+  id: string;
+  classId: string;
+  /** Date the lesson was opened (YYYY-MM-DD). */
+  date: string;
+  /** Opened at (ms, includes the "+1 day" test offset). */
+  openedAt: number;
+  closedAt?: number;
+  status: LessonStatus;
+  /** Learning intention, e.g. "Explain how rivers form meanders". */
+  intention?: string;
+  /** Close screen: share of the lesson the class was on task, 0–100. */
+  attentionPct?: number;
+  homeworkSet?: boolean;
+  homeworkText?: string;
+  happy?: Happy;
+  planDone?: PlanDone;
+  note?: string;
+  /** "Remind me in 30 minutes": when to ask again. */
+  remindAt?: number;
+  /** Made from older check-ins when lessons became records (no close answers). */
+  historical?: boolean;
+  createdAt: number;
+}
+
+export type ColdCallResult = 'good' | 'struggled';
+export interface ColdCall {
+  id: string;
+  lessonId: string;
+  classId: string;
+  studentId: string;
+  date: string;
+  result: ColdCallResult;
+  tags?: string[];
+  createdAt: number;
+}
+
 /** Homework check: Done / Not done for one student in one lesson. Not a daily check-in. */
 export interface HomeworkCheck {
   id: string; // `${lessonId}|${studentId}`
   lessonId: string;
+  /** The lesson the homework was set in (the previous lesson of this class). */
+  forLessonId?: string;
   classId: string;
   studentId: string;
   date: string;
@@ -148,6 +192,10 @@ export interface Observation {
   source?: RecordedAs;
   /** "Exceeding" recorded from a positive streak. */
   exceeding?: boolean;
+  /** Lesson it was recorded in (Blitz, cold call). Check-in rows use their check-in's lesson. */
+  lessonId?: string;
+  /** Recorded from a cold call ("wasn't listening" counts toward Attention). */
+  coldCallId?: string;
 }
 
 export interface PlanEntry {

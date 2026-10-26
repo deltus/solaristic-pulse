@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Category, Checkin, Checkout, DayPlan, EvidenceItem, IcpAdjustment, IcpCheck, Observation, Question,
+  Category, Checkin, Checkout, DayPlan, EvidenceItem, HomeworkCheck, IcpAdjustment, IssueTag, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -21,6 +21,8 @@ export class PulseDB extends Dexie {
   timetable!: Table<TimetableEntry, string>;
   kv!: Table<{ key: string; value: unknown }, string>;
   checkouts!: Table<Checkout, string>;
+  issueTags!: Table<IssueTag, string>;
+  homework!: Table<HomeworkCheck, string>;
   /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
   evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
@@ -62,6 +64,11 @@ export class PulseDB extends Dexie {
     this.version(5).stores({ outbox: '[tbl+id], at', syncState: 'key' });
     // v6: class focus check-outs, and ICP evidence kept on the device.
     this.version(6).stores({ checkouts: 'id, classId, date', evidence: 'id, studentId, adjustmentId, date' });
+    // v7: swipe check-in. Effort becomes Attention, Prepared for class becomes historical
+    // Preparedness (still fed by Blitz), old Effort difficulties get a "low effort" detail.
+    this.version(7).stores({ issueTags: 'id, studentId, checkinId, classId, date', homework: 'id, studentId, classId, lessonId, date' }).upgrade(async (tx) => {
+      await migrateToSwipe(tx);
+    });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -72,7 +79,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 
@@ -90,16 +97,17 @@ const TWO = (yes: string, no: string, noteOnNo = false) => [
 ];
 
 export const CORE_CATEGORIES: Category[] = [
-  { id: 'focus', name: 'Effort', phrase: 'effort', builtIn: true, notePrompt: 'What got in the way of their effort?', tags: ['Independent work', 'Group work', 'Whole class', 'Devices'] },
-  { id: 'homework', name: 'Prepared for class', phrase: 'being prepared for class', builtIn: true, notePrompt: 'What was missing?', tags: ['Homework', 'Equipment', 'Uniform', 'Late'] },
+  { id: 'focus', name: 'Attention', phrase: 'attention', builtIn: true, notePrompt: 'What got in the way?', tags: ['Independent work', 'Group work', 'Whole class', 'Devices'] },
+  { id: 'homework', name: 'Preparedness', phrase: 'being prepared for class', builtIn: true, notePrompt: 'What was missing?', tags: ['Homework', 'Equipment', 'Uniform', 'Late'] },
   { id: 'behaviour', name: 'Behaviour', phrase: 'behaviour', builtIn: true, notePrompt: 'What happened?', tags: ['Peers', 'Instructions', 'Transitions', 'Language'] },
   { id: 'coping', name: 'Coping with work', phrase: 'coping with the work', builtIn: true, notePrompt: 'What were they finding hard?', tags: ['Content', 'Workload', 'Pace', 'Wellbeing'] }
 ];
 
 const core = { allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true };
 export const CORE_QUESTIONS: Question[] = [
-  { ...core, id: 'q-homework', order: 0, categoryId: 'homework', text: 'Was {name} prepared for class?', shortText: 'Prepared for class?', options: TWO('Meeting expectations', 'Needs support') },
-  { ...core, id: 'q-focus', order: 1, categoryId: 'focus', text: "How was {name}'s effort?", shortText: 'Effort today?', options: TWO('Meeting expectations', 'Needs support') },
+  // Preparedness is now entered through Blitz; the question stays (switched off) for older records.
+  { ...core, id: 'q-homework', order: 0, categoryId: 'homework', text: 'Was {name} prepared for class?', shortText: 'Prepared for class?', options: TWO('Meeting expectations', 'Needs support'), enabled: false },
+  { ...core, id: 'q-focus', order: 1, categoryId: 'focus', text: "How was {name}'s attention?", shortText: 'Attention', options: TWO('Meeting expectations', 'Needs support') },
   { ...core, id: 'q-behaviour', order: 2, categoryId: 'behaviour', text: "How was {name}'s behaviour?", shortText: 'Behaviour today?', options: TWO('Meeting expectations', 'Needs support') },
   { ...core, id: 'q-coping', order: 3, categoryId: 'coping', text: 'Is {name} coping with the work?', shortText: 'Coping with the work?', options: TWO('Yes', 'No', true) }
 ];
@@ -140,4 +148,21 @@ export async function sortedCategories(): Promise<Category[]> {
     const ia = order.indexOf(a.id), ib = order.indexOf(b.id);
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.name.localeCompare(b.name);
   });
+}
+
+/** v7 upgrade (also used by tests): rename areas, switch off Prepared for class, add "low effort" details. */
+export async function migrateToSwipe(tx: { table: (n: string) => Table<any, any> }) {
+  for (const c of CORE_CATEGORIES) {
+    const old = await tx.table('categories').get(c.id);
+    await tx.table('categories').put(old ? { ...old, name: c.name, phrase: c.phrase, notePrompt: c.notePrompt } : c);
+  }
+  for (const q of CORE_QUESTIONS) {
+    const old = await tx.table('questions').get(q.id);
+    await tx.table('questions').put(old ? { ...old, text: q.text, shortText: q.shortText, enabled: q.enabled } : q);
+  }
+  const effort = (await tx.table('observations').where('questionId').equals('q-focus').toArray()) as Observation[];
+  const tags: IssueTag[] = effort
+    .filter((o) => !o.blitz && !o.source && (o.level ?? 0) >= 1)
+    .map((o) => ({ id: `${o.checkinId}|focus|low_effort`, checkinId: o.checkinId, studentId: o.studentId, classId: o.classId, date: o.date, areaId: 'focus', tagId: 'low_effort', source: 'migrated', createdAt: o.createdAt }));
+  if (tags.length) await tx.table('issueTags').bulkPut(tags);
 }

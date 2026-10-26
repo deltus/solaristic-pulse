@@ -33,6 +33,8 @@ export interface Student {
   /** Teacher's manual priority adjustment, bounded to [-0.5, +1]. */
   priorityAdjust: number;
   createdAt: number;
+  /** Last date the "Consistently good lately" question was asked or dismissed. */
+  streakAskedAt?: string;
 }
 
 export interface Category {
@@ -84,8 +86,44 @@ export interface Checkin {
   createdAt: number;
   status: CheckinStatus;
   source: CheckinSource;
-  /** Priority (draw) weight at the time of the check-in, kept for analysis. */
+  /** Priority (draw) weight at the time of the check-in (older check-ins only). */
   weight?: number;
+  /** Lesson this check-in belongs to. Until lessons are records, `${date}|${classId}`. */
+  lessonId?: string;
+  /** Swipe check-ins: All good or Issue. Older check-ins have no result (see their observations). */
+  result?: 'good' | 'issue';
+  /** Optional note from the Issue details screen. */
+  note?: string;
+  /** "Follow up next time" (Issue only; default on). */
+  followUp?: boolean;
+}
+
+/** observed = the teacher tapped it; implied = from All good or an untapped area; migrated = converted from older data. */
+export type RecordedAs = 'observed' | 'implied' | 'migrated';
+
+/** One ticked sub-option on an Issue, e.g. Behaviour → disruptive. Unticked ones are never saved. */
+export interface IssueTag {
+  id: string; // `${checkinId}|${areaId}|${tagId}`
+  checkinId: string;
+  studentId: string;
+  classId: string;
+  date: string;
+  areaId: string;
+  tagId: string;
+  source: RecordedAs;
+  createdAt: number;
+}
+
+/** Homework check: Done / Not done for one student in one lesson. Not a daily check-in. */
+export interface HomeworkCheck {
+  id: string; // `${lessonId}|${studentId}`
+  lessonId: string;
+  classId: string;
+  studentId: string;
+  date: string;
+  done: boolean;
+  reason?: string;
+  createdAt: number;
 }
 
 export interface Observation {
@@ -106,6 +144,10 @@ export interface Observation {
   note?: string;
   /** Set for Blitz marks (whole-class, one topic). Not part of a check-in. */
   blitz?: string;
+  /** How the value was recorded (missing on older records = observed). */
+  source?: RecordedAs;
+  /** "Exceeding" recorded from a positive streak. */
+  exceeding?: boolean;
 }
 
 export interface PlanEntry {

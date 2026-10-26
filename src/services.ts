@@ -1,8 +1,9 @@
 // All reads/writes to the local database go through these functions.
 
 import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from './db';
+import { CHECKIN_AREAS } from './config/checkin';
 import type {
-  Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
+  HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
   Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
@@ -12,6 +13,7 @@ import type { RosterRow, TimetableRow } from './logic/importers';
 import { today as todayISO } from './lib/dates';
 import { blitzTopic, type BlitzMark } from './logic/blitz';
 import { checkoutId, clampPct } from './logic/checkout';
+import { buildAllGood, buildIssue, checkinIdFor as swipeCheckinId, type CheckinTarget, type IssueInput, type SavedRecords } from './logic/checkin';
 import { addDays } from './lib/dates';
 
 const clean = (s?: string) => (s ?? '').trim();
@@ -35,7 +37,9 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework], async () => {
+    await db.issueTags.where('classId').equals(id).delete();
+    await db.homework.where('classId').equals(id).delete();
     await db.checkouts.where('classId').equals(id).delete();
     await db.timetable.where('classId').equals(id).delete();
     await db.plans.where('classId').equals(id).delete();
@@ -63,7 +67,9 @@ export async function updateStudent(id: string, patch: Partial<Student>) {
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework], async () => {
+    await db.issueTags.where('studentId').equals(id).delete();
+    await db.homework.where('studentId').equals(id).delete();
     await db.evidence.where('studentId').equals(id).delete();
     await db.observations.where('studentId').equals(id).delete();
     await db.checkins.where('studentId').equals(id).delete();
@@ -292,10 +298,83 @@ export async function markStatus(studentId: string, classId: string, date: strin
 
 /** Removes a check-in (e.g. undo absent/skip) so the student returns to the queue. */
 export async function undoCheckin(checkinId: string) {
-  await db.transaction('rw', db.checkins, db.observations, async () => {
+  await db.transaction('rw', db.checkins, db.observations, db.issueTags, async () => {
     await db.observations.where('checkinId').equals(checkinId).delete();
+    await db.issueTags.where('checkinId').equals(checkinId).delete();
     await db.checkins.delete(checkinId);
   });
+}
+
+/* ---------------- Swipe check-in ---------------- */
+
+/** Saves one student's check-in for a lesson, replacing anything already saved for them in that lesson. */
+async function saveRecords(r: SavedRecords): Promise<SavedRecords> {
+  await db.transaction('rw', db.checkins, db.observations, db.issueTags, async () => {
+    await db.observations.where('checkinId').equals(r.checkin.id).filter((o) => !o.exceeding).delete();
+    await db.issueTags.where('checkinId').equals(r.checkin.id).delete();
+    await db.checkins.put(r.checkin);
+    await db.observations.bulkPut(r.observations);
+    if (r.tags.length) await db.issueTags.bulkPut(r.tags);
+  });
+  return r;
+}
+
+export const logAllGood = (t: CheckinTarget) => saveRecords(buildAllGood(t));
+export const logIssue = (t: CheckinTarget, input: IssueInput) => saveRecords(buildIssue(t, input));
+
+/** "Not here": absent for this lesson, no ratings. */
+export async function markNotHere(t: CheckinTarget) {
+  const id = swipeCheckinId(t.lessonId, t.studentId);
+  await db.transaction('rw', db.checkins, db.observations, db.issueTags, async () => {
+    await db.observations.where('checkinId').equals(id).delete();
+    await db.issueTags.where('checkinId').equals(id).delete();
+    await db.checkins.put({ id, studentId: t.studentId, classId: t.classId, date: t.date, lessonId: t.lessonId, createdAt: Date.now(), status: 'absent', source: 'daily' });
+  });
+  return id;
+}
+
+/** Positive streak answer: "exceeding" in an area (or null = "No, at level"). Not asked again for 2 weeks. */
+export async function answerStreak(t: CheckinTarget, areaId: string | null) {
+  if (areaId) {
+    const area = CHECKIN_AREAS.find((a) => a.id === areaId)!;
+    const checkinId = swipeCheckinId(t.lessonId, t.studentId);
+    await db.observations.put({
+      id: `${checkinId}|exceeding|${areaId}`, checkinId, studentId: t.studentId, classId: t.classId, date: t.date, createdAt: Date.now(),
+      questionId: area.questionId, categoryId: areaId, response: 'Exceeding', level: 0, exceeding: true, source: 'observed'
+    });
+  }
+  await db.students.update(t.studentId, { streakAskedAt: t.date });
+}
+
+/** Everything the class screens need for one class. */
+export async function loadLessonContext(classId: string) {
+  const cls = await db.classes.get(classId);
+  if (!cls) return null;
+  const students = (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived);
+  const ids = students.map((s) => s.id);
+  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence] = await Promise.all([
+    db.checkins.where('classId').equals(classId).toArray(),
+    db.observations.where('classId').equals(classId).toArray(),
+    db.issueTags.where('classId').equals(classId).toArray(),
+    db.homework.where('classId').equals(classId).toArray(),
+    db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
+    db.icpChecks.where('studentId').anyOf(ids).toArray(),
+    db.evidence.where('studentId').anyOf(ids).toArray()
+  ]);
+  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence };
+}
+export type LessonContext = NonNullable<Awaited<ReturnType<typeof loadLessonContext>>>;
+
+/* ---------------- Homework check ---------------- */
+
+export async function saveHomeworkCheck(t: CheckinTarget, done: boolean, reason?: string) {
+  const row: HomeworkCheck = { id: `${t.lessonId}|${t.studentId}`, lessonId: t.lessonId, classId: t.classId, studentId: t.studentId, date: t.date, done, ...(reason ? { reason } : {}), createdAt: Date.now() };
+  await db.homework.put(row);
+  return row;
+}
+
+export async function undoHomeworkCheck(id: string) {
+  await db.homework.delete(id);
 }
 
 /* ---------------- Notes ---------------- */

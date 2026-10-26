@@ -124,7 +124,7 @@ describe('contextual follow-ups (scenarios 6 & 7)', () => {
     const f = openFollowUp([prev], 'q-focus')!;
     expect(f).not.toBeNull();
     const text = followUpPrompt('Ethan', CORE_CATEGORIES[0], f, TODAY);
-    expect(text).toContain('Last time (3 days ago), Ethan had some difficulty with effort during independent work');
+    expect(text).toContain('Last time (3 days ago), Ethan had some difficulty with attention during independent work');
     expect(text).toContain('Note: "Needed several reminders." Did this happen again?');
   });
 
@@ -159,7 +159,7 @@ describe('contextual follow-ups (scenarios 6 & 7)', () => {
 
 describe('custom questions (scenario 10)', () => {
   it('respects class scope and frequency, and returns when a follow-up is open', () => {
-    const custom = { ...CORE_QUESTIONS[0], id: 'q-x', builtIn: false, categoryId: 'org', classIds: ['c1'], frequencyDays: 7, order: 9 };
+    const custom = { ...CORE_QUESTIONS[0], id: 'q-x', builtIn: false, enabled: true, categoryId: 'org', classIds: ['c1'], frequencyDays: 7, order: 9 };
     const qs = [...CORE_QUESTIONS, custom];
     const s = mkStudent(1);
     expect(dueQuestions(qs, s, 'c1', [], TODAY).map((q) => q.id)).toContain('q-x');
@@ -183,7 +183,7 @@ describe('trends', () => {
     const obs = levels.map((l, i) => mkObs('s1', addDays(TODAY, -21 + i * 3), l, { categoryId: 'homework' }));
     const t = categoryTrend(obs, cat, TODAY);
     expect(t.status).toBe('improving');
-    expect(t.summary).toMatch(/Prepared for class has improved over the last 3 weeks/);
+    expect(t.summary).toMatch(/Preparedness has improved over the last 3 weeks/);
   });
   it('reports stability and recurring contexts as facts', () => {
     const obs = [0, 1, 2, 3].map((i) => mkObs('s1', addDays(TODAY, -i * 4), 1, { context: 'Independent work' }));

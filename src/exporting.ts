@@ -2,8 +2,10 @@
 
 import { db, getSettings, sortedCategories } from './db';
 import type { Category, Checkin, IcpAdjustment, IcpCheck, Observation, Student, StudentNote } from './types';
-import { computePriority, lastCheckedDate } from './logic/priority';
-import { allOpenFollowUps } from './logic/followups';
+import { lastCheckedDate } from './logic/priority';
+import { needByStudent, needWords, type NeedRow } from './logic/need';
+import { lessonIdFor, openFollow, type OpenFollow } from './logic/checkin';
+import { HOMEWORK_REASONS, subLabel } from './config/checkin';
 import { categoryTrend } from './logic/trends';
 import { compareBeforeAfter, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from './logic/icp';
 import { makeScrubber, pseudonymMap } from './logic/deidentify';
@@ -61,13 +63,18 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     ? allStudents.filter((s) => s.id === o.studentId)
     : allStudents.filter((s) => o.classIds.includes(s.classId));
   const ids = students.map((s) => s.id);
-  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll] = await Promise.all([
+  const classIds = [...new Set(students.map((s) => s.classId))];
+  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework] = await Promise.all([
     db.observations.where('studentId').anyOf(ids).toArray(), db.checkins.where('studentId').anyOf(ids).toArray(),
     db.notes.where('studentId').anyOf(ids).toArray(), db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
     o.kind === 'class' ? db.checkouts.where('classId').anyOf(o.classIds).toArray() : Promise.resolve([]),
-    o.kind === 'student' && o.includeIcp ? db.evidence.where('studentId').anyOf(ids).toArray() : Promise.resolve([])
+    o.kind === 'student' && o.includeIcp ? db.evidence.where('studentId').anyOf(ids).toArray() : Promise.resolve([]),
+    db.checkins.where('classId').anyOf(classIds).toArray(), db.observations.where('classId').anyOf(classIds).toArray(),
+    db.issueTags.where('classId').anyOf(classIds).toArray(), db.homework.where('classId').anyOf(classIds).toArray()
   ]);
+  const tagsAll = classTags.filter((t) => ids.includes(t.studentId));
+  const homeworkAll = classHomework.filter((h) => ids.includes(h.studentId));
   const inRange = (d: string) => (!o.from || d >= o.from) && (!o.to || d <= o.to);
   const cats = new Set(o.categoryIds);
   const observations = observationsAll.filter((x) => !x.blitz && inRange(x.date) && cats.has(x.categoryId));
@@ -77,6 +84,9 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
   const icpChecks = icpAll.filter((x) => inRange(x.date));
   const checkouts = checkoutsAll.filter((x) => inRange(x.date));
   const evidence = evidenceAll.filter((x) => inRange(x.date));
+  const tags = tagsAll.filter((x) => inRange(x.date));
+  const homework = homeworkAll.filter((x) => inRange(x.date));
+  const need = needByStudent(allStudents.filter((s) => classIds.includes(s.classId)), classCheckins, classObs, classTags, classHomework, date, lessonIdFor);
 
   // Pseudonyms are assigned over every student in the selected classes so they stay stable across the report.
   const pseudoPool = o.kind === 'student' ? allStudents.filter((s) => s.classId === students[0]?.classId) : students;
@@ -93,25 +103,21 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
   const usedCats = categories.filter((c) => cats.has(c.id));
   const qText = (id: string, s: Student) => (questions.find((q) => q.id === id)?.text ?? '').replace(/\{name\}/g, o.deidentify ? 'the student' : s.preferredName || s.firstName);
 
-  const per = new Map(students.map((s) => {
-    const sObs = observationsAll.filter((x) => x.studentId === s.id);
-    const sChk = checkinsAll.filter((x) => x.studentId === s.id && x.date <= date);
-    return [s.id, {
-      priority: computePriority(s, sObs, sChk, questions.filter((q) => q.enabled), categories, date),
-      open: allOpenFollowUps(sObs, questions.filter((q) => q.enabled))
-    }];
-  }));
+  const per = new Map(students.map((s) => [s.id, {
+    need: need.get(s.id),
+    open: openFollow(checkinsAll.filter((x) => x.studentId === s.id && x.date <= date), observationsAll.filter((x) => x.studentId === s.id), tagsAll.filter((x) => x.studentId === s.id))
+  }]));
 
   const chkWeight = new Map(checkinsAll.map((c) => [c.id, c.weight]));
   const obsRows = (list: Observation[]): Cell[][] => [
-    [...studentHead, 'Class', 'Date', 'Category', 'Question', 'Response', 'Difficulty level (0–2)', 'Follow-up outcome', 'Context', ...(o.includeNotes ? ['Teacher notes'] : []), 'Draw weight at check-in', 'Current draw weight', 'Flagged', 'Follow-up currently open'],
+    [...studentHead, 'Class', 'Date', 'Category', 'Question', 'Response', 'Recorded as', 'Difficulty level (0–2)', 'Follow-up outcome', 'Context', ...(o.includeNotes ? ['Teacher notes'] : []), 'Draw weight at check-in (older check-ins)', 'Recent concerns now', 'Flagged', 'Follow-up currently open'],
     ...list.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt).map((x) => {
       const s = students.find((st) => st.id === x.studentId)!;
       const p = per.get(s.id)!;
       return [
-        ...studentCols(s), cls(x.classId), formatDate(x.date), catName(x.categoryId), qText(x.questionId, s), x.response,
+        ...studentCols(s), cls(x.classId), formatDate(x.date), catName(x.categoryId), qText(x.questionId, s), x.response, x.source ?? 'observed',
         x.level ?? '', x.followUp ? x.followUp.outcome : '', x.context ?? '', ...(o.includeNotes ? [text(x.note)] : []),
-        chkWeight.get(x.checkinId) ?? '', p.priority.weight, s.flag ? 'Yes' : 'No', p.open.some((f) => f.questionId === x.questionId) ? 'Yes' : 'No'
+        chkWeight.get(x.checkinId) ?? '', p.need?.concern ?? '', s.flag ? 'Yes' : 'No', p.open && p.open.summary.checkin.id === x.checkinId && (x.level ?? 0) >= 1 ? 'Yes' : 'No'
       ];
     })
   ];
@@ -160,6 +166,16 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
         ...[...evidence].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [formatDate(x.date), scrub(adjustments.find((a) => a.id === x.adjustmentId)?.title), EVIDENCE_KINDS.find((k) => k.value === x.kind)?.label ?? x.kind, ...(o.deidentify ? [] : [x.name ?? '']), ...(o.includeNotes ? [text(x.text)] : [])])] }]
     : [];
 
+  // Ticked sub-options on Issues. Unticked ones are "not flagged" and never listed.
+  const issueSheet = (): Sheet[] => tags.length
+    ? [{ name: 'Issue details', rows: [[...studentHead, 'Class', 'Date', 'Area', 'Detail', 'Recorded as'],
+        ...[...tags].sort((a, b) => a.date.localeCompare(b.date)).map((t) => [...studentCols(students.find((s) => s.id === t.studentId)!), cls(t.classId), formatDate(t.date), catName(t.areaId), subLabel(t.areaId, t.tagId), t.source])] }]
+    : [];
+  const homeworkSheet = (): Sheet[] => homework.length
+    ? [{ name: 'Homework', rows: [[...studentHead, 'Class', 'Date', 'Result', 'Reason'],
+        ...[...homework].sort((a, b) => a.date.localeCompare(b.date)).map((h) => [...studentCols(students.find((s) => s.id === h.studentId)!), cls(h.classId), formatDate(h.date), h.done ? 'Done' : 'Not done', h.reason ? HOMEWORK_REASONS.find((r) => r.id === h.reason)?.label ?? h.reason : ''])] }]
+    : [];
+
   const about: Sheet = {
     name: 'About this report',
     layout: 'pairs',
@@ -180,34 +196,35 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       ['Limitations'],
       ...LIMITATIONS.map((l) => ['', l]),
       [],
-      ['Difficulty level', '0 = as expected, 1 = some difficulty, 2 = significant difficulty, blank = not rated']
+      ['Difficulty level', '0 = meeting expectations, 1 = needs support (2 = significant difficulty, older records only), blank = not rated'],
+      ['Recorded as', 'observed = the teacher tapped it; implied = from All good or an area not tapped on an Issue; migrated = converted from an older version of the app']
     ]
   };
 
   let sheets: Sheet[];
   if (o.kind === 'class') {
-    const summary: Cell[][] = [[...studentHead, 'Class', 'Current draw weight', 'Flagged', ...(o.includeNotes ? ['Flag reason'] : []), 'Open follow-ups', 'Last check-in', 'Check-ins in period', 'Absences in period', ...usedCats.map((c) => `${c.name} trend`)]];
+    const summary: Cell[][] = [[...studentHead, 'Class', 'Recent concerns', 'Lessons since last seen', 'Flagged', ...(o.includeNotes ? ['Flag reason'] : []), 'Open follow-ups', 'Last check-in', 'Check-ins in period', 'Absences in period', ...usedCats.map((c) => `${c.name} trend`)]];
     for (const s of [...students].sort((a, b) => nameOf(a).localeCompare(nameOf(b)))) {
       const p = per.get(s.id)!;
       const sChk = checkins.filter((c) => c.studentId === s.id);
       const last = lastCheckedDate(checkinsAll.filter((c) => c.studentId === s.id));
       summary.push([
-        ...studentCols(s), cls(s.classId), p.priority.weight, s.flag ? 'Yes' : 'No', ...(o.includeNotes ? [text(s.flag?.reason)] : []),
-        p.open.map((f) => catName(f.categoryId)).join(', '), last ? formatDate(last) : '',
+        ...studentCols(s), cls(s.classId), p.need?.concern ?? 0, p.need ? p.need.lessonsSince ?? 'Never' : '', s.flag ? 'Yes' : 'No', ...(o.includeNotes ? [text(s.flag?.reason)] : []),
+        p.open ? scrub(p.open.text) : '', last ? formatDate(last) : '',
         sChk.filter((c) => c.status === 'complete' || c.status === 'partial').length, sChk.filter((c) => c.status === 'absent').length,
         ...usedCats.map((c) => TREND_TEXT[categoryTrend(observationsAll.filter((x) => x.studentId === s.id), c, o.to && o.to < date ? o.to : date).status])
       ]);
     }
-    const chkRows: Cell[][] = [[...studentHead, 'Class', 'Date', 'Status', 'Selected by', 'Draw weight at check-in']];
+    const chkRows: Cell[][] = [[...studentHead, 'Class', 'Date', 'Status', 'Result', 'Follow up next time', ...(o.includeNotes ? ['Note'] : []), 'Draw weight at check-in (older check-ins)']];
     for (const c of [...checkins].sort((a, b) => a.date.localeCompare(b.date))) {
       const s = students.find((st) => st.id === c.studentId)!;
-      chkRows.push([...studentCols(s), cls(c.classId), formatDate(c.date), c.status, c.source === 'daily' ? 'Daily rotation' : c.source === 'extra' ? 'Check More Students' : 'Teacher', c.weight ?? '']);
+      chkRows.push([...studentCols(s), cls(c.classId), formatDate(c.date), c.status === 'absent' ? 'Not here' : c.status, c.result === 'good' ? 'All good' : c.result === 'issue' ? 'Issue' : '', c.result === 'issue' ? (c.followUp === false ? 'No' : 'Yes') : '', ...(o.includeNotes ? [text(c.note)] : []), c.weight ?? '']);
     }
-    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
+    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...issueSheet(), ...homeworkSheet(), ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
   } else {
     sheets = buildStudentSheets(students[0], {
       o, date, observations, observationsAll, checkins, notes, adjustments, icpChecks, usedCats, categories,
-      p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, blitzSheet, studentHead
+      p: per.get(students[0].id)!, nameOf, cls, text, scrub, catName, obsRows, icpSheets, notesSheet, blitzSheet, studentHead, extra: [...issueSheet(), ...homeworkSheet()]
     });
     sheets.push(...evidenceSheet(), about);
   }
@@ -221,7 +238,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
 function buildStudentSheets(s: Student, c: {
   o: ExportOptions; date: string; observations: Observation[]; observationsAll: Observation[]; checkins: Checkin[]; notes: StudentNote[];
   adjustments: IcpAdjustment[]; icpChecks: IcpCheck[]; usedCats: Category[]; categories: Category[];
-  p: { priority: ReturnType<typeof computePriority>; open: ReturnType<typeof allOpenFollowUps> };
+  p: { need?: NeedRow; open: OpenFollow | null }; extra: Sheet[];
   nameOf: (s: Student) => string; cls: (id: string) => string; text: (t?: string) => string; scrub: (t?: string) => string;
   catName: (id: string) => string; obsRows: (l: Observation[]) => Cell[][]; icpSheets: () => Sheet[];
   notesSheet: (l: StudentNote[]) => Sheet[]; blitzSheet: () => Sheet[]; studentHead: string[];
@@ -233,10 +250,10 @@ function buildStudentSheets(s: Student, c: {
     ['Class', c.cls(s.classId)],
     ['Check-ins in period', checkins.filter((x) => x.status === 'complete' || x.status === 'partial').length],
     ['Absences in period', checkins.filter((x) => x.status === 'absent').length],
-    ['Current draw weight', `${p.priority.weight} (standard 1.0; range 0.5–3.0)`],
-    ...p.priority.parts.map((x) => ['  Priority factor', `${c.scrub(x.label)} (${x.delta > 0 ? '+' : ''}${x.delta.toFixed(2)})`]),
+    ['Place in the check-in queue', p.need ? needWords(p.need) : ''],
+    ...(p.need?.reasons ?? []).map((x) => ['  Because of', x]),
     ['Flagged for monitoring', s.flag ? `Yes, since ${formatDate(s.flag.since)}${o.includeNotes && s.flag.reason ? `: ${c.text(s.flag.reason)}` : ''}` : 'No'],
-    ['Open follow-ups', p.open.map((f) => c.catName(f.categoryId)).join(', ') || 'None'],
+    ['Open follow-up', p.open ? c.scrub(p.open.text) : 'None'],
     [],
     ['Category', 'Trend', 'Interpretation', 'Observed facts']
   ];
@@ -267,6 +284,7 @@ function buildStudentSheets(s: Student, c: {
   const sheets: Sheet[] = [
     { name: 'Summary', rows: sum, layout: 'pairs' },
     { name: 'Observations', rows: c.obsRows(observations) },
+    ...c.extra,
     ...c.blitzSheet(),
     { name: 'Follow-ups', rows: fu },
     { name: 'Changes over time', rows: changes },

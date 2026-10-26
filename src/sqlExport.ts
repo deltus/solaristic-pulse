@@ -15,19 +15,21 @@ const SCHEMA: Record<string, string[]> = {
   students: ['id VARCHAR(64) PRIMARY KEY', 'class_id VARCHAR(64)', 'first_name TEXT', 'last_name TEXT', 'preferred_name TEXT', 'school_id TEXT', 'archived INTEGER', 'flagged INTEGER', 'flag_reason TEXT', 'priority_adjust REAL'],
   categories: ['id VARCHAR(64) PRIMARY KEY', 'name TEXT'],
   questions: ['id VARCHAR(64) PRIMARY KEY', 'text TEXT', 'category_id VARCHAR(64)', 'built_in INTEGER', 'enabled INTEGER'],
-  checkins: ['id VARCHAR(160) PRIMARY KEY', 'student_id VARCHAR(64)', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'status VARCHAR(16)', 'source VARCHAR(16)', 'draw_weight REAL'],
-  observations: ['id VARCHAR(240) PRIMARY KEY', 'checkin_id VARCHAR(160)', 'student_id VARCHAR(64)', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'question_id VARCHAR(64)', 'category_id VARCHAR(64)', 'response TEXT', 'level INTEGER', 'follow_up_outcome VARCHAR(16)', 'follow_up_of VARCHAR(240)', 'context TEXT', 'note TEXT', 'blitz_topic VARCHAR(32)'],
+  checkins: ['id VARCHAR(160) PRIMARY KEY', 'student_id VARCHAR(64)', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'status VARCHAR(16)', 'source VARCHAR(16)', 'draw_weight REAL', 'lesson_id VARCHAR(120)', 'result VARCHAR(8)', 'follow_up INTEGER', 'note TEXT'],
+  observations: ['id VARCHAR(240) PRIMARY KEY', 'checkin_id VARCHAR(160)', 'student_id VARCHAR(64)', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'question_id VARCHAR(64)', 'category_id VARCHAR(64)', 'response TEXT', 'level INTEGER', 'follow_up_outcome VARCHAR(16)', 'follow_up_of VARCHAR(240)', 'context TEXT', 'note TEXT', 'blitz_topic VARCHAR(32)', 'recorded_as VARCHAR(10)', 'exceeding INTEGER'],
   notes: ['id VARCHAR(64) PRIMARY KEY', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'text TEXT'],
   icp_adjustments: ['id VARCHAR(64) PRIMARY KEY', 'student_id VARCHAR(64)', 'title TEXT', 'details TEXT', 'frequency VARCHAR(16)', 'start_date VARCHAR(10)', 'end_date VARCHAR(10)', 'active INTEGER'],
   icp_checks: ['id VARCHAR(160) PRIMARY KEY', 'adjustment_id VARCHAR(64)', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'outcome VARCHAR(16)', 'note TEXT'],
   timetable: ['id VARCHAR(64) PRIMARY KEY', 'class_id VARCHAR(64)', 'day INTEGER', 'start_time VARCHAR(5)', 'end_time VARCHAR(5)', 'room TEXT', 'notes TEXT'],
+  issue_tags: ['id VARCHAR(300) PRIMARY KEY', 'checkin_id VARCHAR(160)', 'student_id VARCHAR(64)', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'area_id VARCHAR(64)', 'tag_id VARCHAR(64)', 'recorded_as VARCHAR(10)'],
+  homework_checks: ['id VARCHAR(200) PRIMARY KEY', 'lesson_id VARCHAR(120)', 'class_id VARCHAR(64)', 'student_id VARCHAR(64)', 'date VARCHAR(10)', 'done INTEGER', 'reason VARCHAR(32)'],
   checkouts: ['id VARCHAR(160) PRIMARY KEY', 'class_id VARCHAR(64)', 'date VARCHAR(10)', 'timetable_id VARCHAR(64)', 'lesson_start VARCHAR(5)', 'lesson_minutes INTEGER', 'pct_working INTEGER', 'minutes_working INTEGER', 'minutes_distracted INTEGER', 'note TEXT']
 };
 
 export async function buildSqlScript(opts: { deidentify: boolean }): Promise<string> {
-  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable, checkouts] = await Promise.all([
+  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable, checkouts, tags, homework] = await Promise.all([
     getSettings(), db.classes.toArray(), db.students.toArray(), db.categories.toArray(), db.questions.toArray(), db.checkins.toArray(),
-    db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(), db.checkouts.toArray()
+    db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(), db.checkouts.toArray(), db.issueTags.toArray(), db.homework.toArray()
   ]);
   const pseudo = pseudonymMap(students);
   const scrub = opts.deidentify ? makeScrubber(students, pseudo, [settings.profile.name, settings.profile.school ?? '']) : (t?: string) => t ?? '';
@@ -39,8 +41,10 @@ export async function buildSqlScript(opts: { deidentify: boolean }): Promise<str
       : [s.id, s.classId, s.firstName, s.lastName, s.preferredName, s.externalId, b(s.archived), b(!!s.flag), s.flag?.reason, s.priorityAdjust]),
     categories: categories.map((c) => [c.id, c.name]),
     questions: questions.map((x) => [x.id, x.text, x.categoryId, b(x.builtIn), b(x.enabled)]),
-    checkins: checkins.map((c) => [c.id, c.studentId, c.classId, c.date, c.status, c.source, c.weight]),
-    observations: observations.map((o) => [o.id, o.checkinId, o.studentId, o.classId, o.date, o.questionId, o.categoryId, o.response, o.level, o.followUp?.outcome, o.followUp?.previousId, o.context, scrub(o.note), o.blitz]),
+    checkins: checkins.map((c) => [c.id, c.studentId, c.classId, c.date, c.status, c.source, c.weight, c.lessonId, c.result, c.result === 'issue' ? b(c.followUp !== false) : null, scrub(c.note)]),
+    observations: observations.map((o) => [o.id, o.checkinId, o.studentId, o.classId, o.date, o.questionId, o.categoryId, o.response, o.level, o.followUp?.outcome, o.followUp?.previousId, o.context, scrub(o.note), o.blitz, o.source ?? 'observed', b(o.exceeding)]),
+    issue_tags: tags.map((t) => [t.id, t.checkinId, t.studentId, t.classId, t.date, t.areaId, t.tagId, t.source]),
+    homework_checks: homework.map((h) => [h.id, h.lessonId, h.classId, h.studentId, h.date, b(h.done), h.reason]),
     notes: notes.map((n) => [n.id, n.studentId, n.date, scrub(n.text)]),
     icp_adjustments: adjustments.map((a) => [a.id, a.studentId, scrub(a.title), scrub(a.details), a.frequency, a.startDate, a.endDate, b(a.active)]),
     icp_checks: icpChecks.map((c) => [c.id, c.adjustmentId, c.studentId, c.date, c.outcome, scrub(c.note)]),

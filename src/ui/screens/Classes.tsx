@@ -6,8 +6,9 @@ import { parseRoster, type RosterRow } from '../../logic/importers';
 import { pickFile, readSpreadsheet } from '../../platform';
 import { saveSample } from '../../samples';
 import { DAY_NAMES, today } from '../../lib/dates';
-import { computePriority } from '../../logic/priority';
-import { WeightBadge } from './Students';
+import { needByStudent } from '../../logic/need';
+import { lessonIdFor } from '../../logic/checkin';
+import { NeedBadge } from './Students';
 import { ClassOverview } from './ClassOverview';
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, toast } from '../components';
@@ -82,7 +83,6 @@ function ClassForm({ cls, onClose }: { cls?: SchoolClass; onClose: () => void })
         <Field label="Subject"><input class="input" value={f.subject} onInput={set('subject')} /></Field>
         <Field label="Year level"><input class="input" value={f.yearLevel} onInput={set('yearLevel')} placeholder="Year 9" /></Field>
       </div>
-      <Field label="Check-ins per lesson" hint="Leave blank to use the default from Settings."><input class="input" type="number" min={1} max={40} value={f.dailyTarget} onInput={set('dailyTarget')} /></Field>
       <div class="actions"><button class="btn" onClick={onClose}>Cancel</button><button class="btn primary" disabled={!f.name.trim()} onClick={save}>Save</button></div>
     </Sheet>
   );
@@ -121,11 +121,6 @@ export function StudentForm({ classId, student, onClose }: { classId: string; st
         <Field label="Preferred name"><input class="input" value={f.preferredName} onInput={set('preferredName')} /></Field>
         <Field label="School ID (optional)"><input class="input" value={f.externalId} onInput={set('externalId')} /></Field>
       </div>
-      <Field label="Starting priority" hint="How often this student is drawn compared with others. It still adjusts automatically from your observations.">
-        <select class="input" value={f.priorityAdjust} onChange={set('priorityAdjust')}>
-          <option value="-0.5">Lower (0.5×)</option><option value="0">Standard (1×)</option><option value="0.5">Higher (1.5×)</option><option value="1">Highest (2×)</option>
-        </select>
-      </Field>
       {student && (
         <Field label="Class" hint="Moving a student keeps their history.">
           <select class="input" value={f.classId} onChange={set('classId')}>
@@ -205,14 +200,15 @@ export function ClassDetail({ id }: { id: string }) {
     timetable: await db.timetable.where('classId').equals(id).toArray(),
     observations: await db.observations.where('classId').equals(id).toArray(),
     checkins: await db.checkins.where('classId').equals(id).toArray(),
-    questions: await db.questions.filter((q) => q.enabled).toArray(),
-    categories: await db.categories.toArray()
+    tags: await db.issueTags.where('classId').equals(id).toArray(),
+    homework: await db.homework.where('classId').equals(id).toArray()
   }), [id]);
   const [sheet, setSheet] = useState<'edit' | 'student' | 'import' | 'lesson' | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   if (!data) return null;
   const { cls, students, timetable } = data;
   if (!cls) return <p>Class not found. <a href="#/classes">Back to classes</a></p>;
+  const need = needByStudent(students, data.checkins, data.observations, data.tags, data.homework, today(), lessonIdFor);
   const shown = students.filter((s) => s.archived === showArchived).sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
 
   async function archive() {
@@ -249,7 +245,7 @@ export function ClassDetail({ id }: { id: string }) {
             <a key={s.id} class="list-item" href={`#/students/${s.id}`}>
               <Avatar s={s} />
               <span class="grow"><span class="title">{displayName(s)}</span><div class="sub">{[s.preferredName && `${s.firstName} ${s.lastName}`, s.externalId].filter(Boolean).join(' · ') || ' '}</div></span>
-              <WeightBadge w={computePriority(s, data.observations.filter((o) => o.studentId === s.id), data.checkins.filter((c) => c.studentId === s.id && c.date <= today()), data.questions, data.categories, today()).weight} />
+              {need.get(s.id) && <NeedBadge r={need.get(s.id)!} />}
               {s.flag && <span class="badge flag"><Icon name="flag" /> Flagged</span>}
               <Icon name="chevron" />
             </a>

@@ -1,31 +1,34 @@
 // Top of a class page: what the class is like right now and what to do next.
 
 import { db, getSettings, sortedCategories } from '../../db';
-import { computePriority, lastCheckedDate } from '../../logic/priority';
+import { lastCheckedDate } from '../../logic/priority';
+import { needByStudent } from '../../logic/need';
+import { lessonIdFor } from '../../logic/checkin';
 import { classSuggestions, recentChange, weeklyShare, weekStart } from '../../logic/insights';
 import { implementationSummary } from '../../logic/icp';
 import { daysBetween, formatShort, today } from '../../lib/dates';
 import { useLive } from '../hooks';
 import { displayName, Icon } from '../components';
 import { TrendLine } from '../TrendLine';
-import { WeightBadge } from './Students';
+import { NeedBadge } from './Students';
 
 async function load(classId: string) {
   const students = await db.students.where('classId').equals(classId).toArray();
   const ids = students.map((s) => s.id);
-  const [observations, checkins, questions, categories, adjustments, icpChecks, settings] = await Promise.all([
+  const [observations, checkins, questions, categories, adjustments, icpChecks, settings, tags, homework] = await Promise.all([
     db.observations.where('studentId').anyOf(ids).toArray(), db.checkins.where('studentId').anyOf(ids).toArray(),
     db.questions.filter((q) => q.enabled).toArray(), sortedCategories(),
-    db.icpAdjustments.where('studentId').anyOf(ids).toArray(), db.icpChecks.where('studentId').anyOf(ids).toArray(), getSettings()
+    db.icpAdjustments.where('studentId').anyOf(ids).toArray(), db.icpChecks.where('studentId').anyOf(ids).toArray(), getSettings(),
+    db.issueTags.where('classId').equals(classId).toArray(), db.homework.where('classId').equals(classId).toArray()
   ]);
-  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings };
+  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework };
 }
 
 export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: () => void }) {
   const date = today();
   const d = useLive(() => load(classId), [classId, date]);
   if (!d || !d.students.length) return null;
-  const { students, observations, checkins, questions, categories, adjustments, icpChecks, settings } = d;
+  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework } = d;
 
   const wk = weekStart(date);
   const thisWeek = checkins.filter((c) => c.date >= wk && c.date <= date && (c.status === 'complete' || c.status === 'partial')).length;
@@ -33,10 +36,9 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
   const icpRate = implementationSummary(icpChecks.filter((c) => daysBetween(c.date, date) <= 14)).rate;
   const tips = classSuggestions({ students, checkins, observations, categories, adjustments, icpChecks, today: date, maxGapDays: settings.maxGapDays });
   const core = categories.filter((c) => c.builtIn);
-  const ranked = students
-    .map((s) => ({ s, w: computePriority(s, observations.filter((o) => o.studentId === s.id), checkins.filter((c) => c.studentId === s.id && c.date <= date), questions, categories, date).weight }))
-    .sort((a, b) => b.w - a.w)
-    .slice(0, 3);
+  const need = needByStudent(students, checkins.filter((c) => c.classId === classId), observations.filter((o) => o.classId === classId), tags, homework, date, lessonIdFor);
+  const ranked = [...need.values()].filter((r) => r.concern > 0).sort((a, b) => b.concern - a.concern).slice(0, 3)
+    .map((r) => ({ s: students.find((x) => x.id === r.studentId)!, r }));
 
   return (
     <div class="overview">
@@ -46,7 +48,10 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
         <div class="stat"><b>{icpRate === null ? '–' : `${icpRate}%`}</b><span>ICP implemented</span></div>
       </div>
 
-      <button class="btn primary block blitz-btn" onClick={onBlitz}><Icon name="bolt" /> Blitz: mark the whole class</button>
+      <div class="grid2">
+        <a class="btn primary" href={`#/class/${classId}`}><Icon name="today" /> Open class</a>
+        <button class="btn blitz-btn" onClick={onBlitz}><Icon name="bolt" /> Blitz</button>
+      </div>
 
       <div class="card">
         <span class="eyebrow">What to do</span>
@@ -73,10 +78,11 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
       </div>
 
       <div class="card">
-        <span class="eyebrow">Highest draw weight</span>
-        {ranked.map(({ s, w }) => (
+        <span class="eyebrow">Most recent concerns</span>
+        {!ranked.length && <p class="small muted">No recent concerns.</p>}
+        {ranked.map(({ s, r }) => (
           <a key={s.id} class="mini-row" href={`#/students/${s.id}`} style="text-decoration:none;color:inherit">
-            <span class="grow">{displayName(s)}</span><WeightBadge w={w} /><Icon name="chevron" />
+            <span class="grow">{displayName(s)}</span><NeedBadge r={r} /><Icon name="chevron" />
           </a>
         ))}
       </div>

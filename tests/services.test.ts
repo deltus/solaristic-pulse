@@ -225,3 +225,108 @@ describe('check-outs and evidence', () => {
     expect(await db.evidence.count()).toBe(0);
   });
 });
+
+import { lessonIdFor } from '../src/logic/checkin';
+import { migrateToSwipe } from '../src/db';
+import { sideOf } from '../src/ui/Swipe';
+import { SWIPE } from '../src/config/checkin';
+
+describe('swipe check-in (saving, back-out, undo)', () => {
+  async function setup() {
+    const c = await classWithStudents('Swipe', 3);
+    const [a, b, x] = await db.students.where('classId').equals(c.id).toArray();
+    const date = today();
+    const t = (id: string) => ({ studentId: id, classId: c.id, date, lessonId: lessonIdFor(date, c.id) });
+    return { c, a, b, x, t };
+  }
+
+  it('All good saves one check-in with every area implied as meeting expectations, and Undo removes it', async () => {
+    const { a, t } = await setup();
+    const r = await svc.logAllGood(t(a.id));
+    expect(await db.checkins.get(r.checkin.id)).toMatchObject({ result: 'good', status: 'complete' });
+    const obs = await db.observations.where('checkinId').equals(r.checkin.id).toArray();
+    expect(obs.map((o) => [o.categoryId, o.level, o.source]).sort()).toEqual([['behaviour', 0, 'implied'], ['coping', 0, 'implied'], ['focus', 0, 'implied']]);
+    expect(await db.issueTags.count()).toBe(0);
+    await svc.undoCheckin(r.checkin.id);
+    expect(await db.checkins.count()).toBe(0);
+    expect(await db.observations.count()).toBe(0);
+  });
+
+  it('Issue saves tapped areas as observed, untapped as implied, ticked sub-options only; Undo removes the details too', async () => {
+    const { b, t } = await setup();
+    const r = await svc.logIssue(t(b.id), { areas: { focus: ['off_task', 'not_listening'] }, note: 'Phone out', followUp: false });
+    const obs = await db.observations.where('checkinId').equals(r.checkin.id).toArray();
+    expect(obs.find((o) => o.categoryId === 'focus')).toMatchObject({ level: 1, source: 'observed', note: 'Phone out' });
+    expect(obs.filter((o) => o.categoryId !== 'focus').every((o) => o.level === 0 && o.source === 'implied')).toBe(true);
+    const tags = await db.issueTags.toArray();
+    expect(tags.map((x) => x.tagId).sort()).toEqual(['not_listening', 'off_task']);
+    expect(tags.some((x) => x.tagId === 'distracted' || x.tagId === 'low_effort')).toBe(false); // unticked = not flagged
+    expect((await db.checkins.get(r.checkin.id))!.followUp).toBe(false);
+    await svc.undoCheckin(r.checkin.id);
+    expect(await db.issueTags.count()).toBe(0);
+  });
+
+  it('backing out of the issue screen saves nothing; swiping All good afterwards saves All good', async () => {
+    const { x, t } = await setup();
+    // Opening the issue screen and going back makes no service call, so nothing exists yet.
+    expect(await db.checkins.count()).toBe(0);
+    const r = await svc.logAllGood(t(x.id));
+    expect(await db.checkins.count()).toBe(1);
+    expect(r.checkin.result).toBe('good');
+    // Logging again in the same lesson replaces rather than duplicates.
+    await svc.logIssue(t(x.id), { areas: { behaviour: [] } });
+    expect(await db.checkins.count()).toBe(1);
+    expect(await db.observations.count()).toBe(3);
+  });
+
+  it('Not here marks absent without ratings; homework checks and the streak answer save separately', async () => {
+    const { a, b, t } = await setup();
+    await svc.markNotHere(t(a.id));
+    expect(await db.checkins.toArray()).toMatchObject([{ status: 'absent', studentId: a.id }]);
+    expect(await db.observations.count()).toBe(0);
+    const hw = await svc.saveHomeworkCheck(t(b.id), false, 'forgot');
+    expect(await db.homework.get(hw.id)).toMatchObject({ done: false, reason: 'forgot' });
+    expect(await db.checkins.where('studentId').equals(b.id).count()).toBe(0); // not a daily check-in
+    await svc.answerStreak(t(b.id), 'behaviour');
+    expect(await db.observations.filter((o) => !!o.exceeding).toArray()).toMatchObject([{ categoryId: 'behaviour', response: 'Exceeding', level: 0, source: 'observed' }]);
+    expect((await db.students.get(b.id))!.streakAskedAt).toBe(today());
+  });
+
+  it('swipe direction comes from one setting', () => {
+    expect(SWIPE.goodDirection).toBe('right');
+    expect(sideOf('good')).toBe('right');
+    expect(sideOf('issue')).toBe('left');
+  });
+});
+
+describe('migration to the swipe check-in', () => {
+  it('renames areas, keeps Prepared for class as history, and adds a "low effort" detail to old Effort difficulties', async () => {
+    const c = await classWithStudents('Old', 1);
+    const [s] = await db.students.toArray();
+    // An older install: old names, Prepared for class switched on, question-by-question answers.
+    await db.categories.update('focus', { name: 'Effort' });
+    await db.categories.update('homework', { name: 'Prepared for class' });
+    await db.questions.update('q-homework', { enabled: true });
+    const chk = svc.checkinIdFor('2026-09-01', c.id, s.id);
+    await db.checkins.add({ id: chk, studentId: s.id, classId: c.id, date: '2026-09-01', createdAt: 1, status: 'complete', source: 'daily', weight: 1.4 });
+    const base = { checkinId: chk, studentId: s.id, classId: c.id, date: '2026-09-01', createdAt: 1 };
+    await db.observations.bulkAdd([
+      { ...base, id: `${chk}|q-focus`, questionId: 'q-focus', categoryId: 'focus', response: 'Some difficulty', level: 2 },
+      { ...base, id: `${chk}|q-homework`, questionId: 'q-homework', categoryId: 'homework', response: 'Meeting expectations', level: 0 },
+      { ...base, id: `${chk}|q-behaviour`, questionId: 'q-behaviour', categoryId: 'behaviour', response: 'Meeting expectations', level: 0 }
+    ]);
+    await db.transaction('rw', db.categories, db.questions, db.observations, db.issueTags, (tx) => migrateToSwipe(tx));
+
+    expect((await db.categories.get('focus'))!.name).toBe('Attention');
+    expect((await db.categories.get('homework'))!.name).toBe('Preparedness');
+    expect((await db.questions.get('q-homework'))!.enabled).toBe(false);
+    // Old records are untouched (append-only) and still readable.
+    expect(await db.observations.count()).toBe(3);
+    expect((await db.observations.get(`${chk}|q-homework`))!.response).toBe('Meeting expectations');
+    expect((await db.checkins.get(chk))!.weight).toBe(1.4);
+    expect(await db.issueTags.toArray()).toMatchObject([{ checkinId: chk, areaId: 'focus', tagId: 'low_effort', source: 'migrated' }]);
+    // Running it twice changes nothing more.
+    await db.transaction('rw', db.categories, db.questions, db.observations, db.issueTags, (tx) => migrateToSwipe(tx));
+    expect(await db.issueTags.count()).toBe(1);
+  });
+});

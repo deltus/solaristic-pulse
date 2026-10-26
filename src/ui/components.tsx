@@ -130,21 +130,30 @@ export function PageHead({ eyebrow, title, children, back }: { eyebrow?: string;
 }
 
 /* ---------- Toast ---------- */
-let pushToast: (msg: string) => void = () => {};
-export function toast(msg: string) {
-  pushToast(msg);
+export interface ToastAction { label: string; run: () => void; seconds?: number }
+let pushToast: (msg: string, action?: ToastAction) => void = () => {};
+/** Short message at the bottom of the screen; with an action (e.g. Undo) it stays a little longer. */
+export function toast(msg: string, action?: ToastAction) {
+  pushToast(msg, action);
 }
 export function ToastHost() {
-  const [msg, setMsg] = useState<string | null>(null);
+  const [t, setT] = useState<{ msg: string; action?: ToastAction; n: number } | null>(null);
   useEffect(() => {
-    let t: ReturnType<typeof setTimeout>;
-    pushToast = (m) => {
-      setMsg(m);
-      clearTimeout(t);
-      t = setTimeout(() => setMsg(null), 2600);
+    let timer: ReturnType<typeof setTimeout>;
+    let n = 0;
+    pushToast = (msg, action) => {
+      setT({ msg, action, n: ++n });
+      clearTimeout(timer);
+      timer = setTimeout(() => setT(null), action ? (action.seconds ?? 5) * 1000 : 2600);
     };
   }, []);
-  return msg ? <div class="toast" role="status">{msg}</div> : null;
+  if (!t) return null;
+  return (
+    <div key={t.n} class={`toast ${t.action ? 'with-action' : ''}`} role="status">
+      <span>{t.msg}</span>
+      {t.action && <button class="toast-btn" onClick={() => { setT(null); t.action!.run(); }}>{t.action.label}</button>}
+    </div>
+  );
 }
 
 export const levelClass = (l: number | null | undefined) => (l === 0 ? 'l0' : l === 1 ? 'l1' : l === 2 ? 'l2' : 'ln');

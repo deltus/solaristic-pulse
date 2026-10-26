@@ -2,8 +2,9 @@ import type { JSX } from 'preact';
 import { useState } from 'preact/hooks';
 import { db, getSettings, saveSettings, sortedCategories } from '../../db';
 import * as svc from '../../services';
-import { computePriority, lastCheckedDate, ADJUST_MAX, ADJUST_MIN, WEIGHT_MAX, WEIGHT_MIN } from '../../logic/priority';
-import { allOpenFollowUps } from '../../logic/followups';
+import { lastCheckedDate } from '../../logic/priority';
+import { needByStudent, needWords, type NeedRow } from '../../logic/need';
+import { lessonIdFor, openFollow, followLead } from '../../logic/checkin';
 import { categoryTrend } from '../../logic/trends';
 import { rollingShare } from '../../logic/insights';
 import { TrendLine } from '../TrendLine';
@@ -13,6 +14,8 @@ import { daysBetween, formatDate, formatShort, relativeDay, today } from '../../
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Icon, PageHead, levelBadge, toast } from '../components';
 import { StudentForm } from './Classes';
+import { homeworkText } from './Homework';
+import { subLabel } from '../../config/checkin';
 
 type Filter = 'all' | 'flagged' | 'followup' | 'overdue' | 'archived';
 
@@ -21,17 +24,19 @@ export function StudentsScreen() {
   const [filter, setFilter] = useState<Filter>('all');
   const [classId, setClassId] = useState('');
   const data = useLive(async () => {
-    const [classes, students, observations, checkins, questions, settings, categories] = await Promise.all([
+    const [classes, students, observations, checkins, tags, homework, settings] = await Promise.all([
       db.classes.toArray(), db.students.toArray(), db.observations.toArray(), db.checkins.toArray(),
-      db.questions.filter((x) => x.enabled).toArray(), getSettings(), db.categories.toArray()
+      db.issueTags.toArray(), db.homework.toArray(), getSettings()
     ]);
-    return { classes, students, observations, checkins, questions, settings, categories };
+    return { classes, students, observations, checkins, tags, homework, settings };
   }, []);
   if (!data) return null;
   const date = today();
   const obsBy = group(data.observations, (o) => o.studentId);
   const chkBy = group(data.checkins, (c) => c.studentId);
   const className = (id: string) => data.classes.find((c) => c.id === id)?.name ?? '';
+  const need = needByStudent(data.students, data.checkins, data.observations, data.tags, data.homework, date, lessonIdFor);
+  const tagBy = group(data.tags, (t) => t.studentId);
 
   const rows = data.students
     .filter((s) => (filter === 'archived' ? s.archived : !s.archived))
@@ -40,9 +45,8 @@ export function StudentsScreen() {
     .map((s) => {
       const last = lastCheckedDate(chkBy.get(s.id) ?? []);
       const days = last ? daysBetween(last, date) : null;
-      const follow = allOpenFollowUps(obsBy.get(s.id) ?? [], data.questions).length;
-      const weight = computePriority(s, obsBy.get(s.id) ?? [], (chkBy.get(s.id) ?? []).filter((c) => c.date <= date), data.questions, data.categories, date).weight;
-      return { s, last, days, follow, weight, overdue: days === null || days >= data.settings.maxGapDays };
+      const follow = openFollow(chkBy.get(s.id) ?? [], obsBy.get(s.id) ?? [], tagBy.get(s.id) ?? []) ? 1 : 0;
+      return { s, last, days, follow, row: need.get(s.id), overdue: days === null || days >= data.settings.maxGapDays };
     })
     .filter((r) => filter !== 'flagged' || r.s.flag)
     .filter((r) => filter !== 'followup' || r.follow)
@@ -63,16 +67,16 @@ export function StudentsScreen() {
       </div>
       {rows.length ? (
         <div class="list">
-          {rows.map(({ s, last, follow, overdue, weight }) => (
+          {rows.map(({ s, last, follow, overdue, row }) => (
             <a key={s.id} class="list-item" href={`#/students/${s.id}`}>
               <Avatar s={s} />
               <span class="grow">
                 <span class="title">{displayName(s)}</span>
                 <div class="sub">{className(s.classId)} · {last ? `checked ${relativeDay(last)}` : 'not yet checked in'}</div>
               </span>
-              <WeightBadge w={weight} />
+              {row && <NeedBadge r={row} />}
               {s.flag && <span class="badge flag"><Icon name="flag" /></span>}
-              {follow > 0 && <span class="badge some">{follow} follow-up</span>}
+              {follow > 0 && <span class="badge some">Follow-up</span>}
               {overdue && !s.archived && <span class="badge">Overdue</span>}
             </a>
           ))}
@@ -93,13 +97,19 @@ export function StudentProfile({ id }: { id: string }) {
   const data = useLive(async () => {
     const student = await db.students.get(id);
     if (!student) return { student: undefined };
-    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable] = await Promise.all([
+    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework] = await Promise.all([
       db.classes.get(student.classId), db.observations.where('studentId').equals(id).toArray(), db.checkins.where('studentId').equals(id).toArray(),
       db.questions.filter((q) => q.enabled).toArray(), db.questions.toArray(), sortedCategories(), db.notes.where('studentId').equals(id).toArray(),
       db.icpAdjustments.where('studentId').equals(id).toArray(), db.icpChecks.where('studentId').equals(id).toArray(),
-      db.timetable.where('classId').equals(student.classId).toArray()
+      db.timetable.where('classId').equals(student.classId).toArray(),
+      db.students.where('classId').equals(student.classId).toArray(), db.checkins.where('classId').equals(student.classId).toArray(),
+      db.observations.where('classId').equals(student.classId).toArray(), db.issueTags.where('classId').equals(student.classId).toArray(),
+      db.homework.where('classId').equals(student.classId).toArray()
     ]);
-    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable };
+    const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), lessonIdFor).get(id);
+    const tags = classTags.filter((t) => t.studentId === id);
+    const homework = classHomework.filter((h) => h.studentId === id);
+    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework };
   }, [id]);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
@@ -107,9 +117,8 @@ export function StudentProfile({ id }: { id: string }) {
 
   if (!data) return null;
   if (!data.student) return <p>Student not found. <a href="#/students">Back</a></p>;
-  const { student: s, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable } = data as Required<typeof data>;
-  const priority = computePriority(s, observations, checkins.filter((c) => c.date <= date), questions, categories, date);
-  const follow = allOpenFollowUps(observations, questions);
+  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework } = data as Required<typeof data>;
+  const follow = openFollow(checkins, observations, tags);
   const catName = (cid: string) => categories.find((c) => c.id === cid)?.name ?? cid;
   const usedCats = categories.filter((c) => c.builtIn || observations.some((o) => o.categoryId === c.id));
   const last = lastCheckedDate(checkins);
@@ -127,9 +136,8 @@ export function StudentProfile({ id }: { id: string }) {
     }
   }
   async function checkNow() {
-    await svc.addToPlan(s.classId, date, s.id);
     await saveSettings({ currentClassId: s.classId });
-    go('today');
+    go(`class/${s.classId}/student/${s.id}`);
   }
   async function archive() {
     await svc.updateStudent(s.id, { archived: !s.archived });
@@ -149,7 +157,14 @@ export function StudentProfile({ id }: { id: string }) {
   for (const c of checkins) {
     if (c.status === 'absent' || c.status === 'skipped') items.push({ date: c.date, t: c.createdAt, kind: 'status', el: <div class="tl-item"><span class="badge">{c.status === 'absent' ? 'Absent' : 'Skipped'}</span></div> });
   }
+  for (const c of checkins) {
+    if (c.result === 'good') items.push({ date: c.date, t: c.createdAt, kind: 'status', el: <div class="tl-item"><span class="badge blue">All good</span></div> });
+  }
+  for (const h of homework) items.push({ date: h.date, t: h.createdAt, kind: 'hw', el: <div class={`tl-item ${h.done ? '' : 'difficulty'}`}><span class="label-tag">Homework</span><span class="badge">{homeworkText(h)}</span></div> });
   for (const o of observations) {
+    // Implied values (All good, untapped areas) are summarised by the "All good" line above.
+    if (o.source === 'implied') continue;
+    const subs = tags.filter((t) => t.checkinId === o.checkinId && t.areaId === o.categoryId).map((t) => subLabel(t.areaId, t.tagId).toLowerCase());
     const q = allQuestions.find((x) => x.id === o.questionId);
     items.push({
       date: o.date, t: o.createdAt, kind: 'obs',
@@ -157,6 +172,7 @@ export function StudentProfile({ id }: { id: string }) {
         <div class={`tl-item ${o.level === 2 ? 'sig' : o.level === 1 ? 'difficulty' : ''}`}>
           <span class="label-tag">{catName(o.categoryId)}</span>
           <span class={`badge ${levelBadge(o.level)}`}>{o.blitz ? `Blitz · ${blitzTopic(o.blitz)?.label ?? o.blitz}: ${o.response}` : o.followUp ? `Follow-up: ${o.response}` : o.response}</span>
+          {subs.length > 0 && <span class="small"> · {subs.join(', ')}</span>}
           {o.context && <span class="tiny muted"> · {o.context}</span>}
           {q && !q.builtIn && <div class="tiny muted">{q.text.replace(/\{name\}/g, s.preferredName || s.firstName)}</div>}
           {o.note && <div class="small">{o.note}</div>}
@@ -190,11 +206,22 @@ export function StudentProfile({ id }: { id: string }) {
 
       <div class="grid2">
         <div class="card flat" style="margin:0"><span class="eyebrow">Last check-in</span><b>{last ? relativeDay(last) : 'Never'}</b><div class="tiny muted">{checkins.filter((c) => c.status === 'complete' || c.status === 'partial').length} check-ins · {absences} absences</div></div>
-        <div class="card flat" style="margin:0"><span class="eyebrow">Open follow-ups</span><b>{follow.length ? follow.map((f) => catName(f.categoryId)).join(', ') : 'None'}</b><div class="tiny muted">Asked again at the next check-in</div></div>
+        <div class="card flat" style="margin:0"><span class="eyebrow">Open follow-up</span><b>{follow ? follow.text : 'None'}</b><div class="tiny muted">{follow ? `${followLead(follow, date)} · shown on the next check-in` : 'Shown on the card at the next check-in'}</div></div>
       </div>
 
-      <div class="section"><h2>Draw weight</h2></div>
-      <PriorityCard studentId={s.id} weight={priority.weight} raw={priority.raw} parts={priority.parts} adjust={s.priorityAdjust} />
+      <div class="section"><h2>Place in the queue</h2></div>
+      {row && <NeedCard r={row} />}
+
+      {homework.length > 0 && (
+        <>
+          <div class="section"><h2>Homework</h2><span class="tiny muted">last 5 checks</span></div>
+          <div class="card flat" style="padding:4px 14px">
+            {[...homework].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5).map((h) => (
+              <div key={h.id} class="recent-row"><span class="grow">{formatShort(h.date)}</span><span class={`status ${h.done ? 'meeting' : 'support'}`}>{homeworkText(h)}</span></div>
+            ))}
+          </div>
+        </>
+      )}
 
       <div class="section"><h2>Trends</h2><span class="tiny muted">last 8 weeks · includes Blitz</span></div>
       <div class="legend" style="margin-bottom:8px"><span><i style="background:var(--ok)" />Meeting expectations</span><span><i style="background:var(--some)" />Needs support</span><span>Line: share of the last 5 answers meeting expectations</span></div>
@@ -262,39 +289,31 @@ export function StudentProfile({ id }: { id: string }) {
   );
 }
 
-function PriorityCard({ studentId, weight, raw, parts, adjust }: { studentId: string; weight: number; raw: number; parts: { label: string; delta: number }[]; adjust: number }) {
+function NeedCard({ r }: { r: NeedRow }) {
   const [open, setOpen] = useState(false);
-  const desc = weight > 1.05 ? 'Checked more often than standard' : weight < 0.95 ? 'Checked a little less often than standard' : 'Standard priority';
   return (
     <div class="card">
       <div class="row between">
-        <div><div class="weight">{weight.toFixed(2)}×</div><div class="small muted">{desc} (1.00)</div></div>
+        <b>{needWords(r)}</b>
         <button class="btn small ghost" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'How this works'}</button>
       </div>
-      <ul class="parts">
-        <li><span>Base priority</span><b>1.00</b></li>
-        {parts.map((p) => <li key={p.label}><span>{p.label}</span><b>{p.delta > 0 ? '+' : ''}{p.delta.toFixed(2)}</b></li>)}
-        {raw !== weight && <li><span>Limited to the allowed range</span><b>{WEIGHT_MIN}–{WEIGHT_MAX}</b></li>}
-      </ul>
-      <div class="divider" />
-      <label class="field" style="margin:0">
-        <span>Teacher adjustment: {adjust > 0 ? '+' : ''}{adjust.toFixed(2)}</span>
-        <input type="range" min={ADJUST_MIN} max={ADJUST_MAX} step={0.25} value={adjust} onChange={(e) => svc.setPriorityAdjust(studentId, Number((e.target as HTMLInputElement).value))} />
-      </label>
-      <div class="row between tiny muted"><span>Less often</span><span>More often</span></div>
-      <div class="actions"><button class="btn small" onClick={async () => { await svc.resetPriority(studentId); toast('Manual priority reset (flag and adjustment cleared)'); }}>Reset manual priority</button></div>
+      {r.reasons.length > 0 && <ul class="parts">{r.reasons.map((x) => <li key={x}><span>{x}</span></li>)}</ul>}
       {open && (
         <div class="small muted stack" style="margin-top:10px">
-          <p>Each lesson the app ranks students by <b>priority × (days since last check-in + 1)</b>, so everyone's turn comes round and higher-priority students come round sooner. A priority of 2.0 means roughly twice as often as 1.0.</p>
-          <p>Priority starts at 1.0 and is always kept between {WEIGHT_MIN} and {WEIGHT_MAX}. It rises with a teacher flag, open follow-ups or <i>repeated</i> difficulties (two or more in four weeks; one difficulty alone never counts), and eases with reported improvement or when the student has already had several check-ins this week.</p>
-          <p>Absences, skipped check-ins and “unsure” answers never count against a student. Anyone not checked for the coverage limit set in Settings is put at the front of the queue regardless of priority.</p>
+          <p>The daily check-in shows the class as a queue, most need first. Need adds up two things: <b>recent concerns</b> (issues, Blitz "No"s and homework not done, each counting half as much after two weeks, plus an open follow-up or a flag) and <b>lessons since last seen</b> in this class.</p>
+          <p>Everyone starts at 0 concerns, and students who haven't been seen yet come first, so a new class works through everyone before anyone comes up twice. After that, students with recent concerns come up about twice as often.</p>
+          <p>"Not here" and skipped students never count against anyone.</p>
         </div>
       )}
     </div>
   );
 }
 
-/** Draw weight shown as a multiplier: 1× is standard. */
-export function WeightBadge({ w }: { w: number }) {
-  return <span class={`wt ${w > 1.05 ? 'up' : w < 0.95 ? 'down' : ''}`} title="Draw weight: how often this student comes up compared with standard (1×)">{w.toFixed(1)}×</span>;
+/** Compact need on lists: concerns (if any) and lessons since last seen. */
+export function NeedBadge({ r }: { r: Pick<NeedRow, 'concern' | 'lessonsSince'> }) {
+  return (
+    <span class={`wt ${r.concern >= 1 ? 'up' : ''}`} title={needWords(r)}>
+      {r.concern > 0 ? `${r.concern} · ` : ''}{r.lessonsSince === null ? 'new' : `${r.lessonsSince}L`}
+    </span>
+  );
 }

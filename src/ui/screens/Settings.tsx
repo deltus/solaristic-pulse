@@ -96,13 +96,9 @@ function CheckinSection({ s }: { s: Settings }) {
   const [tags, setTags] = useState(s.contextTags.join(', '));
   return (
     <div class="card">
-      <Field label="Check-ins per class per day" hint="Can be overridden per class.">
-        <input class="input" type="number" min={1} max={40} value={s.dailyTarget} onChange={(e) => saveSettings({ dailyTarget: Math.max(1, Math.min(40, Number((e.target as HTMLInputElement).value) || 5)) })} />
-      </Field>
-      <Field label="Coverage limit (days)" hint="A student not checked for this many days goes to the front of the queue, whatever their priority. Keep it larger than class size ÷ daily target × days between lessons.">
+      <Field label="Coverage limit (days)" hint="Students not checked for this many days are marked Overdue on the Students page.">
         <input class="input" type="number" min={3} max={60} value={s.maxGapDays} onChange={(e) => saveSettings({ maxGapDays: Math.max(3, Math.min(60, Number((e.target as HTMLInputElement).value) || 14)) })} />
       </Field>
-      <Switch label="Move to the next student automatically" hint="After every question for a student is answered." checked={s.autoAdvance} onChange={(v) => saveSettings({ autoAdvance: v })} />
       <Field label="Quick context tags" hint="Comma separated. Shown when adding detail to an answer.">
         <input class="input" value={tags} onInput={(e) => setTags((e.target as HTMLInputElement).value)} onBlur={() => saveSettings({ contextTags: tags.split(',').map((t) => t.trim()).filter(Boolean) })} />
       </Field>

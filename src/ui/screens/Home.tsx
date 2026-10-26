@@ -34,28 +34,25 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
   const rows = classes.map((c) => {
     const lessons = timetable.filter((t) => t.classId === c.id && t.day === wd).sort((a, b) => a.start.localeCompare(b.start));
     const done = checkins.filter((k) => k.classId === c.id && (k.status === 'complete' || k.status === 'partial')).length;
-    const target = c.dailyTarget ?? settings.dailyTarget;
     const ids = new Set(students.filter((s) => s.classId === c.id && !s.archived).map((s) => s.id));
     const icpDue = adjustments.filter((a) => ids.has(a.studentId) && a.active && icpDueStatus(a, icpChecks, date, true).due).length;
-    return { c, lesson: lessons[0], done, target, icpDue, size: ids.size, now: reminder.current?.classId === c.id };
+    return { c, lesson: lessons[0], done, icpDue, size: ids.size, now: reminder.current?.classId === c.id };
   });
   const todays = rows.filter((r) => r.lesson || r.done > 0).sort((a, b) => Number(b.now) - Number(a.now) || (a.lesson?.start ?? '99').localeCompare(b.lesson?.start ?? '99'));
   const others = rows.filter((r) => !todays.includes(r)).sort((a, b) => a.c.name.localeCompare(b.c.name));
-  const allDone = todays.length > 0 && todays.every((r) => r.done >= r.target);
 
-  const open = async (id: string) => { await saveSettings({ currentClassId: id }); go('today'); };
+  const open = async (id: string) => { await saveSettings({ currentClassId: id }); go(`class/${id}`); };
   const card = (r: (typeof rows)[number]) => {
-    const pct = Math.min(100, Math.round((r.done / Math.max(1, r.target)) * 100));
-    const finished = r.done >= r.target;
+    const pct = Math.min(100, Math.round((r.done / Math.max(1, r.size)) * 100));
     return (
-      <button key={r.c.id} class={`class-card ${r.now ? 'now' : ''} ${finished ? 'finished' : ''}`} onClick={() => open(r.c.id)}>
+      <button key={r.c.id} class={`class-card ${r.now ? 'now' : ''}`} onClick={() => open(r.c.id)}>
         <div class="row between">
           <span class="class-card-name">{r.c.name}</span>
-          {r.now ? <span class="badge blue">Now</span> : finished ? <span class="badge ok"><Icon name="check" /> Done</span> : r.lesson ? <span class="tiny muted mono">{r.lesson.start}</span> : null}
+          {r.now ? <span class="badge blue">Now</span> : r.lesson ? <span class="tiny muted mono">{r.lesson.start}</span> : null}
         </div>
         <div class="tiny muted">{[r.lesson?.room, `${r.size} students`, r.icpDue ? `${r.icpDue} ICP due` : ''].filter(Boolean).join(' · ')}</div>
         <div class="class-progress"><i style={{ width: `${pct}%` }} /></div>
-        <div class="row between tiny"><span class="muted">{r.done}/{r.target} check-ins</span><span class="class-go">{finished ? 'Review' : r.done ? 'Continue' : 'Start'} <Icon name="arrow" /></span></div>
+        <div class="row between tiny"><span class="muted">{r.done ? `${r.done} seen today` : 'Not started today'}</span><span class="class-go">Open <Icon name="arrow" /></span></div>
       </button>
     );
   };
@@ -63,10 +60,9 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
   return (
     <div>
       <span class="eyebrow">{formatShort(date)}</span>
-      <h1 class="home-title">{allDone ? `All done for today${first ? `, ${first}` : ''}` : 'Your classes'}</h1>
-      <p class="muted small" style="margin:4px 0 16px">{allDone ? 'Every class has had its check-ins. See you next lesson.' : todays.length ? 'Tap a class to start its check-ins.' : 'No lessons on your timetable today. Pick any class.'}</p>
+      <h1 class="home-title">{first ? `Hi ${first}` : 'Your classes'}</h1>
+      <p class="muted small" style="margin:4px 0 16px">{todays.length ? 'Tap a class to open it.' : 'No lessons on your timetable today. Pick any class.'}</p>
       <CheckoutPrompt date={date} classes={classes} timetable={timetable} done={checkouts} settings={settings} />
-      {allDone && <div class="done-state" style="padding:4px 0 14px"><div class="check"><Icon name="check" /></div></div>}
       {todays.length > 0 && <><div class="section" style="margin-top:6px"><h3 class="grow">Today</h3></div><div class="class-grid">{todays.map(card)}</div></>}
       {others.length > 0 && <><div class="section"><h3 class="grow">{todays.length ? 'Other classes' : 'Classes'}</h3></div><div class="class-grid">{others.map(card)}</div></>}
     </div>

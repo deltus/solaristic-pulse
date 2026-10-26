@@ -4,7 +4,9 @@ import { Icon, Sheet, ToastHost } from './components';
 import { LockScreen } from './Lock';
 import { Setup } from './Setup';
 import { Tour } from './Tour';
-import { TodayScreen } from './screens/Today';
+import { ClassHub, TodayScreen } from './screens/Today';
+import { CheckinScreen, SelectStudentScreen } from './screens/Checkin';
+import { HomeworkScreen } from './screens/Homework';
 import { HomeScreen } from './screens/Home';
 import { BlitzScreen } from './screens/Blitz';
 import { CheckoutScreen } from './screens/Checkout';
@@ -73,8 +75,8 @@ export function App() {
   if (locked && settings.pin) return <LockScreen pin={settings.pin} name={settings.profile.name} onUnlock={() => setLocked(false)} />;
   if (!settings.onboarded) return <Setup />;
 
-  const [page = 'home', id, sub] = route;
-  const currentClass = classes?.find((c) => c.id === settings.currentClassId) ?? classes?.[0];
+  const [page = 'home', id, sub, extra] = route;
+  const currentClass = classes?.find((c) => c.id === (page === 'class' && id ? id : settings.currentClassId)) ?? classes?.[0];
   let screen;
   switch (page) {
     case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} fromClassPage /> : id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
@@ -83,11 +85,19 @@ export function App() {
     case 'reports': screen = <ReportsScreen studentId={id} />; break;
     case 'settings': screen = <SettingsScreen section={id} sub={sub} />; break;
     case 'today': screen = <TodayScreen reminder={reminder} />; break;
+    case 'class':
+      screen = !id ? <TodayScreen reminder={reminder} />
+        : sub === 'checkin' ? <CheckinScreen classId={id} />
+        : sub === 'student' && extra ? <CheckinScreen key={extra} classId={id} studentId={extra} />
+        : sub === 'homework' ? <HomeworkScreen classId={id} />
+        : sub === 'select' ? <SelectStudentScreen classId={id} />
+        : <ClassHub classId={id} reminder={reminder} />;
+      break;
     case 'blitz': screen = <BlitzScreen classId={id} />; break;
     case 'checkout': screen = id ? <CheckoutScreen classId={id} timetableId={sub} /> : <HomeScreen reminder={reminder} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }
-  const isToday = page === 'today';
+  const isToday = page === 'today' || page === 'class';
   const isHome = !isToday && !NAV.some((n) => n.path === page && n.path !== 'home');
 
   return (
@@ -142,7 +152,7 @@ function ClassPicker({ classes, current, reminder, onClose }: { classes: { id: s
         {sorted.map((c) => {
           const l = todays.find((t) => t.classId === c.id);
           return (
-            <button key={c.id} class="list-item" onClick={() => { saveSettings({ currentClassId: c.id }); onClose(); }}>
+            <button key={c.id} class="list-item" onClick={() => { saveSettings({ currentClassId: c.id }); location.hash = `#/class/${c.id}`; onClose(); }}>
               <span class="grow"><span class="title">{c.name}</span>{l && <div class="sub">Today {l.start}{l.room ? ` · ${l.room}` : ''}</div>}</span>
               {reminder.current?.classId === c.id && <span class="badge blue">Now</span>}
               {c.id === current && <Icon name="check" />}

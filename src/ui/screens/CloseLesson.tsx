@@ -4,7 +4,7 @@
 import { useState } from 'preact/hooks';
 import type { Happy, PlanDone } from '../../types';
 import * as svc from '../../services';
-import { CHECKOUT_START, clampPct, zoneFor } from '../../logic/checkout';
+import { clampPct, zoneFor } from '../../logic/checkout';
 import { lessonName, REMIND_LATER_MIN } from '../../logic/lessons';
 import { formatShort } from '../../lib/dates';
 import { go, useLive } from '../hooks';
@@ -30,17 +30,19 @@ export function CloseLessonScreen({ classId }: { classId: string }) {
 }
 
 function CloseForm({ classId, className, lesson }: { classId: string; className: string; lesson: NonNullable<svc.LessonContext['lesson']> }) {
-  // The dial starts at 50% every time (no anchoring); attention is only saved once it's moved.
-  const [pct, setPct] = useState(lesson.attentionPct ?? CHECKOUT_START);
-  const [touched, setTouched] = useState(lesson.attentionPct !== undefined);
+  // No preset needle (no anchoring): it appears where the teacher first taps. "Skip" leaves attention out.
+  const [pct, setPct] = useState<number | null>(lesson.attentionPct ?? null);
+  const [skipped, setSkipped] = useState(false);
   const [hwSet, setHwSet] = useState(!!lesson.homeworkSet);
   const [hwText, setHwText] = useState(lesson.homeworkText ?? '');
   const [happy, setHappy] = useState<Happy | undefined>(lesson.happy);
   const [plan, setPlan] = useState<PlanDone | undefined>(lesson.planDone);
   const [note, setNote] = useState(lesson.note ?? '');
-  const answers = () => ({ attentionPct: touched ? pct : undefined, homeworkSet: hwSet, homeworkText: hwText, happy, planDone: plan, note });
-  const zone = zoneFor(pct);
-  const move = (v: number) => { setTouched(true); setPct(clampPct(v)); };
+  const answers = () => ({ attentionPct: pct ?? undefined, homeworkSet: hwSet, homeworkText: hwText, happy, planDone: plan, note });
+  const zone = pct === null ? null : zoneFor(pct);
+  const move = (v: number) => { setSkipped(false); setPct(clampPct(v)); };
+  const attentionDone = pct !== null || skipped;
+  const ready = attentionDone && !!happy && !!plan;
 
   async function close() {
     await svc.closeLesson(lesson.id, answers());
@@ -62,20 +64,23 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
       <div class="cc-head"><h1>{lesson.intention ? lessonName(lesson) : className}</h1></div>
 
       <section class="close-part">
-        <h3>Class attention <span class="tiny muted">optional</span></h3>
+        <h3>Class attention</h3>
         <p class="small muted">Roughly how much of the lesson was the class on task?</p>
         <div class="speedo-wrap">
           <Speedometer value={pct} onChange={move} label="Share of the lesson the class was on task" />
           <div class="speedo-readout">
-            <button class="round-btn" aria-label="Down 1%" onClick={() => move(pct - 1)}><Icon name="minus" /></button>
+            <button class="round-btn" aria-label="Down 1%" onClick={() => move((pct ?? 75) - 1)}><Icon name="minus" /></button>
             <div class="grow">
-              <div class="speedo-value">{touched ? `${pct}%` : '–'}</div>
-              <div class="speedo-zone-label" style={{ color: touched ? ZONE_COLOUR[zone.zone] : 'var(--muted)' }}>{touched ? zone.label : 'Move the dial to record'}</div>
+              <div class="speedo-value">{pct !== null ? `${pct}%` : skipped ? 'Skipped' : '–'}</div>
+              <div class="speedo-zone-label" style={{ color: zone ? ZONE_COLOUR[zone.zone] : 'var(--muted)' }}>{zone ? zone.label : skipped ? 'Not recorded' : 'Tap the dial'}</div>
             </div>
-            <button class="round-btn" aria-label="Up 1%" onClick={() => move(pct + 1)}><Icon name="plus" /></button>
+            <button class="round-btn" aria-label="Up 1%" onClick={() => move((pct ?? 75) + 1)}><Icon name="plus" /></button>
           </div>
         </div>
-        {touched && <button class="link-btn tiny" onClick={() => { setTouched(false); setPct(CHECKOUT_START); }}>Clear</button>}
+        <div class="row between">
+          {pct !== null ? <button class="link-btn tiny" onClick={() => setPct(null)}>Clear</button> : <span />}
+          {!skipped && <button class="link-btn tiny" onClick={() => { setPct(null); setSkipped(true); }}>Skip</button>}
+        </div>
       </section>
 
       <section class="close-part">
@@ -94,8 +99,8 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
         <p class="tiny muted">Your answers are private to you. They feed "My teaching" and are never in reports or shared exports.</p>
       </section>
 
-      <button class="btn primary big block" disabled={!happy || !plan} onClick={close}><Icon name="check" /> Close lesson</button>
-      {(!happy || !plan) && <p class="hold-hint">Answer the two teacher questions to close.</p>}
+      <button class="btn primary block" disabled={!ready} onClick={close}><Icon name="check" /> Close lesson</button>
+      {!ready && <p class="hold-hint">{!attentionDone ? 'Set the class attention (or tap Skip)' : ''}{!attentionDone && (!happy || !plan) ? ' and answer' : !happy || !plan ? 'Answer' : ''}{!happy || !plan ? ' the two teacher questions' : ''} to close.</p>}
       <button class="btn ghost block" style="margin-top:8px" onClick={later}><Icon name="clock" /> Remind me in {REMIND_LATER_MIN} minutes</button>
     </div>
   );

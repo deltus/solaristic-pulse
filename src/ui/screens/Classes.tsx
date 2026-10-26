@@ -12,23 +12,53 @@ import { ClassOverview } from './ClassOverview';
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, toast } from '../components';
 
+/** Classes by name, subject or year level; students by first, last or preferred name. */
+export function searchClassesAndStudents(classes: SchoolClass[], students: Student[], q: string) {
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return { classes, students: [] as Student[] };
+  const hit = (text: string) => words.every((w) => text.toLowerCase().includes(w));
+  return {
+    classes: classes.filter((c) => hit([c.name, c.subject, c.yearLevel].filter(Boolean).join(' '))),
+    students: students.filter((s) => !s.archived && hit([s.firstName, s.lastName, s.preferredName].filter(Boolean).join(' ')))
+      .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName))
+  };
+}
+
 export function ClassesScreen() {
   const [showArchived, setShowArchived] = useState(false);
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [q, setQ] = useState('');
   const data = useLive(async () => ({
     classes: await db.classes.toArray(),
     students: await db.students.toArray(),
     timetable: await db.timetable.toArray()
   }), []);
   if (!data) return null;
-  const list = data.classes.filter((c) => c.archived === showArchived).sort((a, b) => a.name.localeCompare(b.name));
+  const match = searchClassesAndStudents(data.classes, data.students, q);
+  const list = data.classes.filter((c) => c.archived === showArchived && (!q.trim() || match.classes.includes(c))).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div>
       <PageHead eyebrow="Classes" title="Your classes">
         <button class="btn primary small" onClick={() => setAdding(true)}><Icon name="plus" /> New class</button>
       </PageHead>
+      <input class="input" type="search" placeholder="Search classes or students" aria-label="Search classes or students" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} style="margin-bottom:10px" />
+      {q.trim() !== '' && match.students.length > 0 && (
+        <>
+          <div class="section" style="margin-top:4px"><h3 class="grow">Students</h3><span class="tiny muted mono">{match.students.length}</span></div>
+          <div class="list" style="margin-bottom:12px">
+            {match.students.slice(0, 8).map((s) => (
+              <a key={s.id} class="list-item" href={`#/students/${s.id}`}>
+                <Avatar s={s} />
+                <span class="grow"><span class="title">{displayName(s)}</span><div class="sub">{data.classes.find((c) => c.id === s.classId)?.name ?? ''}</div></span>
+                <Icon name="chevron" />
+              </a>
+            ))}
+          </div>
+          <div class="section"><h3 class="grow">Classes</h3></div>
+        </>
+      )}
       <div class="row wrap" style="margin-bottom:12px">
         <button class="btn small" onClick={() => setImporting(true)}><Icon name="upload" /> Import roster (CSV/XLSX)</button>
         <a class="btn small" href="#/settings/timetable"><Icon name="calendar" /> Timetable</a>
@@ -53,7 +83,7 @@ export function ClassesScreen() {
           })}
         </div>
       ) : (
-        <div class="card"><Empty icon="classes">{showArchived ? 'No archived classes.' : 'No classes yet. Create one, or import a roster with a Class column to create several at once.'}</Empty></div>
+        <div class="card"><Empty icon="classes">{q.trim() ? `No classes match “${q.trim()}”.` : showArchived ? 'No archived classes.' : 'No classes yet. Create one, or import a roster with a Class column to create several at once.'}</Empty></div>
       )}
       {adding && <ClassForm onClose={() => setAdding(false)} />}
       {importing && <RosterImport onClose={() => setImporting(false)} />}

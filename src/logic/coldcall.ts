@@ -78,3 +78,35 @@ export function classColdCallSummary(students: Student[], calls: ColdCall[], tod
   const week = calls.filter((c) => { const d = daysBetween(c.date, today); return d >= 0 && d < 7; });
   return { waiting, weekGoodPct: week.length ? Math.round((week.filter((c) => c.result === 'good').length / week.length) * 100) : null, weekCount: week.length };
 }
+
+/** Shuffle animation: names flick by, ending on the student who was already chosen. */
+export const SHUFFLE_MS = 1100;
+export interface ShufflePlan { frames: { at: number; name: string }[]; total: number }
+
+export function planShuffle(names: string[], chosen: string, opts: { animate: boolean; reduceMotion?: boolean }, random: () => number, ms = SHUFFLE_MS): ShufflePlan {
+  if (!opts.animate || opts.reduceMotion || names.length < 2) return { frames: [{ at: 0, name: chosen }], total: 0 };
+  const frames: { at: number; name: string }[] = [];
+  // Flicks start fast and slow down towards the end.
+  for (let t = 0, step = 55; t < ms - 120; t += step, step *= 1.12) frames.push({ at: Math.round(t), name: names[Math.floor(random() * names.length)] });
+  frames.push({ at: ms, name: chosen });
+  return { frames, total: ms };
+}
+
+/** What a tap on the shuffle shows: always the chosen student, straight away. */
+export const skipShuffle = (plan: ShufflePlan) => plan.frames[plan.frames.length - 1].name;
+
+export interface RecentColdCalls { count: number; goodPct: number | null; prevCount: number; prevGoodPct: number | null; trend: 'up' | 'flat' | 'down' | null }
+
+/** Cold calls in the class's last 5 lessons (and the 5 before) for the student page. */
+export function coldCallsLastLessons(calls: ColdCall[], lessons: Lesson[], classId: string, studentId: string, n = 5): RecentColdCalls {
+  const order = lessons.filter((l) => l.classId === classId).sort((a, b) => b.openedAt - a.openedAt);
+  const lastIds = new Set(order.slice(0, n).map((l) => l.id)), prevIds = new Set(order.slice(n, n * 2).map((l) => l.id));
+  const mine = calls.filter((c) => c.studentId === studentId);
+  const stat = (ids: Set<string>) => {
+    const xs = mine.filter((c) => ids.has(c.lessonId));
+    return { count: xs.length, pct: xs.length ? Math.round((xs.filter((c) => c.result === 'good').length / xs.length) * 100) : null };
+  };
+  const a = stat(lastIds), b = stat(prevIds);
+  const trend = a.pct === null || b.pct === null ? null : a.pct - b.pct >= 10 ? 'up' : b.pct - a.pct >= 10 ? 'down' : 'flat';
+  return { count: a.count, goodPct: a.pct, prevCount: b.count, prevGoodPct: b.pct, trend };
+}

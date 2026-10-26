@@ -25,7 +25,9 @@ function useBlobUrl(blob?: Blob) {
   return url;
 }
 
-export function EvidenceSheet({ adj, onClose, reason }: { adj: IcpAdjustment; onClose: () => void; reason?: string }) {
+/** For an ICP adjustment (`adj`), or for a daily check-in (`checkin`: "Include evidence?" on an Issue). */
+export function EvidenceSheet({ adj, checkin, onClose, reason }: { adj?: IcpAdjustment; checkin?: { id: string; studentId: string; label: string }; onClose: () => void; reason?: string }) {
+  const owner: svc.EvidenceOwner = adj ? { studentId: adj.studentId, adjustmentId: adj.id } : { studentId: checkin!.studentId, checkinId: checkin!.id };
   const prompted = !!reason;
   const [note, setNote] = useState('');
   const [added, setAdded] = useState<string[]>([]);
@@ -41,7 +43,7 @@ export function EvidenceSheet({ adj, onClose, reason }: { adj: IcpAdjustment; on
         const kind: EvidenceKind = f.type.startsWith('image/') ? 'photo' : f.type.startsWith('audio/') ? 'voice' : 'file';
         const blob = kind === 'photo' ? await compressImage(f) : f;
         const name = kind === 'photo' && blob !== f ? f.name.replace(/\.\w+$/, '') + '.jpg' : f.name;
-        await svc.addEvidence(adj, { kind, blob, name });
+        await svc.addEvidence(owner, { kind, blob, name });
         setAdded((a) => [...a, `${EVIDENCE_KINDS.find((k) => k.value === kind)!.label}: ${name}`]);
       }
     } finally { setBusy(false); }
@@ -49,9 +51,9 @@ export function EvidenceSheet({ adj, onClose, reason }: { adj: IcpAdjustment; on
 
   return (
     <Sheet title="Add evidence" onClose={onClose}>
-      <div class="row between" style="margin:0 0 4px"><b class="small">{adj.title}</b>{FREE_WHILE_TESTING && <span class="badge blue">Pro · free while testing</span>}</div>
+      <div class="row between" style="margin:0 0 4px"><b class="small">{adj ? adj.title : checkin!.label}</b>{FREE_WHILE_TESTING && <span class="badge blue">Pro · free while testing</span>}</div>
       {reason && <p class="small" style="margin:0 0 4px">{reason}</p>}
-      {adj.evidence?.prompt && <p class="small muted" style="margin:0 0 10px">{adj.evidence.prompt}</p>}
+      {adj?.evidence?.prompt && <p class="small muted" style="margin:0 0 10px">{adj.evidence.prompt}</p>}
       <p class="tiny muted evidence-tip"><Icon name="info" /> Photograph the work, not the student.</p>
 
       <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles((e.target as HTMLInputElement).files); (e.target as HTMLInputElement).value = ''; }} />
@@ -61,11 +63,11 @@ export function EvidenceSheet({ adj, onClose, reason }: { adj: IcpAdjustment; on
         <button class="btn" disabled={busy} onClick={() => upload.current?.click()}><Icon name="upload" /> Upload a file</button>
         <button class="btn" disabled={busy} onClick={() => camera.current?.click()}><Icon name="camera" /> Take a picture</button>
       </div>
-      <VoiceRecorder adj={adj} onSaved={(label) => setAdded((a) => [...a, label])} />
+      <VoiceRecorder owner={owner} onSaved={(label) => setAdded((a) => [...a, label])} />
       <div class="note-box">
           <div class="note-title">Note</div>
           <textarea class="input" value={note} placeholder="What you saw, e.g. completed all three steps with the checklist" onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)} />
-          <button class="btn small" style="margin-top:8px" disabled={!note.trim()} onClick={async () => { await svc.addEvidence(adj, { kind: 'note', text: note }); setAdded((a) => [...a, 'Note']); setNote(''); }}>Save note</button>
+          <button class="btn small" style="margin-top:8px" disabled={!note.trim()} onClick={async () => { await svc.addEvidence(owner, { kind: 'note', text: note }); setAdded((a) => [...a, 'Note']); setNote(''); }}>Save note</button>
       </div>
 
       {added.length > 0 && (
@@ -75,14 +77,14 @@ export function EvidenceSheet({ adj, onClose, reason }: { adj: IcpAdjustment; on
       )}
       <p class="tiny muted" style="margin-top:12px">Evidence stays on this device. It isn't synced or included in backups.</p>
       <div class="actions">
-        {prompted && !added.length && <button class="btn ghost" onClick={async () => { await svc.snoozeEvidence(adj); onClose(); }}>Not today</button>}
+        {prompted && adj && !added.length && <button class="btn ghost" onClick={async () => { await svc.snoozeEvidence(adj); onClose(); }}>Not today</button>}
         <button class="btn primary" onClick={() => { if (added.length) toast('Evidence saved'); onClose(); }}>{added.length ? 'Done' : 'Close'}</button>
       </div>
     </Sheet>
   );
 }
 
-function VoiceRecorder({ adj, onSaved }: { adj: IcpAdjustment; onSaved: (label: string) => void }) {
+function VoiceRecorder({ owner, onSaved }: { owner: svc.EvidenceOwner; onSaved: (label: string) => void }) {
   const [rec, setRec] = useState<MediaRecorder | null>(null);
   const [secs, setSecs] = useState(0);
   const upload = useRef<HTMLInputElement>(null);
@@ -103,7 +105,7 @@ function VoiceRecorder({ adj, onSaved }: { adj: IcpAdjustment; onSaved: (label: 
       r.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks.current, { type: r.mimeType || 'audio/webm' });
-        if (blob.size) { await svc.addEvidence(adj, { kind: 'voice', blob, name: 'voice-memo' }); onSaved('Voice memo'); }
+        if (blob.size) { await svc.addEvidence(owner, { kind: 'voice', blob, name: 'voice-memo' }); onSaved('Voice memo'); }
       };
       r.start();
       setSecs(0);
@@ -117,7 +119,7 @@ function VoiceRecorder({ adj, onSaved }: { adj: IcpAdjustment; onSaved: (label: 
     <>
       <input ref={upload} type="file" accept="audio/*" hidden onChange={async (e) => {
         const f = (e.target as HTMLInputElement).files?.[0];
-        if (f) { await svc.addEvidence(adj, { kind: 'voice', blob: f, name: f.name }); onSaved(`Voice memo: ${f.name}`); }
+        if (f) { await svc.addEvidence(owner, { kind: 'voice', blob: f, name: f.name }); onSaved(`Voice memo: ${f.name}`); }
         (e.target as HTMLInputElement).value = '';
       }} />
       <button class="link-btn tiny" onClick={() => upload.current?.click()}>Upload a recording</button>

@@ -76,6 +76,11 @@ export class PulseDB extends Dexie {
     this.version(8).stores({ lessons: 'id, classId, date, status', coldCalls: 'id, studentId, classId, lessonId, date' }).upgrade(async (tx) => {
       await addHistoricalLessons(tx);
     });
+    // v9: coping note tags follow the new coping list; evidence can belong to a check-in.
+    this.version(9).stores({ evidence: 'id, studentId, adjustmentId, checkinId, date' }).upgrade(async (tx) => {
+      const coping = CORE_CATEGORIES.find((c) => c.id === 'coping')!;
+      await tx.table('categories').update('coping', { tags: coping.tags });
+    });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -107,7 +112,7 @@ export const CORE_CATEGORIES: Category[] = [
   { id: 'focus', name: 'Attention', phrase: 'attention', builtIn: true, notePrompt: 'What got in the way?', tags: ['Independent work', 'Group work', 'Whole class', 'Devices'] },
   { id: 'homework', name: 'Preparedness', phrase: 'being prepared for class', builtIn: true, notePrompt: 'What was missing?', tags: ['Homework', 'Equipment', 'Uniform', 'Late'] },
   { id: 'behaviour', name: 'Behaviour', phrase: 'behaviour', builtIn: true, notePrompt: 'What happened?', tags: ['Peers', 'Instructions', 'Transitions', 'Language'] },
-  { id: 'coping', name: 'Coping with work', phrase: 'coping with the work', builtIn: true, notePrompt: 'What were they finding hard?', tags: ['Content', 'Workload', 'Pace', 'Wellbeing'] }
+  { id: 'coping', name: 'Coping with work', phrase: 'coping with the work', builtIn: true, notePrompt: 'What were they finding hard?', tags: ['Workload', 'Pace', 'Content', 'Dysregulated', 'Withdrawn'] }
 ];
 
 const core = { allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true };

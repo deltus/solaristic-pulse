@@ -8,7 +8,8 @@ import { implementationSummary } from '../../logic/icp';
 import { daysBetween, formatShort, today } from '../../lib/dates';
 import { useLive } from '../hooks';
 import { displayName, Icon } from '../components';
-import { TrendLine } from '../TrendLine';
+import { MultiTrendLine, TrendLine } from '../TrendLine';
+import { classColdCallRate, successSeries, weeksAgo } from '../../logic/classStats';
 import { NeedBadge } from './Students';
 
 async function load(classId: string) {
@@ -21,14 +22,18 @@ async function load(classId: string) {
     db.issueTags.where('classId').equals(classId).toArray(), db.homework.where('classId').equals(classId).toArray()
   ]);
   const lessons = await db.lessons.where('classId').equals(classId).toArray();
-  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons };
+  const coldCalls = await db.coldCalls.where('classId').equals(classId).toArray();
+  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons, coldCalls };
 }
 
 export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: () => void }) {
   const date = today();
   const d = useLive(() => load(classId), [classId, date]);
   if (!d || !d.students.length) return null;
-  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons } = d;
+  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons, coldCalls } = d;
+  const success = successSeries({ observations: observations.filter((o) => o.classId === classId), checkins: checkins.filter((c) => c.classId === classId), lessons, today: date });
+  const cc = classColdCallRate(coldCalls, date);
+  const latest = (v: (number | null)[]) => { const x = [...v].reverse().find((y) => y !== null); return x === undefined || x === null ? null : Math.round(x * 100); };
 
   const wk = weekStart(date);
   const thisWeek = checkins.filter((c) => c.date >= wk && c.date <= date && (c.status === 'complete' || c.status === 'partial')).length;
@@ -48,9 +53,26 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
         <div class="stat"><b>{icpRate === null ? '–' : `${icpRate}%`}</b><span>ICP implemented</span></div>
       </div>
 
-      <div class="grid2">
+      <div class="grid2 overview-actions">
         <a class="btn primary" href={`#/class/${classId}`}><Icon name="today" /> Open class</a>
-        <button class="btn blitz-btn" onClick={onBlitz}><Icon name="bolt" /> Blitz</button>
+        <button class="btn" onClick={onBlitz}><Icon name="bolt" /> Blitz</button>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">Check-in success rate · % meeting expectations per {success.unit}</span>
+        <MultiTrendLine series={success.series} labels={success.labels} />
+        <div class="success-latest">
+          {success.series.map((s) => { const v = latest(s.values); return <span key={s.id}><i style={{ background: s.colour }} />{s.label}: <b>{v === null ? '–' : `${v}%`}</b></span>; })}
+        </div>
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">Cold calls · % answered well</span>
+        <div class="row between" style="margin:4px 0">
+          <span class="small">Last 7 days: <b>{cc.last7 === null ? '–' : `${cc.last7}%`}</b></span>
+          <span class="small">Overall: <b>{cc.overall === null ? '–' : `${cc.overall}%`}</b> <span class="tiny muted">({cc.total})</span></span>
+        </div>
+        <TrendLine values={cc.weekly} height={44} labels={[weeksAgo(cc.weeks - 1), 'this week']} />
       </div>
 
       <div class="card">

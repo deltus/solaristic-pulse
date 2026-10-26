@@ -302,7 +302,8 @@ export async function markStatus(studentId: string, classId: string, date: strin
 
 /** Removes a check-in (e.g. undo absent/skip) so the student returns to the queue. */
 export async function undoCheckin(checkinId: string) {
-  await db.transaction('rw', db.checkins, db.observations, db.issueTags, async () => {
+  await db.transaction('rw', db.checkins, db.observations, db.issueTags, db.evidence, async () => {
+    await db.evidence.where('checkinId').equals(checkinId).delete();
     await db.observations.where('checkinId').equals(checkinId).delete();
     await db.issueTags.where('checkinId').equals(checkinId).delete();
     await db.checkins.delete(checkinId);
@@ -505,15 +506,24 @@ export async function snoozeEvidence(adj: IcpAdjustment, date: string = todayISO
   await db.icpAdjustments.update(adj.id, { evidence: { ...adj.evidence, snoozedUntil: addDays(date, 1) } });
 }
 
-export async function addEvidence(adj: Pick<IcpAdjustment, 'id' | 'studentId'>, item: { kind: EvidenceKind; blob?: Blob; name?: string; text?: string }, date: string = todayISO()): Promise<EvidenceItem> {
+/** Who a piece of evidence belongs to: an ICP adjustment, or a daily check-in ("Include evidence?"). */
+export type EvidenceOwner = { studentId: string; adjustmentId?: string; checkinId?: string };
+const ownerOf = (o: Pick<IcpAdjustment, 'id' | 'studentId'> | EvidenceOwner): EvidenceOwner =>
+  'id' in o ? { studentId: o.studentId, adjustmentId: o.id } : o;
+
+export async function addEvidence(owner: Pick<IcpAdjustment, 'id' | 'studentId'> | EvidenceOwner, item: { kind: EvidenceKind; blob?: Blob; name?: string; text?: string }, date: string = todayISO()): Promise<EvidenceItem> {
+  const o = ownerOf(owner);
   const e: EvidenceItem = {
-    id: newId(), studentId: adj.studentId, adjustmentId: adj.id, date, kind: item.kind, createdAt: Date.now(),
+    id: newId(), studentId: o.studentId, ...(o.adjustmentId ? { adjustmentId: o.adjustmentId } : {}), ...(o.checkinId ? { checkinId: o.checkinId } : {}),
+    date, kind: item.kind, createdAt: Date.now(),
     ...(item.blob ? { blob: item.blob, mime: item.blob.type, size: item.blob.size, name: item.name } : {}),
     ...(clean(item.text) ? { text: clean(item.text) } : {})
   };
   await db.evidence.add(e);
   return e;
 }
+
+export const countEvidence = (checkinId: string) => db.evidence.where('checkinId').equals(checkinId).count();
 
 export async function updateEvidenceText(id: string, text: string) {
   await db.evidence.update(id, { text: clean(text) || undefined });

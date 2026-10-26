@@ -6,14 +6,15 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IcpAdjustment, IcpOutcome, Student } from '../../types';
 import * as svc from '../../services';
 import { CHECKIN_AREAS, UNDO_SECONDS, type CheckinArea } from '../../config/checkin';
-import { lessonOf, openFollow, followLead, recentSummaries, streakDue, summaryText, type CheckinTarget } from '../../logic/checkin';
+import { areaAverage, checkinIdFor, lessonOf, openFollow, followLead, streakDue, type CheckinTarget } from '../../logic/checkin';
+import { issueSwipe, type IssueOutcome } from '../../logic/swipe';
 import { needWords, rankByNeed, type NeedRow } from '../../logic/need';
 import { icpDueStatus } from '../../logic/icp';
 import { evidenceDue } from '../../logic/evidence';
 import { hasFeature } from '../../features';
-import { formatShort, today } from '../../lib/dates';
+import { today } from '../../lib/dates';
 import { go, useLive } from '../hooks';
-import { displayName, Empty, Icon, initials, toast } from '../components';
+import { displayName, Empty, Icon, initials, Switch, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { EvidencePrompt, EvidenceSheet } from '../Evidence';
 
@@ -36,6 +37,11 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [note, setNote] = useState('');
   const [follow, setFollow] = useState(true);
+  /** "Add note / evidence" tapped on the issue screen: swipe right goes to "Anything else?". */
+  const [wantsDetails, setWantsDetails] = useState(false);
+  const [withEvidence, setWithEvidence] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceCount, setEvidenceCount] = useState(0);
   const [tick, setTick] = useState(0);
   // ICP adjustments for the ICP step, fixed when the step opens (answering one marks it done for today).
   const [icpList, setIcpList] = useState<IcpAdjustment[]>([]);
@@ -59,7 +65,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const back = `#/class/${classId}`;
   const target = (id: string): CheckinTarget => ({ studentId: id, classId, date, lessonId });
 
-  function reset() { setStep('card'); setPicked({}); setNote(''); setFollow(true); }
+  function reset() { setStep('card'); setPicked({}); setNote(''); setFollow(true); setWantsDetails(false); setWithEvidence(false); setEvidenceOpen(false); setEvidenceCount(0); }
   function moveOn() {
     reset();
     if (single) { go(`class/${classId}`); return; }
@@ -128,9 +134,8 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const sChk = ctx.checkins.filter((c) => c.studentId === s.id);
   const sObs = ctx.observations.filter((o) => o.studentId === s.id);
   const sTags = ctx.tags.filter((t) => t.studentId === s.id);
-  const recent = recentSummaries(sChk, sObs, sTags, 3);
+  const hasIcp = ctx.adjustments.some((a) => a.studentId === s.id && a.active);
   const fu = openFollow(sChk, sObs, sTags, lessonId);
-  const due = icpDue(s.id);
   const askStreak = step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
   const already = sChk.find((c) => lessonOf(c) === lessonId);
   const good = { side: sideOf('good'), btn: <button class="btn big good-btn" onClick={() => card.current?.fling('good')}><Icon name="check" /> All good</button> };
@@ -147,16 +152,24 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
             <div class="row" style="gap:12px">
               <span class="avatar big">{initials(s)}</span>
               <div class="grow">
-                <h1 class="card-name">{displayName(s)} {s.flag && <Icon name="flag" class="flag" />}</h1>
+                <h1 class="card-name">{displayName(s)} {s.flag && <Icon name="flag" class="flag" />}{hasIcp && <span class="icp-mark" title="Has ICP adjustments">ICP</span>}</h1>
                 {row && <div class="tiny muted">{needWords(row)}</div>}
               </div>
             </div>
             {already && <p class="tiny muted" style="margin:8px 0 0">Already logged this lesson ({already.status === 'absent' ? 'not here' : already.result === 'issue' ? 'issue' : 'all good'}). Logging again replaces it.</p>}
-            <div class="recent-chips">
-              {recent.length ? recent.map((r) => <span key={r.checkin.id} class={`chip small result-${r.kind}`} title={formatShort(r.checkin.date)}>{summaryText(r)}</span>) : <span class="tiny muted">No check-ins yet</span>}
+            <div class="area-rows">
+              {CHECKIN_AREAS.map((a) => {
+                const av = areaAverage(sObs, a.id);
+                return (
+                  <div key={a.id} class="area-row">
+                    <span class="grow">{a.name}</span>
+                    <span class="small">{av.total ? `Meets ${av.meets} of last ${av.total}` : <span class="muted">No answers yet</span>}</span>
+                    <span class={`trend-arrow ${av.trend ?? 'none'}`} aria-label={av.trend ? `Trend ${av.trend}` : 'No trend yet'}>{av.trend === 'up' ? '↑' : av.trend === 'down' ? '↓' : av.trend === 'flat' ? '→' : ''}</span>
+                  </div>
+                );
+              })}
             </div>
             {fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
-            {due.length > 0 && <div class="icp-chips">{due.map((a) => <span key={a.id} class="badge burgundy">ICP: {a.title}</span>)}</div>}
             {askStreak && (
               <div class="streak-box pop-in">
                 <b class="small">Consistently good lately. Exceeding in any area?</b>
@@ -191,17 +204,28 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       )}
 
       {step === 'issue' && (
-        <IssueStep s={s} picked={picked} setPicked={setPicked} onBack={() => reset()} onNext={() => setStep('details')} />
+        <IssueStep s={s} picked={picked} setPicked={setPicked} wantsDetails={wantsDetails} setWantsDetails={setWantsDetails}
+          onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'details') setStep('details'); else if (o === 'back' || o === 'cancel') reset(); }} />
       )}
 
       {step === 'details' && (
         <div class="fade-up">
           <div class="cc-eyebrow">Issue · {displayName(s)}</div>
-          <h2 style="margin:6px 0 12px">Anything to add?</h2>
+          <h2 style="margin:6px 0 12px">Anything else?</h2>
           {picked.coping !== undefined && <p class="small" style="margin:0 0 6px"><b>Coping with work:</b> a short note helps next time.</p>}
           <textarea class="input" autoFocus value={note} placeholder={picked.coping !== undefined ? 'What did you notice?' : 'Note (optional)'} onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)} />
           {picked.coping !== undefined && <p class="tiny muted safety-line">{CHECKIN_AREAS.find((a) => a.id === 'coping')!.safetyLine}</p>}
           <label class="check-row"><input type="checkbox" checked={follow} onChange={(e) => setFollow((e.target as HTMLInputElement).checked)} /> Follow up next time</label>
+          {hasFeature('evidence') && (
+            <div class="evidence-toggle">
+              <Switch label="Include evidence?" hint="A photo of the work, a file, a note or a voice memo. Stays on this device." checked={withEvidence} onChange={(v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }} />
+              {withEvidence && <button class="btn small" onClick={() => setEvidenceOpen(true)}><Icon name="camera" /> {evidenceCount ? `${evidenceCount} added · add more` : 'Add evidence'}</button>}
+            </div>
+          )}
+          {evidenceOpen && (
+            <EvidenceSheet checkin={{ id: checkinIdFor(lessonId, s.id), studentId: s.id, label: `Check-in · ${displayName(s)}` }}
+              onClose={async () => { setEvidenceOpen(false); setEvidenceCount(await svc.countEvidence(checkinIdFor(lessonId, s.id))); }} />
+          )}
           <div class="grid2" style="margin-top:14px">
             <button class="btn" onClick={() => setStep('issue')}><Icon name="back" /> Back</button>
             <button class="btn primary" onClick={() => saveIssue(s.id)}>Save <Icon name="check" /></button>
@@ -215,43 +239,66 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   );
 }
 
-/** Issue screen: tap areas, tick sub-options. Swipe towards "good" (or Back) returns with nothing saved. */
-function IssueStep({ s, picked, setPicked, onBack, onNext }: { s: Student; picked: Record<string, string[]>; setPicked: (f: (p: Record<string, string[]>) => Record<string, string[]>) => void; onBack: () => void; onNext: () => void }) {
-  const toggleArea = (a: CheckinArea) => setPicked((p) => {
-    const next = { ...p };
-    if (next[a.id]) delete next[a.id]; else next[a.id] = [];
-    return next;
-  });
+/**
+ * Issue screen: tap areas, tick sub-options. Swipe right (towards "good") when done: it saves,
+ * or goes to "Anything else?" for Coping or "Add note / evidence"; with nothing ticked it goes back.
+ * Swipe left cancels. Next is pinned to the bottom so it is always on screen.
+ */
+function IssueStep({ s, picked, setPicked, wantsDetails, setWantsDetails, onOutcome }: {
+  s: Student; picked: Record<string, string[]>; setPicked: (f: (p: Record<string, string[]>) => Record<string, string[]>) => void;
+  wantsDetails: boolean; setWantsDetails: (v: boolean) => void; onOutcome: (o: IssueOutcome) => void;
+}) {
+  const refs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [opened, setOpened] = useState<string | null>(null);
+  // Bring a newly opened area (and its options) into view.
+  useEffect(() => {
+    if (!opened) return;
+    const t = setTimeout(() => refs.current[opened]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
+    return () => clearTimeout(t);
+  }, [opened]);
+  const toggleArea = (a: CheckinArea) => {
+    if (picked[a.id] === undefined) setOpened(a.id);
+    setPicked((p) => {
+      const next = { ...p };
+      if (next[a.id]) delete next[a.id]; else next[a.id] = [];
+      return next;
+    });
+  };
   const toggleSub = (a: CheckinArea, sub: string) => setPicked((p) => {
     const cur = p[a.id] ?? [];
     return { ...p, [a.id]: cur.includes(sub) ? cur.filter((x) => x !== sub) : [...cur, sub] };
   });
+  const any = Object.keys(picked).length > 0;
+  const done = issueSwipe('good', picked, wantsDetails);
   return (
-    <SwipeCard onSwipe={(a) => a === 'good' && onBack()} allow={['good']} labels={{ good: 'Back' }} class="issue-card">
-      <div class="cc-eyebrow">Issue · {displayName(s)}</div>
-      <h2 style="margin:6px 0 12px">What happened?</h2>
-      <div class="area-list">
-        {CHECKIN_AREAS.map((a) => {
-          const on = picked[a.id] !== undefined;
-          return (
-            <div key={a.id} class={`area-toggle ${on ? 'on' : ''}`}>
-              <button class="area-btn" aria-pressed={on} onClick={() => toggleArea(a)}>{a.name}{on && <Icon name="check" />}</button>
-              {on && (
-                <div class="chips sub-chips pop-in">
-                  {a.subs.map((x) => <button key={x.id} class={`chip small ${picked[a.id].includes(x.id) ? 'active' : ''}`} aria-pressed={picked[a.id].includes(x.id)} onClick={() => toggleSub(a, x.id)}>{x.label}</button>)}
-                </div>
-              )}
-              {on && a.safetyLine && <p class="tiny muted safety-line">{a.safetyLine}</p>}
-            </div>
-          );
-        })}
+    <>
+      <SwipeCard onSwipe={(a) => onOutcome(issueSwipe(a, picked, wantsDetails))} allow={['good', 'issue']} labels={{ good: any ? 'Done' : 'Back', issue: 'Cancel' }} class="issue-card">
+        <div class="cc-eyebrow">Issue · {displayName(s)}</div>
+        <h2 style="margin:6px 0 12px">What happened?</h2>
+        <div class="area-list">
+          {CHECKIN_AREAS.map((a) => {
+            const on = picked[a.id] !== undefined;
+            return (
+              <div key={a.id} ref={(el) => { refs.current[a.id] = el; }} class={`area-toggle ${on ? 'on' : ''}`}>
+                <button class="area-btn" aria-pressed={on} onClick={() => toggleArea(a)}>{a.name}{on && <Icon name="check" />}</button>
+                {on && (
+                  <div class="chips sub-chips pop-in">
+                    {a.subs.map((x) => <button key={x.id} class={`chip small ${picked[a.id].includes(x.id) ? 'active' : ''}`} aria-pressed={picked[a.id].includes(x.id)} onClick={() => toggleSub(a, x.id)}>{x.label}</button>)}
+                  </div>
+                )}
+                {on && a.safetyLine && <p class="tiny muted safety-line">{a.safetyLine}</p>}
+              </div>
+            );
+          })}
+        </div>
+        <p class="hold-hint">Swipe {sideOf('good')} when done · {sideOf('issue')} to cancel. Nothing is saved if you cancel.</p>
+      </SwipeCard>
+      <div class="issue-bar">
+        <button class="btn" onClick={() => onOutcome('cancel')}><Icon name="x" /> Cancel</button>
+        <button class={`btn small-text ${wantsDetails ? 'active-soft' : ''}`} aria-pressed={wantsDetails} onClick={() => setWantsDetails(!wantsDetails)}><Icon name="edit" /> Add note / evidence</button>
+        <button class="btn primary" disabled={!any} onClick={() => onOutcome(done)}>{done === 'save' ? 'Save' : 'Next'} <Icon name="arrow" /></button>
       </div>
-      <div class="grid2" style="margin-top:14px">
-        <button class="btn" onClick={onBack}><Icon name="back" /> Back</button>
-        <button class="btn primary" disabled={!Object.keys(picked).length} onClick={onNext}>Next <Icon name="arrow" /></button>
-      </div>
-      <p class="hold-hint">Swipe {sideOf('good')} or tap Back to change your mind. Nothing is saved until you press Save.</p>
-    </SwipeCard>
+    </>
   );
 }
 

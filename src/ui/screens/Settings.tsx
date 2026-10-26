@@ -99,6 +99,7 @@ function CheckinSection({ s }: { s: Settings }) {
       <Field label="Coverage limit (days)" hint="Students not checked for this many days are marked Overdue on the Students page.">
         <input class="input" type="number" min={3} max={60} value={s.maxGapDays} onChange={(e) => saveSettings({ maxGapDays: Math.max(3, Math.min(60, Number((e.target as HTMLInputElement).value) || 14)) })} />
       </Field>
+      <Switch label="Cold call animation" hint="A quick name shuffle before showing the student. Tap the shuffle to skip it. Off: the student shows straight away." checked={s.coldCallAnimation !== false} onChange={(v) => saveSettings({ coldCallAnimation: v })} />
       <Field label="Quick context tags" hint="Comma separated. Shown when adding detail to an answer.">
         <input class="input" value={tags} onInput={(e) => setTags((e.target as HTMLInputElement).value)} onBlur={() => saveSettings({ contextTags: tags.split(',').map((t) => t.trim()).filter(Boolean) })} />
       </Field>

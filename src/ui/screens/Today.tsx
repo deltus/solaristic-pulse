@@ -1,14 +1,15 @@
 // "Today": the class page for the current class (switches automatically when a timetabled
-// lesson starts). Opens with "Open lesson?"; then Daily check-in, Homework check (when last
-// lesson set homework), Cold call, Blitz and Select student, and Close lesson.
+// lesson starts). Opens with "Open lesson?"; then six equal buttons (Daily check-in, Homework
+// check, Cold call, Blitz, Select student, ICP) and Close lesson.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { db, saveSettings } from '../../db';
 import * as svc from '../../services';
 import { formatShort, nowMs, today } from '../../lib/dates';
-import { useLive, useSettings, useTick } from '../hooks';
-import { displayName, Empty, Icon } from '../components';
-import { homeworkToCheck, minutesOpen } from '../../logic/lessons';
+import { go, useLive, useSettings, useTick } from '../hooks';
+import { displayName, Empty, Icon, Sheet } from '../components';
+import { homeworkButton, minutesOpen } from '../../logic/lessons';
+import { icpDueForClass } from '../../logic/icp';
 import { classColdCallSummary } from '../../logic/coldcall';
 import { promptToClose } from '../lessonPrompts';
 import type { ReminderState } from '../reminders';
@@ -42,6 +43,8 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
   const classes = useLive(() => db.classes.toArray(), []);
   const lessonCount = useLive(() => db.timetable.count(), []);
+  const classTimetable = useLive(() => db.timetable.where('classId').equals(classId).toArray(), [classId]);
+  const [askAnyway, setAskAnyway] = useState(false);
   const [askIntention, setAskIntention] = useState(false);
   const [intention, setIntention] = useState('');
   const [editing, setEditing] = useState(false);
@@ -66,8 +69,10 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
           <span class="eyebrow">{formatShort(today())}</span>
           <h1 class="home-title">{cls.name}</h1>
           <p class="muted" style="margin:6px 0 18px">Open lesson?</p>
-          <button class="btn primary big block" onClick={open}><Icon name="clock" /> Open lesson</button>
-          <a class="btn ghost block" style="margin-top:8px" href="#/home">Not now</a>
+          <div class="grid2">
+            <a class="btn" href="#/home">Not now</a>
+            <button class="btn primary" onClick={open}><Icon name="clock" /> Open lesson</button>
+          </div>
           <p class="tiny muted" style="margin-top:14px">Check-ins, homework checks, Blitz and cold calls are saved to the lesson. Close it at the end to note how it went.</p>
         </div>
       </div>
@@ -95,7 +100,8 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
 
   const here = ctx.checkins.filter((c) => lessonOf(c) === lesson.id);
   const seen = here.filter((c) => c.status === 'complete' || c.status === 'partial').length;
-  const hwFor = homeworkToCheck(ctx.lessons, classId, lesson);
+  const hw = homeworkButton(ctx.lessons, classId, lesson);
+  const icpDue = icpDueForClass(ctx.adjustments, ctx.students, ctx.icpChecks, classTimetable ?? [], classId, today()).length;
   const hwDone = ctx.homework.filter((h) => h.lessonId === lesson.id).length;
   const calls = ctx.coldCalls.filter((c) => c.lessonId === lesson.id).length;
   const cc = classColdCallSummary(ctx.students, ctx.coldCalls, today());
@@ -114,10 +120,13 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
       {lesson.status === 'finishing' && <div class="notice">You started closing this lesson. <a href={`#/class/${classId}/close`}>Finish closing</a></div>}
       <div class="hub-grid" data-tour="hub">
         <a class="hub-btn primary" href={`#/class/${classId}/checkin`}><Icon name="today" /><b>Daily check-in</b><span>Swipe through the class, most need first</span></a>
-        {hwFor && <a class="hub-btn" href={`#/class/${classId}/homework`}><Icon name="reports" /><b>Homework check</b><span>{hwFor.homeworkText || 'Homework from last lesson'}</span></a>}
+        {hw.mode === 'set'
+          ? <a class="hub-btn" href={`#/class/${classId}/homework`}><Icon name="reports" /><b>Homework check</b><span>{hw.previous?.homeworkText || 'Homework from last lesson'}</span></a>
+          : <button class="hub-btn greyed" onClick={() => setAskAnyway(true)}><Icon name="reports" /><b>Homework check</b><span>No homework set last lesson</span></button>}
         <a class="hub-btn" href={`#/class/${classId}/coldcall`}><Icon name="user" /><b>Cold call</b><span>Pick a student fairly</span></a>
         <a class="hub-btn" href={`#/classes/${classId}/blitz`}><Icon name="bolt" /><b>Blitz</b><span>One question, whole class</span></a>
         <a class="hub-btn" href={`#/class/${classId}/select`}><Icon name="search" /><b>Select student</b><span>Log one student now</span></a>
+        <a class="hub-btn" href={`#/icp/class/${classId}`}><Icon name="icp" /><b>ICP {icpDue > 0 && <span class="count-badge" aria-label={`${icpDue} due today`}>{icpDue}</span>}</b><span>{icpDue ? `${icpDue} check${icpDue === 1 ? '' : 's'} due today` : 'Nothing due today'}</span></a>
       </div>
       {ctx.students.length > 0 && (
         <div class="card flat cc-summary">
@@ -128,9 +137,15 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
           </div>
         </div>
       )}
-      <div class="row wrap" style="margin-top:16px;gap:8px">
+      {askAnyway && (
+        <Sheet title="Check anyway?" onClose={() => setAskAnyway(false)}>
+          <p class="small">No homework was set last lesson. You can still check who did any homework, for example if it was set some other way.</p>
+          <div class="actions"><button class="btn" onClick={() => setAskAnyway(false)}>Cancel</button><button class="btn primary" onClick={() => go(`class/${classId}/homework/anyway`)}>Check anyway</button></div>
+        </Sheet>
+      )}
+      <div class="grid2 hub-actions">
         <a class="btn primary" href={`#/class/${classId}/close`}><Icon name="check" /> Close lesson</a>
-        <a class="btn small ghost" href={`#/classes/${classId}`}><Icon name="classes" /> Manage class</a>
+        <a class="btn" href={`#/classes/${classId}`}><Icon name="classes" /> Manage class</a>
       </div>
     </div>
   );

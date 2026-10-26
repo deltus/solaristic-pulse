@@ -27,7 +27,8 @@ export const CHECKIN_AREAS: CheckinArea[] = [
       { id: 'disruptive', label: 'Disruptive' },
       { id: 'disrespectful', label: 'Disrespectful' },
       { id: 'tech_misuse', label: 'Technology misuse' },
-      { id: 'not_following', label: 'Not following instructions' }
+      { id: 'not_following', label: 'Not following instructions' },
+      { id: 'peer_interactions', label: 'Peer interactions' }
     ]
   },
   {
@@ -37,26 +38,39 @@ export const CHECKIN_AREAS: CheckinArea[] = [
       { id: 'off_task', label: 'Off task' },
       { id: 'distracted', label: 'Distracted' },
       { id: 'low_effort', label: 'Low effort' },
-      { id: 'not_listening', label: 'Not listening' }
+      { id: 'not_listening', label: 'Not listening' },
+      { id: 'low_productivity', label: 'Low productivity' }
     ]
   },
   {
     id: 'coping', questionId: 'q-coping', name: 'Coping with work', asksNote: true,
     safetyLine: "If you're worried about this student's safety or wellbeing, follow your school's wellbeing process.",
     subs: [
-      { id: 'withdrawn', label: 'Withdrawn' },
-      { id: 'upset', label: 'Upset or distressed' },
-      { id: 'overwhelmed', label: 'Overwhelmed by the work' },
-      { id: 'tired', label: 'Tired or low energy' },
-      { id: 'peers', label: 'Peer or friendship issues' },
-      { id: 'unwell', label: 'Seemed unwell' },
-      { id: 'outside', label: 'Mentioned something outside school' }
+      { id: 'workload', label: 'Workload' },
+      { id: 'pace', label: 'Pace' },
+      { id: 'content', label: 'Content' },
+      { id: 'dysregulated', label: 'Dysregulated' },
+      { id: 'withdrawn', label: 'Withdrawn' }
     ]
   }
 ];
 
 export const areaById = (id: string) => CHECKIN_AREAS.find((a) => a.id === id);
-export const subLabel = (areaId: string, subId: string) => areaById(areaId)?.subs.find((s) => s.id === subId)?.label ?? subId.replace(/_/g, ' ');
+
+/** Sub-options no longer offered, kept so older records still read correctly in history and reports. */
+export const LEGACY_SUBS: Record<string, SubOption[]> = {
+  coping: [
+    { id: 'upset', label: 'Upset or distressed' },
+    { id: 'overwhelmed', label: 'Overwhelmed by the work' },
+    { id: 'tired', label: 'Tired or low energy' },
+    { id: 'peers', label: 'Peer or friendship issues' },
+    { id: 'unwell', label: 'Seemed unwell' },
+    { id: 'outside', label: 'Mentioned something outside school' }
+  ]
+};
+
+export const subLabel = (areaId: string, subId: string) =>
+  [...(areaById(areaId)?.subs ?? []), ...(LEGACY_SUBS[areaId] ?? [])].find((s) => s.id === subId)?.label ?? subId.replace(/_/g, ' ');
 
 export const HOMEWORK_REASONS: SubOption[] = [
   { id: 'forgot', label: 'Forgot' },

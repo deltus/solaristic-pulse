@@ -125,3 +125,25 @@ export function streakDue(student: Pick<Student, 'streakAskedAt'>, checkins: Che
   const done = checkins.filter((c) => c.status === 'complete' || c.status === 'partial').sort(newestFirst).slice(0, STREAK.length);
   return done.length === STREAK.length && done.every((c) => summarise(c, obs, tags).kind === 'good');
 }
+
+export type Trend = 'up' | 'flat' | 'down';
+
+export interface AreaAverage { meets: number; total: number; prevMeets: number; prevTotal: number; trend: Trend | null }
+
+/**
+ * Running average for one area on the card: "Meets 8 of last 10", and whether that is up, flat
+ * or down on the 10 before. All good counts as meeting. Blitz and "exceeding" rows are left out.
+ */
+export function areaAverage(obs: Observation[], areaId: string, n = 10): AreaAverage {
+  const rows = obs
+    .filter((o) => o.categoryId === areaId && o.level !== null && !o.blitz && !o.exceeding)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+  const last = rows.slice(0, n), prev = rows.slice(n, n * 2);
+  const meets = last.filter((o) => o.level === 0).length, prevMeets = prev.filter((o) => o.level === 0).length;
+  let trend: Trend | null = null;
+  if (last.length >= 3 && prev.length >= 3) {
+    const diff = meets / last.length - prevMeets / prev.length;
+    trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : 'flat';
+  }
+  return { meets, total: last.length, prevMeets, prevTotal: prev.length, trend };
+}

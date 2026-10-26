@@ -50,3 +50,23 @@ export function pendingCheckout(
     .filter((t) => { const id = checkoutId(date, t.classId, t.id); return !doneIds.has(id) && !skipped.includes(id); })
     .pop();
 }
+
+/**
+ * The dial's uneven scale: real lessons mostly run 75–100%, so that range gets half the arc.
+ * Each stop is [percentage, position round the arc (0 = far left, 1 = far right)]; positions in
+ * between are spread evenly.
+ */
+export const DIAL_STOPS: [number, number][] = [[0, 0], [50, 0.25], [75, 0.5], [90, 0.75], [100, 1]];
+export const DIAL_TICKS = DIAL_STOPS.map(([p]) => p);
+
+function interpolate(v: number, from: 0 | 1, to: 0 | 1): number {
+  for (let i = 1; i < DIAL_STOPS.length; i++) {
+    const a = DIAL_STOPS[i - 1], b = DIAL_STOPS[i];
+    if (v <= b[from] || i === DIAL_STOPS.length - 1) return a[to] + ((Math.min(Math.max(v, a[from]), b[from]) - a[from]) / (b[from] - a[from])) * (b[to] - a[to]);
+  }
+  return 0;
+}
+/** Percentage → position round the arc (0–1). */
+export const pctToDial = (pct: number) => interpolate(Math.max(0, Math.min(100, pct)), 0, 1);
+/** Position round the arc (0–1) → whole percentage. */
+export const dialToPct = (pos: number) => clampPct(interpolate(Math.max(0, Math.min(1, pos)), 1, 0));

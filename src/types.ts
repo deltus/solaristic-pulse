@@ -254,7 +254,10 @@ export interface EvidencePlan {
 export interface EvidenceItem {
   id: string;
   studentId: string;
-  adjustmentId: string;
+  /** ICP adjustment it is evidence for (ICP evidence). */
+  adjustmentId?: string;
+  /** Daily check-in it was added to ("Include evidence?" on an Issue). */
+  checkinId?: string;
   date: string;
   kind: EvidenceKind;
   blob?: Blob;
@@ -335,6 +338,8 @@ export interface Settings {
   reminderCardDismissed?: boolean;
   /** Check-out prompts dismissed on Your classes ("Not now"), for one day. */
   checkoutSkipped?: { date: string; ids: string[] };
+  /** Cold call name shuffle before showing the student. Default on. */
+  coldCallAnimation?: boolean;
   /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
   devTools?: boolean;
 }

@@ -6,7 +6,8 @@ import { lastCheckedDate } from '../../logic/priority';
 import { needByStudent, needWords, type NeedRow } from '../../logic/need';
 import { openFollow, followLead } from '../../logic/checkin';
 import { homeworkHistory } from '../../logic/lessons';
-import { coldCallHistory, coldCallStats } from '../../logic/coldcall';
+import { coldCallHistory, coldCallsLastLessons, coldCallStats } from '../../logic/coldcall';
+import { EVIDENCE_KINDS } from '../../logic/evidence';
 import { studentTimeline } from '../../logic/timeline';
 import { categoryTrend } from '../../logic/trends';
 import { rollingShare } from '../../logic/insights';
@@ -100,7 +101,7 @@ export function StudentProfile({ id }: { id: string }) {
   const data = useLive(async () => {
     const student = await db.students.get(id);
     if (!student) return { student: undefined };
-    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls] = await Promise.all([
+    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls, evidence] = await Promise.all([
       db.classes.get(student.classId), db.observations.where('studentId').equals(id).toArray(), db.checkins.where('studentId').equals(id).toArray(),
       db.questions.filter((q) => q.enabled).toArray(), db.questions.toArray(), sortedCategories(), db.notes.where('studentId').equals(id).toArray(),
       db.icpAdjustments.where('studentId').equals(id).toArray(), db.icpChecks.where('studentId').equals(id).toArray(),
@@ -108,12 +109,12 @@ export function StudentProfile({ id }: { id: string }) {
       db.students.where('classId').equals(student.classId).toArray(), db.checkins.where('classId').equals(student.classId).toArray(),
       db.observations.where('classId').equals(student.classId).toArray(), db.issueTags.where('classId').equals(student.classId).toArray(),
       db.homework.where('classId').equals(student.classId).toArray(), db.lessons.where('classId').equals(student.classId).toArray(),
-      db.coldCalls.where('studentId').equals(id).toArray()
+      db.coldCalls.where('studentId').equals(id).toArray(), db.evidence.where('studentId').equals(id).toArray()
     ]);
     const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), classLessons).get(id);
     const tags = classTags.filter((t) => t.studentId === id);
     const homework = classHomework.filter((h) => h.studentId === id);
-    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls };
+    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence };
   }, [id]);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
@@ -121,7 +122,8 @@ export function StudentProfile({ id }: { id: string }) {
 
   if (!data) return null;
   if (!data.student) return <p>Student not found. <a href="#/students">Back</a></p>;
-  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls } = data as Required<typeof data>;
+  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence } = data as Required<typeof data>;
+  const ccRecentLessons = coldCallsLastLessons(coldCalls, classLessons, s.classId, s.id);
   const hwHistory = homeworkHistory(classLessons, homework, s.classId, s.id);
   const ccStats = coldCallStats(coldCalls, date);
   const ccRecent = coldCallHistory(coldCalls, classLessons, s.id, 5);
@@ -192,6 +194,10 @@ export function StudentProfile({ id }: { id: string }) {
     const a = adjustments.find((x) => x.id === c.adjustmentId);
     items.push({ date: c.date, t: c.createdAt, kind: 'icp', el: <div class="tl-item icp"><span class="label-tag">ICP</span>{a?.title ?? 'Adjustment'}: <b>{ICP_OUTCOMES.find((o) => o.value === c.outcome)?.label}</b>{c.note && <div class="small">{c.note}</div>}</div> });
   }
+  // Evidence added to daily check-ins ("Include evidence?"). ICP evidence lives on the ICP page.
+  for (const e of evidence.filter((x) => x.checkinId)) {
+    items.push({ date: e.date, t: e.createdAt, kind: 'evidence', el: <div class="tl-item"><span class="label-tag">Evidence</span>{EVIDENCE_KINDS.find((k) => k.value === e.kind)?.label ?? e.kind}{e.name ? ` · ${e.name}` : ''}{e.text && <div class="small">{e.text}</div>}</div> });
+  }
   for (const n of notes) items.push({ date: n.date, t: n.createdAt, kind: 'note', el: <div class="tl-item"><span class="label-tag">Note</span>{n.text}</div> });
   items.sort((a, b) => b.date.localeCompare(a.date) || b.t - a.t);
   const dates = [...new Set(items.map((i) => i.date))];
@@ -219,6 +225,14 @@ export function StudentProfile({ id }: { id: string }) {
 
       <div class="section"><h2>Place in the queue</h2></div>
       {row && <NeedCard r={row} />}
+      <div class="grid2 cc-glance">
+        <div class="card flat" style="margin:0"><span class="eyebrow">Cold calls · last 5 lessons</span><b>{ccRecentLessons.count}</b><div class="tiny muted">{ccRecentLessons.prevCount} in the 5 before</div></div>
+        <div class="card flat" style="margin:0">
+          <span class="eyebrow">Answered well · last 5 lessons</span>
+          <b>{ccRecentLessons.goodPct === null ? '–' : `${ccRecentLessons.goodPct}%`} {ccRecentLessons.trend && <span class={`trend-arrow ${ccRecentLessons.trend}`} aria-label={`Trend ${ccRecentLessons.trend}`}>{ccRecentLessons.trend === 'up' ? '↑' : ccRecentLessons.trend === 'down' ? '↓' : '→'}</span>}</b>
+          <div class="tiny muted">{ccRecentLessons.prevGoodPct === null ? 'Nothing to compare yet' : `${ccRecentLessons.prevGoodPct}% in the 5 before`}</div>
+        </div>
+      </div>
 
       {hwHistory.length > 0 && (
         <>

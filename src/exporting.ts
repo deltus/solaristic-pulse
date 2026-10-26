@@ -71,7 +71,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     db.notes.where('studentId').anyOf(ids).toArray(), db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
     o.kind === 'class' ? db.checkouts.where('classId').anyOf(o.classIds).toArray() : Promise.resolve([]),
-    o.kind === 'student' && o.includeIcp ? db.evidence.where('studentId').anyOf(ids).toArray() : Promise.resolve([]),
+    o.kind === 'student' ? db.evidence.where('studentId').anyOf(ids).toArray() : Promise.resolve([]),
     db.checkins.where('classId').anyOf(classIds).toArray(), db.observations.where('classId').anyOf(classIds).toArray(),
     db.issueTags.where('classId').anyOf(classIds).toArray(), db.homework.where('classId').anyOf(classIds).toArray(),
     db.lessons.where('classId').anyOf(classIds).toArray(), db.coldCalls.where('studentId').anyOf(ids).toArray()
@@ -86,7 +86,8 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
   const notes = notesAll.filter((x) => inRange(x.date));
   const icpChecks = icpAll.filter((x) => inRange(x.date));
   const checkouts = checkoutsAll.filter((x) => inRange(x.date));
-  const evidence = evidenceAll.filter((x) => inRange(x.date));
+  // Check-in evidence always; ICP evidence only when ICP information is included.
+  const evidence = evidenceAll.filter((x) => inRange(x.date) && (x.checkinId || o.includeIcp));
   const tags = tagsAll.filter((x) => inRange(x.date));
   const homework = homeworkAll.filter((x) => inRange(x.date));
   const need = needByStudent(allStudents.filter((s) => classIds.includes(s.classId)), classCheckins, classObs, classTags, classHomework, date, classLessons);
@@ -166,10 +167,11 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
         })] }]
     : [];
 
-  // ICP evidence is listed only; the files themselves stay on the device.
-  const evidenceSheet = (): Sheet[] => o.includeIcp && evidence.length
-    ? [{ name: 'ICP evidence', rows: [['Date', 'Adjustment', 'Type', ...(o.deidentify ? [] : ['File']), ...(o.includeNotes ? ['Note'] : [])],
-        ...[...evidence].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [formatDate(x.date), scrub(adjustments.find((a) => a.id === x.adjustmentId)?.title), EVIDENCE_KINDS.find((k) => k.value === x.kind)?.label ?? x.kind, ...(o.deidentify ? [] : [x.name ?? '']), ...(o.includeNotes ? [text(x.text)] : [])])] }]
+  // Evidence is listed only; the files themselves stay on the device.
+  const evidenceFor = (x: (typeof evidence)[number]) => (x.checkinId ? 'Daily check-in' : scrub(adjustments.find((a) => a.id === x.adjustmentId)?.title));
+  const evidenceSheet = (): Sheet[] => evidence.length
+    ? [{ name: evidence.some((x) => x.adjustmentId) ? 'ICP evidence' : 'Evidence', rows: [['Date', 'For', 'Type', ...(o.deidentify ? [] : ['File']), ...(o.includeNotes ? ['Note'] : [])],
+        ...[...evidence].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [formatDate(x.date), evidenceFor(x), EVIDENCE_KINDS.find((k) => k.value === x.kind)?.label ?? x.kind, ...(o.deidentify ? [] : [x.name ?? '']), ...(o.includeNotes ? [text(x.text)] : [])])] }]
     : [];
 
   // Ticked sub-options on Issues. Unticked ones are "not flagged" and never listed.
@@ -203,7 +205,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       ['Categories', usedCats.map((c) => c.name).join(', ')],
       ['Teacher notes included', o.includeNotes ? 'Yes' : 'No'],
       ['ICP information included', o.includeIcp ? 'Yes' : 'No'],
-      ...(evidence.length ? [['ICP evidence', "Listed only. Photos, files and voice memos stay on the teacher's device and are not included in this report."]] : []),
+      ...(evidence.length ? [['Evidence', "Listed only. Photos, files and voice memos stay on the teacher's device and are not included in this report."]] : []),
       ...(checkouts.length ? [['Check-outs', "Teacher's estimate at the end of each lesson of the share of the lesson the class spent working. Low focus 0–49%, Mixed 50–74%, Focused 75–100%."]] : []),
       ['De-identified', o.deidentify ? 'Yes: names replaced with stable pseudonyms (Student 001 …) within this report' : 'No: contains student names'],
       ...(o.deidentify ? [['Warning', DEID_WARNING]] : []),

@@ -86,7 +86,7 @@ export function App() {
   switch (page) {
     case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} fromClassPage /> : id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
     case 'students': screen = id ? <StudentProfile id={id} /> : <StudentsScreen />; break;
-    case 'icp': screen = <IcpScreen studentId={id} mode={sub} />; break;
+    case 'icp': screen = id === 'class' && sub ? <IcpScreen key={`class-${sub}`} classFilter={sub} /> : <IcpScreen studentId={id} mode={sub} />; break;
     case 'reports': screen = <ReportsScreen studentId={id} />; break;
     case 'settings': screen = <SettingsScreen section={id} sub={sub} />; break;
     case 'today': screen = <TodayScreen reminder={reminder} />; break;
@@ -94,7 +94,7 @@ export function App() {
       screen = !id ? <TodayScreen reminder={reminder} />
         : sub === 'checkin' ? <CheckinScreen classId={id} />
         : sub === 'student' && extra ? <CheckinScreen key={extra} classId={id} studentId={extra} />
-        : sub === 'homework' ? <HomeworkScreen classId={id} />
+        : sub === 'homework' ? <HomeworkScreen key={extra ?? ''} classId={id} anyway={extra === 'anyway'} />
         : sub === 'close' ? <CloseLessonScreen classId={id} />
         : sub === 'coldcall' ? <ColdCallScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />

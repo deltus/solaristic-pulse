@@ -5,18 +5,18 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import * as svc from '../../services';
 import { UNDO_SECONDS } from '../../config/checkin';
 import { lessonOf } from '../../logic/checkin';
-import { coldCallHistory, coldCallSummary, pickColdCall, STRUGGLE_TAGS } from '../../logic/coldcall';
-import { useLive } from '../hooks';
+import { coldCallHistory, coldCallSummary, pickColdCall, planShuffle, STRUGGLE_TAGS } from '../../logic/coldcall';
+import { useLive, useSettings } from '../hooks';
 import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { NeedLesson } from './Checkin';
 
-/** Shuffle animation length (kept under 1.5 s). */
-const SHUFFLE_MS = 1100;
-const FLIP_MS = 70;
 
 export function ColdCallScreen({ classId }: { classId: string }) {
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
+  const settings = useSettings();
+  /** The student is chosen before the shuffle starts; a tap on the shuffle shows them at once. */
+  const chosenRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<'idle' | 'shuffle' | 'card' | 'struggle'>('idle');
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [flash, setFlash] = useState('');
@@ -40,13 +40,25 @@ export function ColdCallScreen({ classId }: { classId: string }) {
     timers.current.forEach(clearTimeout);
     const chosen = pickColdCall(ctx!.students, calls, new Set([...notHere, ...(avoid && present.length > 1 ? [avoid] : [])]), Math.random);
     if (!chosen) return;
-    setPhase('shuffle');
     setTags([]);
-    const names = present.map(displayName);
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const steps = reduce ? 0 : Math.floor(SHUFFLE_MS / FLIP_MS);
-    for (let i = 0; i < steps; i++) timers.current.push(setTimeout(() => setFlash(names[Math.floor(Math.random() * names.length)]), i * FLIP_MS * (1 + i / steps)));
-    timers.current.push(setTimeout(() => { setPickedId(chosen.id); setPhase('card'); navigator.vibrate?.(15); }, reduce ? 0 : SHUFFLE_MS));
+    chosenRef.current = chosen.id;
+    const plan = planShuffle(present.map(displayName), displayName(chosen), {
+      animate: settings?.coldCallAnimation !== false,
+      reduceMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    }, Math.random);
+    if (!plan.total) return reveal();
+    setPhase('shuffle');
+    for (const f of plan.frames.slice(0, -1)) timers.current.push(setTimeout(() => setFlash(f.name), f.at));
+    timers.current.push(setTimeout(reveal, plan.total));
+  }
+  /** Show the chosen student (end of the shuffle, a tap on it, or no animation). */
+  function reveal() {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    if (!chosenRef.current) return;
+    setPickedId(chosenRef.current);
+    setPhase('card');
+    navigator.vibrate?.(15);
   }
 
   async function save(result: 'good' | 'struggled', t: string[] = []) {
@@ -74,8 +86,8 @@ export function ColdCallScreen({ classId }: { classId: string }) {
       <div class="cc checkin">
         {header}
         <div class="cc-eyebrow" style="margin-top:8px">Cold call</div>
-        <div class={`shuffle-box ${phase === 'shuffle' ? 'spinning' : ''}`} aria-live="polite">
-          {phase === 'shuffle' ? <span class="shuffle-name">{flash || '…'}</span> : <span class="muted">Least recently called first, then random. Not here today: left out.</span>}
+        <div class={`shuffle-box ${phase === 'shuffle' ? 'spinning' : ''}`} aria-live="polite" role={phase === 'shuffle' ? 'button' : undefined} onClick={() => phase === 'shuffle' && reveal()}>
+          {phase === 'shuffle' ? <span><span class="shuffle-name">{flash || '…'}</span><span class="tiny muted shuffle-skip">Tap to show now</span></span> : <span class="muted">Least recently called first, then random. Not here today: left out.</span>}
         </div>
         <button class="btn primary big block" disabled={phase === 'shuffle' || !present.length} onClick={() => pick()}><Icon name="user" /> {phase === 'shuffle' ? 'Picking…' : 'Pick a student'}</button>
       </div>

@@ -1,5 +1,5 @@
-import type { Category, IcpAdjustment, IcpCheck, IcpFrequency, IcpOutcome, Observation } from '../types';
-import { addDays, daysBetween } from '../lib/dates';
+import type { Category, IcpAdjustment, IcpCheck, IcpFrequency, IcpOutcome, Observation, Student, TimetableEntry } from '../types';
+import { addDays, daysBetween, weekday } from '../lib/dates';
 
 export const ICP_FREQUENCIES: { value: IcpFrequency; label: string; days: number; overdueAfter: number }[] = [
   { value: 'lesson', label: 'Every lesson', days: 0, overdueAfter: 3 },
@@ -42,6 +42,19 @@ export function icpDueStatus(adj: IcpAdjustment, checks: IcpCheck[], today: stri
     ? `${overdue ? 'Overdue: ' : ''}last checked ${since} day${since === 1 ? '' : 's'} ago`
     : overdue ? 'Overdue: never checked' : 'Not yet checked';
   return { due: due || overdue, overdue, doneToday, lastDate, daysSince: lastDate ? since : undefined, label };
+}
+
+/** Does the class meet on this date? Classes with no timetable count as meeting every day. */
+export function hasLessonOn(timetable: TimetableEntry[], classId: string, date: string): boolean {
+  const forClass = timetable.filter((t) => t.classId === classId);
+  return !forClass.length || forClass.some((t) => t.day === weekday(date));
+}
+
+/** ICP checks still due today for one class (the ICP button's badge on the class page). */
+export function icpDueForClass(adjustments: IcpAdjustment[], students: Student[], checks: IcpCheck[], timetable: TimetableEntry[], classId: string, date: string): IcpAdjustment[] {
+  const inClass = new Set(students.filter((s) => s.classId === classId && !s.archived).map((s) => s.id));
+  const lesson = hasLessonOn(timetable, classId, date);
+  return adjustments.filter((a) => inClass.has(a.studentId) && a.active && icpDueStatus(a, checks, date, lesson).due);
 }
 
 export function implementationSummary(checks: IcpCheck[]) {

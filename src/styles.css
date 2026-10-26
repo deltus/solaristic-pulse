@@ -577,6 +577,7 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .stat b { font-size: 22px; letter-spacing: -0.02em; }
 .stat span { font-size: 11.5px; color: var(--muted); line-height: 1.25; }
 .blitz-btn { margin-bottom: 14px; }
+.overview-actions { margin-bottom: 14px; }
 .tips { margin: 4px 0 0; padding-left: 18px; font-size: 14px; }
 .tips li { margin: 4px 0; }
 .class-trend { padding: 10px 0 2px; border-top: 1px solid var(--line); }
@@ -768,3 +769,34 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .lesson-prompt { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 10px 12px; border-radius: 14px; background: var(--navy); color: #fff; font-size: 14px; }
 .lesson-prompt .btn { min-height: 34px; }
 .lesson-prompt .later { background: none; border: 0; color: #c9d4f5; font-weight: 600; }
+
+/* Round 3: check-in card and issue screen */
+.icp-mark { display: inline-flex; align-items: center; margin-left: 4px; padding: 1px 7px; border-radius: 999px; background: var(--burgundy-50); color: var(--burgundy); font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em; vertical-align: middle; }
+.area-rows { margin-top: 14px; border-top: 1px solid var(--line); }
+.area-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.area-row .grow { font-weight: 600; }
+.trend-arrow { width: 18px; text-align: center; font-weight: 800; }
+.trend-arrow.up { color: var(--ok); }
+.trend-arrow.down { color: var(--sig); }
+.trend-arrow.flat { color: var(--muted); }
+.issue-card { touch-action: pan-y; padding-bottom: 8px; }
+.issue-bar { position: sticky; bottom: calc(8px + var(--safe-b)); z-index: 5; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; padding: 8px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(14, 26, 58, 0.12); }
+.issue-bar .btn { min-height: 46px; padding: 0 8px; gap: 4px; white-space: normal; line-height: 1.15; text-align: center; }
+.issue-bar .small-text { font-size: 13px; padding: 0 10px; }
+.btn.active-soft { background: var(--blue-50); border-color: var(--blue); color: var(--blue); }
+.evidence-toggle { margin-top: 12px; }
+.shuffle-box.spinning { cursor: pointer; }
+.shuffle-skip { display: block; margin-top: 6px; }
+
+/* Round 3: class page buttons */
+.hub-grid { grid-auto-rows: 1fr; }
+.hub-btn { min-height: 118px; width: 100%; text-align: left; font: inherit; cursor: pointer; }
+.hub-btn.greyed { background: var(--surface-2); color: var(--muted); border-style: dashed; box-shadow: none; }
+.hub-btn.greyed svg { color: var(--muted); }
+.count-badge { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px; background: var(--burgundy); color: #fff; font-size: 12px; font-weight: 700; vertical-align: 2px; }
+.hub-actions { margin-top: 16px; }
+.multi-legend { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.success-latest { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; font-size: 13px; }
+.success-latest i, .multi-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.cc-glance { margin-top: 10px; }
+.cc-glance b { font-size: 20px; }

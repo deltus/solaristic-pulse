@@ -18,7 +18,8 @@ function hasLesson(timetable: TimetableEntry[], classId: string, date: string) {
   return !forClass.length || forClass.some((t) => t.day === weekday(date));
 }
 
-export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: string }) {
+/** `classFilter`: opened from a class page (ICP button), showing that class only, with Back to the class. */
+export function IcpScreen({ studentId, mode, classFilter }: { studentId?: string; mode?: string; classFilter?: string }) {
   const date = today();
   const data = useLive(async () => {
     const [classes, students, adjustments, checks, timetable, observations, categories, evidence] = await Promise.all([
@@ -28,7 +29,7 @@ export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: stri
     ]);
     return { classes, students, adjustments, checks, timetable, observations, categories, evidence };
   }, [studentId]);
-  const [classId, setClassId] = useState('');
+  const [classId, setClassId] = useState(classFilter ?? '');
   const [form, setForm] = useState<{ adj?: IcpAdjustment; studentId?: string } | null>(null);
   const [evFor, setEvFor] = useState<{ adj: IcpAdjustment; reason?: string } | null>(null);
   if (!data) return null;
@@ -77,13 +78,13 @@ export function IcpScreen({ studentId, mode }: { studentId?: string; mode?: stri
 
   return (
     <div>
-      <PageHead eyebrow="Individual Curriculum Plans" title="ICP Check-In">
+      <PageHead eyebrow={classFilter ? `ICP Check-In · ${classOf(classFilter)?.name ?? "Class"}` : "Individual Curriculum Plans"} title="ICP Check-In" back={classFilter ? `#/class/${classFilter}` : undefined}>
         <button class="btn primary small" onClick={() => setForm({})}><Icon name="plus" /> Adjustment</button>
       </PageHead>
-      <div class="chips">
+      {!classFilter && <div class="chips">
         <button class={`chip small ${!classId ? 'active' : ''}`} onClick={() => setClassId('')}>All classes</button>
         {classesWithAdj.map((c) => <button key={c.id} class={`chip small ${classId === c.id ? 'active' : ''}`} onClick={() => setClassId(c.id)}>{c.name}</button>)}
-      </div>
+      </div>}
 
       <div class="section"><h2>Due today</h2><span class="tiny muted mono">{pending.length} student{pending.length === 1 ? '' : 's'}</span></div>
       {pending.length ? pending.map((g) => g.items.length > SURVEY_THRESHOLD ? (

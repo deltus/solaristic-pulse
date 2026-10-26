@@ -41,6 +41,16 @@ export function homeworkToCheck(lessons: Lesson[], classId: string, current?: Le
   return prev && prev.status === 'closed' && prev.homeworkSet ? prev : undefined;
 }
 
+/**
+ * The Homework check button: "set" when the previous lesson closed with homework set, otherwise
+ * "none" (shown greyed, "No homework set last lesson"; tapping it offers "Check anyway?").
+ * `previous` is the previous lesson either way, so a "check anyway" can still be linked to it.
+ */
+export function homeworkButton(lessons: Lesson[], classId: string, current?: Lesson): { mode: 'set' | 'none'; previous?: Lesson } {
+  const previous = earlierLessons(lessons, classId, current)[0];
+  return { mode: homeworkToCheck(lessons, classId, current) ? 'set' : 'none', previous };
+}
+
 /** A lesson's name: its learning intention, or the date if none was entered. */
 export function lessonName(l: Pick<Lesson, 'intention' | 'date'>): string {
   return l.intention?.trim() || formatShort(l.date);
@@ -62,11 +72,12 @@ const resultText = (h?: Pick<HomeworkCheck, 'done' | 'reason'>) =>
  */
 export function homeworkHistory(lessons: Lesson[], checks: HomeworkCheck[], classId: string, studentId: string, n = 5): HomeworkItem[] {
   const mine = checks.filter((h) => h.studentId === studentId);
-  const set = lessons.filter((l) => l.classId === classId && l.status === 'closed' && l.homeworkSet).map((l): HomeworkItem => {
+  // Lessons that set homework, plus any lesson checked with "Check anyway".
+  const set = lessons.filter((l) => l.classId === classId && l.status === 'closed' && (l.homeworkSet || mine.some((h) => h.forLessonId === l.id))).map((l): HomeworkItem => {
     const h = mine.find((x) => x.forLessonId === l.id);
     return { key: l.id, date: l.date, label: lessonLabel(l), result: resultText(h), done: h ? h.done : null, what: l.homeworkText };
   });
-  const legacy = mine.filter((h) => !h.forLessonId).map((h): HomeworkItem => ({ key: h.id, date: h.date, label: formatShort(h.date), result: resultText(h), done: h.done }));
+  const legacy = mine.filter((h) => !h.forLessonId || !lessons.some((l) => l.id === h.forLessonId)).map((h): HomeworkItem => ({ key: h.id, date: h.date, label: formatShort(h.date), result: resultText(h), done: h.done }));
   return [...set, ...legacy].sort((a, b) => b.date.localeCompare(a.date)).slice(0, n);
 }
 

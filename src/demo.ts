@@ -4,7 +4,7 @@
 
 import { db, newId, getSettings, saveSettings } from './db';
 import type {
-  ColdCall, Lesson, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
+  Assessment, AssessmentCheck, ColdCall, JournalEntry, Lesson, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
 } from './types';
 import { rankStudents } from './logic/priority';
 import { openFollowUp, followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
@@ -342,6 +342,23 @@ export async function loadDemoData(): Promise<void> {
     await db.icpChecks.bulkAdd(icpChecks);
     await db.notes.bulkAdd(notes);
     await db.plans.where('id').startsWith(planId(today, '')).delete();
+  });
+  // Round 4: an active assessment with a couple of checks in the first class, and journal entries.
+  const c0 = classes[0];
+  const c0Lessons = lessons.filter((l) => l.classId === c0.id && !l.historical).sort((a, b) => b.openedAt - a.openedAt);
+  const task: Assessment = { id: newId(), classId: c0.id, name: 'Persuasive essay', dueDate: addDays(today, 9), checkpoints: ['Plan', 'Draft', 'Final'], createdAt: Date.now() };
+  const assessmentChecks: AssessmentCheck[] = c0Lessons[0] ? students.filter((s) => s.classId === c0.id).slice(0, 10).map((s, i) => ({
+    id: `${task.id}|${c0Lessons[0].id}|${s.id}`, assessmentId: task.id, classId: c0.id, studentId: s.id, lessonId: c0Lessons[0].id, date: c0Lessons[0].date,
+    result: i % 4 === 1 ? 'behind' : 'on_track', ...(i % 4 === 1 ? { reasons: ['missing_research'] } : {}), checkpoint: 'Plan', createdAt: c0Lessons[0].openedAt + 600_000 + i
+  })) : [];
+  const journal: JournalEntry[] = [
+    { id: newId(), classId: c0.id, date: addDays(today, -6), lessonId: c0Lessons[2]?.id, text: 'Tried a silent start with the do-now on the board. Much calmer first ten minutes.', tags: ['Behaviour management', 'Lesson design'], aitsl: 4, createdAt: Date.now() },
+    { id: newId(), classId: c0.id, date: addDays(today, -2), lessonId: c0Lessons[0]?.id, text: 'Mentor observed. Feedback: more wait time after questions; cold call worked well.', tags: ['Mentor feedback', 'Engagement'], aitsl: 3, createdAt: Date.now() }
+  ];
+  await db.transaction('rw', [db.assessments, db.assessmentChecks, db.journal], async () => {
+    await db.assessments.add(task);
+    await db.assessmentChecks.bulkAdd(assessmentChecks);
+    await db.journal.bulkAdd(journal);
   });
   await saveSettings({ currentClassId: classes[0].id });
 }

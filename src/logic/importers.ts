@@ -141,3 +141,90 @@ export function parsePriority(raw: Cell): number | undefined {
   if (!Number.isFinite(n)) return undefined;
   return Math.round(Math.max(-0.5, Math.min(1, n - 1)) * 100) / 100;
 }
+
+/** Parses pasted names: one per line, "First Last", "Last, First" or tab-separated columns. */
+export function parseNameLines(text: string): { firstName: string; lastName: string }[] {
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
+    if (l.includes('\t')) {
+      const [f, ...r] = l.split('\t').map((x) => x.trim());
+      return { firstName: f, lastName: r.join(' ') };
+    }
+    if (l.includes(',')) {
+      const [last, first] = l.split(',').map((x) => x.trim());
+      return first ? { firstName: first, lastName: last } : { firstName: last, lastName: '' };
+    }
+    const parts = l.split(/\s+/);
+    return parts.length > 1 ? { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] } : { firstName: parts[0], lastName: '' };
+  }).filter((n) => n.firstName);
+}
+
+/* ---------- ICP adjustments ---------- */
+
+export interface IcpImportRow { row: number; studentId?: string; studentName?: string; className?: string; adjustment: string; notes?: string }
+
+/** Columns: student ID or name, class (optional), adjustment, notes (optional). */
+export function parseIcpImport(rows: Cell[][]): { rows: IcpImportRow[]; errors: string[] } {
+  const errors: string[] = [];
+  if (!rows.length) return { rows: [], errors: ['The file is empty.'] };
+  const h = rows[0].map(norm);
+  const id = findCol(h, ['studentid', 'id', 'studentnumber', 'studentcode', 'code']);
+  const name = findCol(h, ['studentname', 'name', 'student', 'fullname']);
+  const first = findCol(h, ['first', 'firstname', 'given', 'givenname']);
+  const last = findCol(h, ['last', 'lastname', 'surname', 'familyname']);
+  const cls = findCol(h, ['class', 'classname', 'group', 'rollclass']);
+  const adj = findCol(h, ['adjustment', 'adjustments', 'icp', 'icpadjustment', 'support', 'strategy']);
+  const notes = findCol(h, ['notes', 'note', 'details', 'detail', 'comments']);
+  if (adj < 0) return { rows: [], errors: ['No "Adjustment" column found. Download the template to see the columns.'] };
+  if (id < 0 && name < 0 && first < 0) return { rows: [], errors: ['No student column found. Use "Student ID" or "Student name".'] };
+  const out: IcpImportRow[] = [];
+  rows.slice(1).forEach((r, i) => {
+    if (!r || r.every((c) => str(c) === '')) return;
+    const adjustment = str(r[adj]);
+    const studentName = name >= 0 && str(r[name]) ? str(r[name]) : [first >= 0 ? str(r[first]) : '', last >= 0 ? str(r[last]) : ''].filter(Boolean).join(' ');
+    const studentId = id >= 0 ? str(r[id]) || undefined : undefined;
+    if (!adjustment) { errors.push(`Row ${i + 2}: no adjustment, skipped.`); return; }
+    if (!studentId && !studentName) { errors.push(`Row ${i + 2}: no student, skipped.`); return; }
+    out.push({ row: i + 2, studentId, studentName: studentName || undefined, className: cls >= 0 ? str(r[cls]) || undefined : undefined, adjustment, notes: notes >= 0 ? str(r[notes]) || undefined : undefined });
+  });
+  return { rows: out, errors };
+}
+
+export type IcpMatchStatus = 'ok' | 'unknown' | 'ambiguous' | 'duplicate';
+export interface IcpMatch { row: IcpImportRow; status: IcpMatchStatus; studentId?: string; problem?: string }
+
+/**
+ * Preview for an ICP import: which student each row belongs to (by student ID, else by name, narrowed
+ * by class), and problems: unknown or ambiguous student, or an adjustment the student already has
+ * (or that appears twice in the file).
+ */
+export function matchIcpImport(
+  rows: IcpImportRow[],
+  students: { id: string; firstName: string; lastName: string; preferredName?: string; externalId?: string; classId: string; archived?: boolean }[],
+  classes: { id: string; name: string }[],
+  existing: { studentId: string; title: string; active?: boolean }[]
+): IcpMatch[] {
+  const k = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const live = students.filter((s) => !s.archived);
+  const names = (s: (typeof live)[number]) => new Set([
+    k(`${s.firstName} ${s.lastName}`), k(`${s.lastName}, ${s.firstName}`), k(`${s.lastName} ${s.firstName}`),
+    ...(s.preferredName ? [k(`${s.preferredName} ${s.lastName}`)] : [])
+  ]);
+  const have = new Set(existing.filter((a) => a.active !== false).map((a) => `${a.studentId}|${k(a.title)}`));
+  const inFile = new Set<string>();
+  return rows.map((row): IcpMatch => {
+    let found = row.studentId ? live.filter((s) => s.externalId && k(s.externalId) === k(row.studentId!)) : [];
+    if (!found.length && row.studentName) found = live.filter((s) => names(s).has(k(row.studentName!)));
+    if (row.className && found.length > 1) {
+      const c = classes.find((x) => k(x.name) === k(row.className!));
+      if (c) found = found.filter((s) => s.classId === c.id);
+    }
+    const who = row.studentName ?? row.studentId;
+    if (!found.length) return { row, status: 'unknown', problem: `No student matches "${who}"` };
+    if (found.length > 1) return { row, status: 'ambiguous', problem: `${found.length} students match "${who}": add a Student ID or Class` };
+    const key = `${found[0].id}|${k(row.adjustment)}`;
+    if (have.has(key)) return { row, status: 'duplicate', studentId: found[0].id, problem: 'Already has this adjustment' };
+    if (inFile.has(key)) return { row, status: 'duplicate', studentId: found[0].id, problem: 'Listed twice in the file' };
+    inFile.add(key);
+    return { row, status: 'ok', studentId: found[0].id };
+  });
+}

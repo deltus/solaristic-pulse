@@ -9,6 +9,7 @@ import { homeworkHistory } from '../../logic/lessons';
 import { coldCallHistory, coldCallsLastLessons, coldCallStats } from '../../logic/coldcall';
 import { EVIDENCE_KINDS } from '../../logic/evidence';
 import { studentTimeline } from '../../logic/timeline';
+import { assessmentResultText, studentAssessmentHistory } from '../../logic/assessments';
 import { categoryTrend } from '../../logic/trends';
 import { rollingShare } from '../../logic/insights';
 import { TrendLine } from '../TrendLine';
@@ -18,6 +19,7 @@ import { daysBetween, formatDate, formatShort, relativeDay, today } from '../../
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Icon, PageHead, levelBadge, toast } from '../components';
 import { StudentForm } from './Classes';
+import { AdjustmentForm } from '../IcpForms';
 import { homeworkText } from './Homework';
 import { subLabel } from '../../config/checkin';
 
@@ -101,7 +103,7 @@ export function StudentProfile({ id }: { id: string }) {
   const data = useLive(async () => {
     const student = await db.students.get(id);
     if (!student) return { student: undefined };
-    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls, evidence] = await Promise.all([
+    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls, evidence, assessments, classAssessmentChecks] = await Promise.all([
       db.classes.get(student.classId), db.observations.where('studentId').equals(id).toArray(), db.checkins.where('studentId').equals(id).toArray(),
       db.questions.filter((q) => q.enabled).toArray(), db.questions.toArray(), sortedCategories(), db.notes.where('studentId').equals(id).toArray(),
       db.icpAdjustments.where('studentId').equals(id).toArray(), db.icpChecks.where('studentId').equals(id).toArray(),
@@ -109,20 +111,23 @@ export function StudentProfile({ id }: { id: string }) {
       db.students.where('classId').equals(student.classId).toArray(), db.checkins.where('classId').equals(student.classId).toArray(),
       db.observations.where('classId').equals(student.classId).toArray(), db.issueTags.where('classId').equals(student.classId).toArray(),
       db.homework.where('classId').equals(student.classId).toArray(), db.lessons.where('classId').equals(student.classId).toArray(),
-      db.coldCalls.where('studentId').equals(id).toArray(), db.evidence.where('studentId').equals(id).toArray()
+      db.coldCalls.where('studentId').equals(id).toArray(), db.evidence.where('studentId').equals(id).toArray(),
+      db.assessments.where('classId').equals(student.classId).toArray(), db.assessmentChecks.where('classId').equals(student.classId).toArray()
     ]);
-    const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), classLessons).get(id);
+    const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), classLessons, classAssessmentChecks).get(id);
+    const assessmentHistory = studentAssessmentHistory(assessments, classAssessmentChecks, id);
     const tags = classTags.filter((t) => t.studentId === id);
     const homework = classHomework.filter((h) => h.studentId === id);
-    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence };
+    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence, assessmentHistory };
   }, [id]);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const [addIcp, setAddIcp] = useState(false);
 
   if (!data) return null;
   if (!data.student) return <p>Student not found. <a href="#/students">Back</a></p>;
-  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence } = data as Required<typeof data>;
+  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence, assessmentHistory } = data as Required<typeof data>;
   const ccRecentLessons = coldCallsLastLessons(coldCalls, classLessons, s.classId, s.id);
   const hwHistory = homeworkHistory(classLessons, homework, s.classId, s.id);
   const ccStats = coldCallStats(coldCalls, date);
@@ -216,6 +221,7 @@ export function StudentProfile({ id }: { id: string }) {
       <div class="row wrap" style="margin-bottom:14px">
         {!s.archived && <button class="btn primary small" onClick={checkNow}><Icon name="check" /> Check in now</button>}
         <button class={`btn small ${s.flag ? 'burgundy' : ''}`} onClick={flag}><Icon name="flag" /> {s.flag ? 'Flagged' : 'Flag for monitoring'}</button>
+        <button class="btn small" onClick={() => setAddIcp(true)}><Icon name="plus" /> Add ICP adjustment</button>
         <a class="btn small" href={`#/reports/${s.id}`}><Icon name="download" /> Student report</a>
       </div>
       {s.flag && <div class="notice burgundy"><b>Flagged {relativeDay(s.flag.since)}</b>{s.flag.reason ? `: ${s.flag.reason}` : ''}. A flag only increases how often this student is checked; it is not a label and can be removed at any time.</div>}
@@ -267,6 +273,19 @@ export function StudentProfile({ id }: { id: string }) {
         </>
       )}
 
+      {assessmentHistory.length > 0 && (
+        <>
+          <div class="section"><h2>Assessments</h2></div>
+          <div class="card flat" style="padding:4px 14px">
+            {assessmentHistory.map(({ a, rows }) => (
+              <div key={a.id} class="lesson-row">
+                <b>{a.name}</b>{a.dueDate && <span class="tiny muted"> · due {formatShort(a.dueDate)}</span>}
+                {rows.slice(0, 5).map((r) => <div key={r.id} class="tiny"><span class={r.result === 'on_track' ? 'ok' : 'warn'}>●</span> {formatShort(r.date)} · {assessmentResultText(r)}</div>)}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       {minor.length > 0 && <p class="small" style="margin:10px 0 0"><b>Minor:</b> {minor.map((m) => `${m.label} ${m.count}× this term`).join(' · ')}</p>}
       <div class="section"><h2>Trends</h2><span class="tiny muted">last 8 weeks · includes Blitz</span></div>
       <div class="legend" style="margin-bottom:8px"><span><i style="background:var(--ok)" />Meeting expectations</span><span><i style="background:var(--some)" />Needs support</span><span>Line: share of the last 5 answers meeting expectations</span></div>
@@ -282,7 +301,7 @@ export function StudentProfile({ id }: { id: string }) {
         );
       })}
 
-      <div class="section"><h2>ICP adjustments</h2><a class="btn small" href={`#/icp/${s.id}`}>Manage</a></div>
+      <div class="section"><h2>ICP adjustments</h2><span class="row" style="gap:6px"><button class="btn small" onClick={() => setAddIcp(true)}><Icon name="plus" /> Add</button><a class="btn small" href={`#/icp/${s.id}`}>Manage</a></span></div>
       {adjustments.length ? (
         <div class="list">
           {adjustments.map((a) => {
@@ -330,6 +349,7 @@ export function StudentProfile({ id }: { id: string }) {
         <button class="btn danger" onClick={remove}><Icon name="trash" /> Delete permanently</button>
       </div>
       {editing && <StudentForm classId={s.classId} student={s} onClose={() => setEditing(false)} />}
+      {addIcp && <AdjustmentForm studentId={s.id} students={[s]} classes={cls ? [cls] : []} onClose={() => setAddIcp(false)} />}
     </div>
   );
 }

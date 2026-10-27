@@ -36,7 +36,7 @@ const base = (): ExportOptions => ({
 describe('exports (scenarios 11, 13, 14)', () => {
   it('class export contains the expected sheets and names', async () => {
     const { wb, text, r } = await readBack({ ...base(), categoryIds: await allCats() });
-    expect(wb.SheetNames).toEqual(['Summary', 'Observations', 'Check-ins', 'Issue details', 'Homework', 'Cold calls', 'Lessons', 'Check-outs', 'Teacher notes', 'ICP adjustments', 'ICP check-ins', 'About this report']);
+    expect(wb.SheetNames).toEqual(['Summary', 'Observations', 'Check-ins', 'Issue details', 'Homework', 'Cold calls', 'Assessments', 'Lessons', 'Check-outs', 'Teacher notes', 'ICP adjustments', 'ICP check-ins', 'About this report']);
     expect(text).toContain('Bill Harris');
     expect(r.students).toBe(36);
     expect(r.observations).toBeGreaterThan(100);
@@ -80,13 +80,13 @@ describe('exports (scenarios 11, 13, 14)', () => {
     expect(text).not.toMatch(/(?<!not that the )adjustment (has )?(caused|led to|resulted in)/i);
     const deid = await readBack({ ...base(), kind: 'student', studentId: bill, categoryIds: await allCats(), deidentify: true });
     expect(deid.text).not.toMatch(/Harris|William|\bBill\b/);
-    expect(deid.r.baseName).toMatch(/Student-0\d\d/);
+    expect(deid.r.baseName).toMatch(/^Student 0\d\d – 7B English \(Yr 7\) – student report .* \(de-identified\)$/);
   });
 
   it('CSV export contains the observation rows', async () => {
     const r = await buildExport({ ...base(), categoryIds: await allCats() });
     const csv = await (await toBlob(r.sheets, 'csv')).text();
-    expect(csv.split('\n')[0]).toContain('Student,Student ID,Class,Date,Category');
+    expect(csv.split('\n')[0]).toContain('Student,Student ID,Class,Year level,Date,Category');
     expect(csv.split('\n').length).toBeGreaterThan(100);
   });
 });

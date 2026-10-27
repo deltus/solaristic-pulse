@@ -164,3 +164,12 @@ export const RANKING = {
 
 /** Daily check-in target: extra encouragement every this many students past the target. */
 export const ENCOURAGE_EVERY = 5;
+
+/** Assessment check: optional reasons for "Behind". */
+export const ASSESSMENT_REASONS: SubOption[] = [
+  { id: 'not_started', label: 'Not started' },
+  { id: 'missing_research', label: 'Missing research' },
+  { id: 'needs_help', label: 'Needs help with content' },
+  { id: 'absent', label: 'Absent' },
+  { id: 'other', label: 'Other' }
+];

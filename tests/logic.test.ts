@@ -320,7 +320,7 @@ describe('draw weight inputs and weighting', () => {
   });
 });
 
-import { parseNameLines } from '../src/ui/Setup';
+import { parseNameLines } from '../src/logic/importers';
 
 describe('setup name entry', () => {
   it('parses pasted name lists', () => {

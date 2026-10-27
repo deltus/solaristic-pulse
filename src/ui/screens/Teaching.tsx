@@ -1,4 +1,5 @@
-// "My teaching": private reflection from close-of-lesson answers. Patterns appear once there
+// "My teaching": the teacher journal for all classes, and private reflection from close-of-lesson
+// answers. Patterns appear once there
 // are at least 5 closed lessons in the last four weeks. Never part of reports or shared exports.
 
 import { db } from '../../db';
@@ -8,6 +9,7 @@ import { lessonOf } from '../../logic/checkin';
 import { formatShort, today } from '../../lib/dates';
 import { useLive } from '../hooks';
 import { Empty, Icon, PageHead } from '../components';
+import { JournalList } from '../Journal';
 
 const HAPPY = { yes: 'Happy', mostly: 'Mostly happy', no: 'Not happy' };
 const PLAN = { yes: 'got through the plan', partly: 'partly through the plan', no: "didn't get through the plan" };
@@ -29,6 +31,9 @@ export function TeachingScreen() {
     <div>
       <PageHead eyebrow="Private to you" title="My teaching" />
       <p class="small muted" style="margin-top:-6px">Patterns from how you closed your lessons over the last {WINDOW_DAYS / 7} weeks. These are prompts for reflection, not judgements. They stay with you and are never part of reports or shared exports.</p>
+
+      <div class="section"><h2>Journal</h2><span class="tiny muted">all classes</span></div>
+      <JournalList />
 
       <div class="section"><h2>Patterns</h2><span class="tiny muted mono">{done.length} closed lesson{done.length === 1 ? '' : 's'}</span></div>
       {insights.length ? insights.map((i) => (

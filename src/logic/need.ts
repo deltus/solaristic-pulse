@@ -8,7 +8,7 @@
 //   very high, so a new class works through everyone before anyone comes up twice.
 // The weights live in src/config/checkin.ts (RANKING).
 
-import type { Checkin, HomeworkCheck, IssueTag, Lesson, Observation, Student } from '../types';
+import type { AssessmentCheck, Checkin, HomeworkCheck, IssueTag, Lesson, Observation, Student } from '../types';
 import { RANKING } from '../config/checkin';
 import { daysBetween } from '../lib/dates';
 import { lessonOf, openFollow } from './checkin';
@@ -30,7 +30,9 @@ const age = (date: string, today: string) => {
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
 export function recentConcern(
-  student: Pick<Student, 'flag'>, obs: Observation[], homework: HomeworkCheck[], checkins: Checkin[], tags: IssueTag[], today: string
+  student: Pick<Student, 'flag'>, obs: Observation[], homework: HomeworkCheck[], checkins: Checkin[], tags: IssueTag[], today: string,
+  /** "Behind" in Assessment check counts like homework not done (Coping with work → assessment progress). */
+  assessment: AssessmentCheck[] = []
 ): { value: number; reasons: string[] } {
   let v = 0;
   let issues = 0;
@@ -43,9 +45,12 @@ export function recentConcern(
   }
   const hw = homework.filter((h) => !h.done && age(h.date, today) > 0);
   for (const h of hw) v += age(h.date, today) * RANKING.homeworkNotDone;
+  const behind = assessment.filter((a) => a.result === 'behind' && age(a.date, today) > 0);
+  for (const a of behind) v += age(a.date, today) * RANKING.homeworkNotDone;
   const reasons: string[] = [];
   if (issues) reasons.push(`${issues} recent issue${issues === 1 ? '' : 's'}`);
   if (hw.length) reasons.push(`Homework not done ${hw.length}×`);
+  if (behind.length) reasons.push(`Behind on an assessment ${behind.length}×`);
   if (openFollow(checkins, obs, tags)) { v += RANKING.openFollowUp; reasons.push('Follow-up due'); }
   if (student.flag) { v += RANKING.flag; reasons.push('Flagged by you'); }
   return { value: round1(v), reasons };
@@ -80,6 +85,8 @@ export interface NeedInput {
   homework: HomeworkCheck[];
   /** This class's Lesson records (optional: older data and tests can do without). */
   lessons?: Lesson[];
+  /** This class's Assessment check results (optional). */
+  assessmentChecks?: AssessmentCheck[];
   lessonId: string;
   today: string;
   excludeIds?: Set<string>;
@@ -99,7 +106,7 @@ export function rankByNeed(input: NeedInput): NeedRow[] {
     .filter((s) => !s.archived && !excludeIds?.has(s.id))
     .map((s) => {
       const sChk = checkins.filter((c) => c.studentId === s.id);
-      const c = recentConcern(s, observations.filter((o) => o.studentId === s.id), homework.filter((h) => h.studentId === s.id), sChk, tags.filter((t) => t.studentId === s.id), today);
+      const c = recentConcern(s, observations.filter((o) => o.studentId === s.id), homework.filter((h) => h.studentId === s.id), sChk, tags.filter((t) => t.studentId === s.id), today, (input.assessmentChecks ?? []).filter((a) => a.studentId === s.id));
       const since = lessonsSinceSeen(s.id, checkins, order, lessonId);
       const need = RANKING.concernWeight * Math.min(c.value, RANKING.concernCap) + RANKING.seenWeight * (since ?? RANKING.neverSeenLessons);
       return { studentId: s.id, need: round1(need), concern: c.value, lessonsSince: since, reasons: c.reasons };
@@ -112,14 +119,15 @@ export function rankByNeed(input: NeedInput): NeedRow[] {
  * lesson is the class's open lesson, or the next one if none is open.
  */
 export function needByStudent(
-  students: Student[], checkins: Checkin[], observations: Observation[], tags: IssueTag[], homework: HomeworkCheck[], today: string, lessons: Lesson[]
+  students: Student[], checkins: Checkin[], observations: Observation[], tags: IssueTag[], homework: HomeworkCheck[], today: string, lessons: Lesson[],
+  assessmentChecks: AssessmentCheck[] = []
 ): Map<string, NeedRow> {
   const out = new Map<string, NeedRow>();
   for (const classId of new Set(students.map((s) => s.classId))) {
     const rows = rankByNeed({
       students: students.filter((s) => s.classId === classId), checkins: checkins.filter((c) => c.classId === classId),
       observations: observations.filter((o) => o.classId === classId), tags: tags.filter((t) => t.classId === classId),
-      homework: homework.filter((h) => h.classId === classId), lessons: lessons.filter((l) => l.classId === classId),
+      homework: homework.filter((h) => h.classId === classId), lessons: lessons.filter((l) => l.classId === classId), assessmentChecks: assessmentChecks.filter((a) => a.classId === classId),
       lessonId: openLessonFor(lessons, classId)?.id ?? `next|${classId}`, today
     });
     for (const r of rows) out.set(r.studentId, r);

@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Category, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, Lesson, IcpCheck, Observation, Question,
+  Assessment, AssessmentCheck, Category, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -27,6 +27,9 @@ export class PulseDB extends Dexie {
   homework!: Table<HomeworkCheck, string>;
   lessons!: Table<Lesson, string>;
   coldCalls!: Table<ColdCall, string>;
+  journal!: Table<JournalEntry, string>;
+  assessments!: Table<Assessment, string>;
+  assessmentChecks!: Table<AssessmentCheck, string>;
   /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
   evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
@@ -87,6 +90,8 @@ export class PulseDB extends Dexie {
     this.version(10).stores({}).upgrade(async (tx) => {
       await moveSubOptions(tx);
     });
+    // v11: teacher journal, and assessments with their checks (round 4).
+    this.version(11).stores({ journal: 'id, classId, date, lessonId', assessments: 'id, classId', assessmentChecks: 'id, assessmentId, studentId, classId, date' });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -97,7 +102,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 

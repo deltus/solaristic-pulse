@@ -9,6 +9,7 @@ import { CheckinScreen, SelectStudentScreen } from './screens/Checkin';
 import { HomeworkScreen } from './screens/Homework';
 import { CloseLessonScreen } from './screens/CloseLesson';
 import { ColdCallScreen } from './screens/ColdCall';
+import { AssessmentCheckScreen } from './screens/Assessment';
 import { TeachingScreen } from './screens/Teaching';
 import { lessonsToClose, lessonName } from '../logic/lessons';
 import { HomeScreen } from './screens/Home';
@@ -84,7 +85,7 @@ export function App() {
   const currentClass = classes?.find((c) => c.id === (page === 'class' && id ? id : settings.currentClassId)) ?? classes?.[0];
   let screen;
   switch (page) {
-    case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} fromClassPage /> : id ? <ClassDetail id={id} /> : <ClassesScreen />; break;
+    case 'classes': screen = id && sub === 'blitz' ? <BlitzScreen classId={id} fromClassPage /> : id ? <ClassDetail id={id} tab={sub} /> : <ClassesScreen />; break;
     case 'students': screen = id ? <StudentProfile id={id} /> : <StudentsScreen />; break;
     case 'icp': screen = id === 'class' && sub ? <IcpScreen key={`class-${sub}`} classFilter={sub} /> : <IcpScreen studentId={id} mode={sub} />; break;
     case 'reports': screen = <ReportsScreen studentId={id} />; break;
@@ -97,6 +98,7 @@ export function App() {
         : sub === 'homework' ? <HomeworkScreen key={extra ?? ''} classId={id} anyway={extra === 'anyway'} />
         : sub === 'close' ? <CloseLessonScreen classId={id} />
         : sub === 'coldcall' ? <ColdCallScreen classId={id} />
+        : sub === 'assessment' ? <AssessmentCheckScreen key={extra ?? ''} classId={id} assessmentId={extra} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />
         : <ClassHub classId={id} reminder={reminder} />;
       break;

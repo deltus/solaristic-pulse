@@ -869,3 +869,9 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .milestone-card h2 { margin: 10px 0 0; }
 .milestone-card .check { margin: 0 auto; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: #fff; }
 .milestone-card.small { padding: 16px; }
+
+/* ---------- Round 4 ---------- */
+.adj-line { display: grid; grid-template-columns: 1fr auto; gap: 6px; margin-bottom: 10px; }
+.adj-line .input:nth-child(2) { grid-column: 1; }
+.adj-line .icon-btn { grid-row: 1; grid-column: 2; }
+.class-tabs { margin: -4px 0 14px; }

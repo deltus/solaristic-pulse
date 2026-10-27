@@ -9,6 +9,9 @@ import { DAY_NAMES, today } from '../../lib/dates';
 import { needByStudent } from '../../logic/need';
 import { NeedBadge } from './Students';
 import { ClassOverview } from './ClassOverview';
+import { ClassSetup } from '../ClassSetup';
+import { JournalList } from '../Journal';
+import { AssessmentsPanel } from './Assessment';
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, toast } from '../components';
 
@@ -60,7 +63,7 @@ export function ClassesScreen() {
         </>
       )}
       <div class="row wrap" style="margin-bottom:12px">
-        <button class="btn small" onClick={() => setImporting(true)}><Icon name="upload" /> Import roster (CSV/XLSX)</button>
+        <button class="btn small" onClick={() => setImporting(true)}><Icon name="upload" /> Import all classes (CSV/XLSX)</button>
         <a class="btn small" href="#/settings/timetable"><Icon name="calendar" /> Timetable</a>
         <span class="grow" />
         <button class={`chip small ${showArchived ? 'active' : ''}`} onClick={() => setShowArchived(!showArchived)}>{showArchived ? 'Showing archived' : 'Show archived'}</button>
@@ -85,9 +88,20 @@ export function ClassesScreen() {
       ) : (
         <div class="card"><Empty icon="classes">{q.trim() ? `No classes match “${q.trim()}”.` : showArchived ? 'No archived classes.' : 'No classes yet. Create one, or import a roster with a Class column to create several at once.'}</Empty></div>
       )}
-      {adding && <ClassForm onClose={() => setAdding(false)} />}
+      {adding && <NewClassSheet onClose={() => setAdding(false)} />}
       {importing && <RosterImport onClose={() => setImporting(false)} />}
     </div>
+  );
+}
+
+/** New class: the same steps as first-time setup (class details, then type names or import a file). */
+function NewClassSheet({ onClose }: { onClose: () => void }) {
+  const [phase, setPhase] = useState<'class' | 'students'>('class');
+  return (
+    <Sheet title="New class" onClose={onClose}>
+      <ClassSetup phase={phase} setPhase={setPhase} heading="Class details" onBack={onClose}
+        onDone={(c) => { toast(`${c.name} set up${c.added ? ` with ${c.added} students` : ''}`); onClose(); go(`classes/${c.id}`); }} />
+    </Sheet>
   );
 }
 
@@ -112,6 +126,9 @@ function ClassForm({ cls, onClose }: { cls?: SchoolClass; onClose: () => void })
         <Field label="Subject"><input class="input" value={f.subject} onInput={set('subject')} /></Field>
         <Field label="Year level"><input class="input" value={f.yearLevel} onInput={set('yearLevel')} placeholder="Year 9" /></Field>
       </div>
+      <Field label="Check-in target per lesson (optional)" hint="Leave empty to use the one in Settings.">
+        <input class="input" type="number" min={1} max={40} value={f.dailyTarget} onInput={set('dailyTarget')} />
+      </Field>
       <div class="actions"><button class="btn" onClick={onClose}>Cancel</button><button class="btn primary" disabled={!f.name.trim()} onClick={save}>Save</button></div>
     </Sheet>
   );
@@ -182,17 +199,20 @@ export function RosterImport({ classId, onClose }: { classId?: string; onClose: 
       setErrors([`Could not read the file: ${(e as Error).message}`]);
     }
   }
-  const needsClass = rows?.some((r) => !r.className);
+  // Inside a class, everyone goes into that class (any Class column is ignored).
+  const needsClass = !classId && rows?.some((r) => !r.className);
   async function confirm() {
     if (!rows) return;
-    const r = await svc.importRoster(rows, target || undefined);
+    const r = classId ? await svc.importStudentsIntoClass(rows, classId) : await svc.importRoster(rows, target || undefined);
     toast(`Imported ${r.added} student${r.added === 1 ? '' : 's'}${r.duplicates ? `, skipped ${r.duplicates} already present` : ''}`);
     onClose();
   }
 
   return (
-    <Sheet title="Import a roster" onClose={onClose}>
-      <p class="small muted">Use a CSV or Excel file with a header row. Recognised columns: <b>First name</b>, <b>Last name</b> (or a single <b>Name</b>), optional <b>Preferred name</b>, <b>Student ID</b> and <b>Class</b>. A Class column creates missing classes automatically. The file is read on this device only.</p>
+    <Sheet title={classId ? 'Import students' : 'Import all classes'} onClose={onClose}>
+      <p class="small muted">Use a CSV or Excel file with a header row. Recognised columns: <b>First name</b>, <b>Last name</b> (or a single <b>Name</b>), optional <b>Preferred name</b> and <b>Student ID</b>{classId
+        ? '. Everyone in the file is added to this class.'
+        : <>, and <b>Class</b>. A Class column creates missing classes automatically.</>} The file is read on this device only.</p>
       <div class="row wrap" style="margin:10px 0">
         <button class="btn primary" onClick={choose}><Icon name="upload" /> Choose file</button>
         <button class="btn ghost small" onClick={() => saveSample('roster')}>Get a sample roster</button>
@@ -211,7 +231,7 @@ export function RosterImport({ classId, onClose }: { classId?: string; onClose: 
           )}
           <div class="list" style="max-height:240px;overflow:auto">
             {rows.slice(0, 50).map((r, i) => (
-              <div key={i} class="list-item"><span class="grow"><span class="title">{r.firstName} {r.lastName}</span><div class="sub">{[r.preferredName && `Preferred: ${r.preferredName}`, r.externalId, r.className].filter(Boolean).join(' · ')}</div></span></div>
+              <div key={i} class="list-item"><span class="grow"><span class="title">{r.firstName} {r.lastName}</span><div class="sub">{[r.preferredName && `Preferred: ${r.preferredName}`, r.externalId, !classId && r.className].filter(Boolean).join(' · ')}</div></span></div>
             ))}
           </div>
           {rows.length > 50 && <p class="tiny muted">…and {rows.length - 50} more</p>}
@@ -222,7 +242,7 @@ export function RosterImport({ classId, onClose }: { classId?: string; onClose: 
   );
 }
 
-export function ClassDetail({ id }: { id: string }) {
+export function ClassDetail({ id, tab }: { id: string; tab?: string }) {
   const data = useLive(async () => ({
     cls: await db.classes.get(id),
     students: await db.students.where('classId').equals(id).toArray(),
@@ -253,17 +273,39 @@ export function ClassDetail({ id }: { id: string }) {
     go('classes');
   }
 
-  return (
-    <div>
+  const head = (
+    <>
       <PageHead eyebrow={[cls.yearLevel, cls.subject].filter(Boolean).join(' · ') || 'Class'} title={cls.name} back="#/classes">
         <button class="icon-btn" aria-label="Edit class" onClick={() => setSheet('edit')}><Icon name="edit" /></button>
       </PageHead>
+      <div class="chips class-tabs" role="tablist">
+        {[['', 'Class'], ['journal', 'Journal'], ['assessments', 'Assessments']].map(([t, label]) => (
+          <a key={t} role="tab" aria-selected={(tab ?? '') === t} class={`chip ${(tab ?? '') === t ? 'active' : ''}`} href={`#/classes/${cls.id}${t ? `/${t}` : ''}`}>{label}</a>
+        ))}
+      </div>
+    </>
+  );
+  if (tab === 'journal' || tab === 'assessments') {
+    return (
+      <div>
+        {head}
+        {tab === 'journal'
+          ? <><p class="small muted" style="margin:0 0 10px">Your private journal for {cls.name}. Never in reports or shared exports.</p><JournalList classId={cls.id} /></>
+          : <AssessmentsPanel classId={cls.id} />}
+        {sheet === 'edit' && <ClassForm cls={cls} onClose={() => setSheet(null)} />}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {head}
       {cls.archived && <div class="notice">This class is archived. It is hidden from Today and the rotation; its records are kept.</div>}
       {!cls.archived && <ClassOverview classId={cls.id} onBlitz={() => go(`classes/${cls.id}/blitz`)} />}
 
       <div class="row wrap" style="margin-bottom:12px">
         <button class="btn primary small" onClick={() => setSheet('student')}><Icon name="plus" /> Add student</button>
-        <button class="btn small" onClick={() => setSheet('import')}><Icon name="upload" /> Import roster</button>
+        <button class="btn small" onClick={() => setSheet('import')}><Icon name="upload" /> Import students</button>
         <span class="grow" />
         <button class={`chip small ${showArchived ? 'active' : ''}`} onClick={() => setShowArchived(!showArchived)}>Archived ({students.filter((s) => s.archived).length})</button>
       </div>

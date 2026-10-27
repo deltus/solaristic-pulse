@@ -11,6 +11,7 @@ import { go, useLive } from '../hooks';
 import { Icon, toast } from '../components';
 import { Speedometer, ZONE_COLOUR } from '../Speedometer';
 import { cancelClosePrompt, promptToClose } from '../lessonPrompts';
+import { JournalForm } from '../Journal';
 
 const HAPPY: { v: Happy; label: string }[] = [{ v: 'yes', label: 'Yes' }, { v: 'mostly', label: 'Mostly' }, { v: 'no', label: 'No' }];
 const PLAN: { v: PlanDone; label: string }[] = [{ v: 'yes', label: 'Yes' }, { v: 'partly', label: 'Partly' }, { v: 'no', label: 'No' }];
@@ -38,6 +39,7 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
   const [happy, setHappy] = useState<Happy | undefined>(lesson.happy);
   const [plan, setPlan] = useState<PlanDone | undefined>(lesson.planDone);
   const [note, setNote] = useState(lesson.note ?? '');
+  const [journal, setJournal] = useState(false);
   const answers = () => ({ attentionPct: pct ?? undefined, homeworkSet: hwSet, homeworkText: hwText, happy, planDone: plan, note });
   const zone = pct === null ? null : zoneFor(pct);
   const move = (v: number) => { setSkipped(false); setPct(clampPct(v)); };
@@ -97,6 +99,8 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
         <div class="seg">{PLAN.map((o) => <button key={o.v} class={plan === o.v ? 'sel' : ''} aria-pressed={plan === o.v} onClick={() => setPlan(o.v)}>{o.label}</button>)}</div>
         <textarea class="input" style="margin-top:12px" value={note} placeholder="Note (optional, just for you)" onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)} />
         <p class="tiny muted">Your answers are private to you. They feed "My teaching" and are never in reports or shared exports.</p>
+        <button class="link-btn" style="padding:4px 0;color:var(--blue)" onClick={() => setJournal(true)}><Icon name="edit" /> Write a journal entry</button>
+        {journal && <JournalForm classId={classId} start={{ lessonId: lesson.id, text: note }} onClose={() => setJournal(false)} />}
       </section>
 
       <button class="btn primary block" disabled={!ready} onClick={close}><Icon name="check" /> Close lesson</button>

@@ -373,3 +373,47 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   lockAfterMin: 5
 };
+
+/** Teacher journal entry for one class. Private: never in reports, de-identified exports or sharing. */
+export interface JournalEntry {
+  id: string;
+  classId: string;
+  date: string;
+  /** The lesson it reflects on (defaults to the current or most recent lesson). */
+  lessonId?: string;
+  text: string;
+  tags: string[];
+  /** AITSL Australian Professional Standard for Teachers (1–7). */
+  aitsl?: number;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+/** A long task (research assignment, fieldwork report) checked with Assessment check. */
+export interface Assessment {
+  id: string;
+  classId: string;
+  name: string;
+  dueDate?: string;
+  /** e.g. "Research done", "Draft", "Final". */
+  checkpoints: string[];
+  /** Ended early by the teacher (otherwise it ends after the due date). */
+  closed?: boolean;
+  createdAt: number;
+}
+
+export type AssessmentResult = 'on_track' | 'behind';
+
+/** One student's result in one Assessment check (one per lesson per task). */
+export interface AssessmentCheck {
+  id: string; // `${assessmentId}|${lessonId}|${studentId}`
+  assessmentId: string;
+  classId: string;
+  studentId: string;
+  lessonId: string;
+  date: string;
+  result: AssessmentResult;
+  reasons?: string[];
+  checkpoint?: string;
+  createdAt: number;
+}

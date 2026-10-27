@@ -5,9 +5,9 @@ import { useState } from 'preact/hooks';
 import { saveSettings } from '../db';
 import * as svc from '../services';
 import { loadDemoData } from '../demo';
-import { parseRoster } from '../logic/importers';
-import { pickFile, readSpreadsheet, requestPersistentStorage } from '../platform';
-import { Field, Icon, toast } from './components';
+import { ClassSetup } from './ClassSetup';
+import { requestPersistentStorage } from '../platform';
+import { Field, Icon } from './components';
 import { PinSetup, PrivacyNotice } from './Onboarding';
 import { ReminderPrompt } from './ReminderPrompt';
 import { InviteWelcome, SignIn } from './Account';
@@ -25,21 +25,6 @@ const GUIDE = [
 const STEPS = ['Sign in', 'How it works', 'Your class', 'Students', 'Lessons', 'Reminders', 'PIN', 'Ready'];
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 
-/** Parses pasted names: one per line, "First Last", "Last, First" or tab-separated columns. */
-export function parseNameLines(text: string): { firstName: string; lastName: string }[] {
-  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => {
-    if (l.includes('\t')) {
-      const [f, ...r] = l.split('\t').map((x) => x.trim());
-      return { firstName: f, lastName: r.join(' ') };
-    }
-    if (l.includes(',')) {
-      const [last, first] = l.split(',').map((x) => x.trim());
-      return first ? { firstName: first, lastName: last } : { firstName: last, lastName: '' };
-    }
-    const parts = l.split(/\s+/);
-    return parts.length > 1 ? { firstName: parts.slice(0, -1).join(' '), lastName: parts[parts.length - 1] } : { firstName: parts[0], lastName: '' };
-  }).filter((n) => n.firstName);
-}
 
 export function Setup() {
   const [step, setStep] = useState(0);
@@ -47,15 +32,13 @@ export function Setup() {
   const [accepted, setAccepted] = useState(false);
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [profile, setProfile] = useState({ name: '', email: suggestedEmail() ?? '', school: '' });
-  const [cls, setCls] = useState({ name: '', yearLevel: '' });
+  const [cls, setCls] = useState({ name: '' });
   const [classId, setClassId] = useState<string | null>(null);
-  const [names, setNames] = useState('');
   const [added, setAdded] = useState(0);
   const [lesson, setLesson] = useState({ days: [] as number[], start: '09:00', end: '10:00', room: '' });
   const [lessons, setLessons] = useState(0);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const parsed = parseNameLines(names);
   const first = profile.name.trim().split(/\s+/)[0];
 
   const go = (n: number) => { setErr(''); setStep(n); window.scrollTo(0, 0); };
@@ -66,34 +49,6 @@ export function Setup() {
     if (!accepted) return setErr('Tick the box to confirm you have read the privacy notice.');
     await saveSettings({ profile: { name: profile.name.trim(), email: profile.email.trim(), school: profile.school.trim() }, privacyAcceptedAt: Date.now() });
     go(1);
-  }
-  async function saveClass() {
-    if (!cls.name.trim()) return setErr('Give your class a name.');
-    if (classId) await svc.updateClass(classId, { name: cls.name.trim(), yearLevel: cls.yearLevel.trim() || undefined });
-    else setClassId((await svc.createClass({ name: cls.name, yearLevel: cls.yearLevel })).id);
-    go(3);
-  }
-  async function saveStudents() {
-    if (!classId) return;
-    setBusy(true);
-    for (const n of parsed) await svc.addStudent(classId, n);
-    setBusy(false);
-    setAdded(added + parsed.length);
-    setNames('');
-    go(4);
-  }
-  async function importFile() {
-    const file = await pickFile('.csv,.xlsx,.xls,text/csv');
-    if (!file || !classId) return;
-    try {
-      const r = parseRoster(await readSpreadsheet(file));
-      if (!r.rows.length) return setErr(r.errors[0] ?? 'No students found in that file.');
-      const res = await svc.importRoster(r.rows.map((x) => ({ ...x, className: undefined })), classId);
-      setAdded(added + res.added);
-      toast(`Imported ${res.added} students`);
-    } catch (e) {
-      setErr(`Could not read the file: ${(e as Error).message}`);
-    }
   }
   async function saveLessons() {
     if (!classId) return;
@@ -161,32 +116,15 @@ export function Setup() {
         </>
       )}
 
-      {step === 2 && (
-        <>
-          <h1>Add your first class</h1>
-          <p class="muted" style="margin:8px 0 18px">You can add more classes later.</p>
-          <Field label="Class name"><input class="input" value={cls.name} placeholder="9C Science" onInput={(e) => setCls({ ...cls, name: (e.target as HTMLInputElement).value })} /></Field>
-          <Field label="Year level (optional)"><input class="input" value={cls.yearLevel} placeholder="Year 9" onInput={(e) => setCls({ ...cls, yearLevel: (e.target as HTMLInputElement).value })} /></Field>
-          {error}
-          <div class="grid2">{back(1)}<button class="btn primary" onClick={saveClass}>Continue</button></div>
-          <div class="divider" />
-          <p class="small muted">Just looking around first?</p>
-          <button class="btn block" disabled={busy} onClick={() => finish(true)}>Explore with fictional demo data</button>
-        </>
-      )}
-
-      {step === 3 && (
-        <>
-          <h1>Add students to {cls.name}</h1>
-          <p class="muted" style="margin:8px 0 18px">One name per line. You can paste a column straight from a spreadsheet.</p>
-          <textarea class="input" style="min-height:180px" value={names} placeholder={'Ethan Taylor\nMia Nguyen\nTaylor, Sam'} onInput={(e) => setNames((e.target as HTMLTextAreaElement).value)} />
-          <div class="row between" style="margin:8px 0 14px">
-            <span class="small muted">{parsed.length ? `${parsed.length} ready to add` : added ? `${added} added` : 'No names yet'}</span>
-            <button class="btn small" onClick={importFile}><Icon name="upload" /> Import a file</button>
-          </div>
-          {error}
-          <div class="grid2">{back(2)}<button class="btn primary" disabled={busy} onClick={saveStudents}>{parsed.length ? `Add ${parsed.length}` : added ? 'Continue' : 'Skip for now'}</button></div>
-        </>
+      {(step === 2 || step === 3) && (
+        <ClassSetup phase={step === 2 ? 'class' : 'students'} setPhase={(p) => go(p === 'class' ? 2 : 3)} heading="Add your first class" onBack={() => go(1)}
+          onDone={(c) => { setCls({ name: c.name }); setClassId(c.id); setAdded(c.added); go(4); }}
+          footer={<>
+            <p class="tiny muted" style="margin-top:8px">You can add more classes later.</p>
+            <div class="divider" />
+            <p class="small muted">Just looking around first?</p>
+            <button class="btn block" disabled={busy} onClick={() => finish(true)}>Explore with fictional demo data</button>
+          </>} />
       )}
 
       {step === 4 && (

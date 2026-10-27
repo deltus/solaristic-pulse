@@ -4,18 +4,21 @@ import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from 
 import { CHECKIN_AREAS } from './config/checkin';
 import type {
   ColdCall, ColdCallResult, Happy, Lesson, PlanDone, HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
-  Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
+  Assessment, AssessmentCheck, AssessmentResult, JournalEntry, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
 import { dueQuestions } from './logic/schedule';
 import { followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
-import type { RosterRow, TimetableRow } from './logic/importers';
+import type { IcpMatch, RosterRow, TimetableRow } from './logic/importers';
 import { today as todayISO } from './lib/dates';
 import { blitzTopic, type BlitzMark } from './logic/blitz';
 import { checkoutId, clampPct } from './logic/checkout';
 import { buildAllGood, buildIssue, checkinIdFor as swipeCheckinId, type CheckinTarget, type IssueInput, type SavedRecords } from './logic/checkin';
 import { addDays, nowMs } from './lib/dates';
-import { REMIND_LATER_MIN, openLessonFor } from './logic/lessons';
+import { REMIND_LATER_MIN, lessonName, openLessonFor } from './logic/lessons';
+import { docxBlob, filterJournal, journalDocumentXml } from './logic/journal';
+import { saveFile } from './files';
+import { formatDate } from './lib/dates';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -38,7 +41,10 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks], async () => {
+    await db.journal.where('classId').equals(id).delete();
+    await db.assessmentChecks.where('classId').equals(id).delete();
+    await db.assessments.where('classId').equals(id).delete();
     await db.lessons.where('classId').equals(id).delete();
     await db.coldCalls.where('classId').equals(id).delete();
     await db.issueTags.where('classId').equals(id).delete();
@@ -70,7 +76,8 @@ export async function updateStudent(id: string, patch: Partial<Student>) {
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks], async () => {
+    await db.assessmentChecks.where('studentId').equals(id).delete();
     await db.coldCalls.where('studentId').equals(id).delete();
     await db.issueTags.where('studentId').equals(id).delete();
     await db.homework.where('studentId').equals(id).delete();
@@ -118,6 +125,13 @@ export async function importRoster(rows: RosterRow[], fallbackClassId?: string) 
   });
   return { added, duplicates, createdClasses };
 }
+
+/** "Import students" inside a class: everyone goes into this class, whatever a Class column says. */
+export const importStudentsIntoClass = (rows: RosterRow[], classId: string) => importRoster(rows.map((r) => ({ ...r, className: undefined })), classId);
+
+/** Typed names (one per line) added to one class, skipping anyone already in it. */
+export const addStudentsByName = (classId: string, names: { firstName: string; lastName: string }[]) =>
+  importRoster(names.map((n) => ({ firstName: n.firstName, lastName: n.lastName })), classId);
 
 /* ---------------- Flags & priority ---------------- */
 
@@ -357,7 +371,7 @@ export async function loadLessonContext(classId: string) {
   if (!cls) return null;
   const students = (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived);
   const ids = students.map((s) => s.id);
-  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls] = await Promise.all([
+  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks] = await Promise.all([
     db.checkins.where('classId').equals(classId).toArray(),
     db.observations.where('classId').equals(classId).toArray(),
     db.issueTags.where('classId').equals(classId).toArray(),
@@ -366,10 +380,12 @@ export async function loadLessonContext(classId: string) {
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
     db.evidence.where('studentId').anyOf(ids).toArray(),
     db.lessons.where('classId').equals(classId).toArray(),
-    db.coldCalls.where('classId').equals(classId).toArray()
+    db.coldCalls.where('classId').equals(classId).toArray(),
+    db.assessments.where('classId').equals(classId).toArray(),
+    db.assessmentChecks.where('classId').equals(classId).toArray()
   ]);
   const lesson = openLessonFor(lessons, classId);
-  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, lesson };
+  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson };
 }
 export type LessonContext = NonNullable<Awaited<ReturnType<typeof loadLessonContext>>>;
 
@@ -476,6 +492,38 @@ export async function saveAdjustment(a: Partial<IcpAdjustment> & { studentId: st
   return full;
 }
 
+
+/**
+ * Several adjustments for one student in one go (same frequency and dates), skipping any the student
+ * already has. Optionally flags the student.
+ */
+export async function saveAdjustments(
+  studentId: string, items: { title: string; details?: string }[],
+  shared: Partial<Pick<IcpAdjustment, 'frequency' | 'startDate' | 'endDate' | 'evidence'>> = {}, flag?: string
+): Promise<{ added: IcpAdjustment[]; skipped: number }> {
+  const have = new Set((await db.icpAdjustments.where('studentId').equals(studentId).toArray()).filter((a) => a.active).map((a) => a.title.trim().toLowerCase()));
+  const added: IcpAdjustment[] = [];
+  let skipped = 0;
+  for (const it of items) {
+    const k = it.title.trim().toLowerCase();
+    if (!k || have.has(k)) { if (k) skipped++; continue; }
+    have.add(k);
+    added.push(await saveAdjustment({ ...shared, studentId, title: it.title, details: it.details }));
+  }
+  if (flag !== undefined) await setFlag(studentId, flag);
+  return { added, skipped };
+}
+
+/** ICP import: saves the rows the preview marked "ok". */
+export async function importIcpRows(matches: IcpMatch[]): Promise<number> {
+  let n = 0;
+  for (const m of matches) {
+    if (m.status !== 'ok' || !m.studentId) continue;
+    await saveAdjustment({ studentId: m.studentId, title: m.row.adjustment, details: m.row.notes });
+    n++;
+  }
+  return n;
+}
 export async function deleteAdjustment(id: string) {
   await db.transaction('rw', db.icpAdjustments, db.icpChecks, db.evidence, async () => {
     await db.evidence.where('adjustmentId').equals(id).delete();
@@ -700,5 +748,64 @@ export async function saveBlitz(classId: string, date: string, topicId: string, 
       questionId: `blitz-${topicId}`, categoryId: topic.categoryId, blitz: topicId, ...(lessonId ? { lessonId } : {}),
       response: m === 'yes' ? 'Yes' : m === 'no' ? 'No' : 'Absent', level: m === 'absent' ? null : m === 'no' ? 1 : 0
     })));
+  });
+}
+
+/* ---------------- Teacher journal (private) ---------------- */
+
+export async function saveJournalEntry(e: Partial<JournalEntry> & { classId: string; text: string }): Promise<JournalEntry> {
+  const now = Date.now();
+  const full: JournalEntry = {
+    id: e.id ?? newId(), classId: e.classId, date: e.date ?? todayISO(), lessonId: e.lessonId || undefined, text: e.text.trim(),
+    tags: [...new Set((e.tags ?? []).map((t) => t.trim()).filter(Boolean))], aitsl: e.aitsl || undefined,
+    createdAt: e.createdAt ?? now, ...(e.id ? { updatedAt: now } : {})
+  };
+  await db.journal.put(full);
+  return full;
+}
+
+export const deleteJournalEntry = (id: string) => db.journal.delete(id);
+
+/** The journal's own export (Word), by date range and class. Nothing else ever includes the journal. */
+export async function exportJournal(f: { from?: string; to?: string; classIds?: string[] }) {
+  const [entries, classes, lessons, settings] = await Promise.all([db.journal.toArray(), db.classes.toArray(), db.lessons.toArray(), getSettings()]);
+  const list = filterJournal(entries, f);
+  const className = (id: string) => classes.find((c) => c.id === id)?.name ?? 'Class';
+  const lessonTitle = (id?: string) => { const l = id ? lessons.find((x) => x.id === id) : undefined; return l ? lessonName(l) : ''; };
+  const range = `${f.from ? formatDate(f.from) : 'All entries'} to ${f.to ? formatDate(f.to) : formatDate(todayISO())}`;
+  const scope = f.classIds?.length ? f.classIds.map(className).join(', ') : 'All classes';
+  const xml = journalDocumentXml({ title: `Teaching journal${settings.profile.name ? ` · ${settings.profile.name}` : ''}`, subtitle: `${scope} · ${range} · ${list.length} entr${list.length === 1 ? 'y' : 'ies'}`, entries: list, className, lessonName: lessonTitle });
+  const name = `Teaching journal – ${scope} ${f.from ?? ''}${f.to ? ` to ${f.to}` : ''}`.replace(/[\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim();
+  return saveFile(await docxBlob(xml), `${name}.docx`, 'report');
+}
+
+/* ---------------- Assessments ---------------- */
+
+export async function saveAssessment(a: Partial<Assessment> & { classId: string; name: string }): Promise<Assessment> {
+  const full: Assessment = {
+    id: a.id ?? newId(), classId: a.classId, name: a.name.trim(), dueDate: a.dueDate || undefined,
+    checkpoints: (a.checkpoints ?? []).map((c) => c.trim()).filter(Boolean), closed: a.closed || undefined, createdAt: a.createdAt ?? Date.now()
+  };
+  await db.assessments.put(full);
+  return full;
+}
+
+/** One student's result for a task in this lesson (saving again in the same lesson replaces it). */
+export async function saveAssessmentCheck(t: CheckinTarget, assessmentId: string, result: AssessmentResult, reasons: string[] = [], checkpoint?: string): Promise<AssessmentCheck> {
+  const row: AssessmentCheck = {
+    id: `${assessmentId}|${t.lessonId}|${t.studentId}`, assessmentId, classId: t.classId, studentId: t.studentId, lessonId: t.lessonId, date: t.date,
+    result, ...(reasons.length ? { reasons } : {}), ...(checkpoint ? { checkpoint } : {}), createdAt: t.now ?? Date.now()
+  };
+  await db.assessmentChecks.put(row);
+  return row;
+}
+
+export const undoAssessmentCheck = (id: string) => db.assessmentChecks.delete(id);
+
+/** Deletes a task and all its results. */
+export async function deleteAssessment(id: string) {
+  await db.transaction('rw', db.assessments, db.assessmentChecks, async () => {
+    await db.assessmentChecks.where('assessmentId').equals(id).delete();
+    await db.assessments.delete(id);
   });
 }

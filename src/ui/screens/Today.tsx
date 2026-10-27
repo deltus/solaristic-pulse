@@ -15,6 +15,7 @@ import { promptToClose } from '../lessonPrompts';
 import type { ReminderState } from '../reminders';
 import { ReminderPrompt } from '../ReminderPrompt';
 import { lessonOf } from '../../logic/checkin';
+import { activeAssessments, assessmentSummary, dueText } from '../../logic/assessments';
 
 export function TodayScreen({ reminder }: { reminder: ReminderState }) {
   const settings = useSettings();
@@ -106,6 +107,7 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
   const calls = ctx.coldCalls.filter((c) => c.lessonId === lesson.id).length;
   const cc = classColdCallSummary(ctx.students, ctx.coldCalls, today());
   const mins = minutesOpen(lesson, nowMs());
+  const assess = activeAssessments(ctx.assessments, classId, today());
 
   return (
     <div>
@@ -126,8 +128,10 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
         <a class="hub-btn" href={`#/class/${classId}/coldcall`}><Icon name="user" /><b>Cold call</b><span>Pick a student fairly</span></a>
         <a class="hub-btn" href={`#/classes/${classId}/blitz`}><Icon name="bolt" /><b>Blitz</b><span>One question, whole class</span></a>
         <a class="hub-btn" href={`#/class/${classId}/select`}><Icon name="search" /><b>Select student</b><span>Log one student now</span></a>
+        {assess.length > 0 && <a class="hub-btn" href={`#/class/${classId}/assessment${assess.length === 1 ? `/${assess[0].id}` : ''}`}><Icon name="reports" /><b>Assessment check</b><span>{assess.length === 1 ? `${assess[0].name}${dueText(assess[0], today()) ? ` · ${dueText(assess[0], today()).toLowerCase()}` : ''}` : `${assess.length} tasks`}</span></a>}
         <a class="hub-btn" href={`#/icp/class/${classId}`}><Icon name="icp" /><b>ICP {icpDue > 0 && <span class="count-badge" aria-label={`${icpDue} due today`}>{icpDue}</span>}</b><span>{icpDue ? `${icpDue} check${icpDue === 1 ? '' : 's'} due today` : 'Nothing due today'}</span></a>
       </div>
+      {assess.map((a) => <div key={a.id} class="card flat cc-summary"><span class="eyebrow">Assessment</span><div class="small">{assessmentSummary(a, ctx.students, ctx.assessmentChecks).text}</div></div>)}
       {ctx.students.length > 0 && (
         <div class="card flat cc-summary">
           <span class="eyebrow">Cold calls</span>

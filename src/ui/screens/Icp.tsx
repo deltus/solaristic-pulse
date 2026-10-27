@@ -1,17 +1,17 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { db, sortedCategories } from '../../db';
-import type { EvidenceItem, IcpAdjustment, IcpCheck, IcpFrequency, IcpOutcome, Student, TimetableEntry } from '../../types';
+import type { EvidenceItem, IcpAdjustment, IcpCheck, IcpOutcome, Student, TimetableEntry } from '../../types';
 import * as svc from '../../services';
 import { compareBeforeAfter, icpDueStatus, implementationSummary, ICP_FREQUENCIES, ICP_OUTCOMES } from '../../logic/icp';
 import { formatDate, formatShort, relativeDay, today, weekday } from '../../lib/dates';
 import { useLive } from '../hooks';
-import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, Switch, toast } from '../components';
+import { Avatar, displayName, Empty, Icon, PageHead } from '../components';
 import { HoldOpt } from './Today';
-import { evidenceDue, evidenceOn } from '../../logic/evidence';
+import { evidenceDue } from '../../logic/evidence';
 import { hasFeature } from '../../features';
 import { downloadEvidencePack, EvidencePrompt, EvidenceSection, EvidenceSheet } from '../Evidence';
+import { AdjustmentForm, IcpImport } from '../IcpForms';
 
-const TEMPLATES = ['Preferential seating', 'Individual teacher time', 'Additional time provided', 'Adjusted task or resource provided', 'Agreed support implemented'];
 
 function hasLesson(timetable: TimetableEntry[], classId: string, date: string) {
   const forClass = timetable.filter((t) => t.classId === classId);
@@ -32,6 +32,7 @@ export function IcpScreen({ studentId, mode, classFilter }: { studentId?: string
   const [classId, setClassId] = useState(classFilter ?? '');
   const [form, setForm] = useState<{ adj?: IcpAdjustment; studentId?: string } | null>(null);
   const [evFor, setEvFor] = useState<{ adj: IcpAdjustment; reason?: string } | null>(null);
+  const [importing, setImporting] = useState(false);
   if (!data) return null;
   const evidenceSheet = evFor && <EvidenceSheet adj={data.adjustments.find((a) => a.id === evFor.adj.id) ?? evFor.adj} reason={evFor.reason} onClose={() => setEvFor(null)} />;
   // Just answered counts as recorded, before the new check has reached `data`.
@@ -79,6 +80,7 @@ export function IcpScreen({ studentId, mode, classFilter }: { studentId?: string
   return (
     <div>
       <PageHead eyebrow={classFilter ? `ICP Check-In · ${classOf(classFilter)?.name ?? "Class"}` : "Individual Curriculum Plans"} title="ICP Check-In" back={classFilter ? `#/class/${classFilter}` : undefined}>
+        <button class="btn small" onClick={() => setImporting(true)}><Icon name="upload" /> Import</button>
         <button class="btn primary small" onClick={() => setForm({})}><Icon name="plus" /> Adjustment</button>
       </PageHead>
       {!classFilter && <div class="chips">
@@ -159,6 +161,7 @@ export function IcpScreen({ studentId, mode, classFilter }: { studentId?: string
         </div>
       ) : <p class="small muted">None yet.</p>}
       {form && <AdjustmentForm adj={form.adj} studentId={form.studentId} students={data.students.filter((s) => !s.archived)} classes={data.classes} onClose={() => setForm(null)} />}
+      {importing && <IcpImport onClose={() => setImporting(false)} />}
       {evidenceSheet}
     </div>
   );
@@ -243,65 +246,6 @@ function StudentIcp({ s, className, data, date, onEdit, form, closeForm, onEvide
       })}
       {form && <AdjustmentForm adj={form.adj} studentId={s.id} students={[s]} classes={data.classes} onClose={closeForm} />}
     </div>
-  );
-}
-
-function AdjustmentForm({ adj, studentId, students, classes, onClose }: { adj?: IcpAdjustment; studentId?: string; students: Student[]; classes: { id: string; name: string }[]; onClose: () => void }) {
-  const [f, setF] = useState({
-    studentId: adj?.studentId ?? studentId ?? '', title: adj?.title ?? '', details: adj?.details ?? '',
-    frequency: adj?.frequency ?? ('lesson' as IcpFrequency), startDate: adj?.startDate ?? today(), endDate: adj?.endDate ?? '', active: adj?.active ?? true
-  });
-  const [ev, setEv] = useState({ enabled: adj ? evidenceOn(adj) : true, prompt: adj?.evidence?.prompt ?? '' });
-  const set = (k: keyof typeof f) => (e: Event) => setF({ ...f, [k]: (e.target as HTMLInputElement).value });
-  async function save() {
-    if (!f.studentId || !f.title.trim()) return toast('Choose a student and describe the adjustment');
-    const evidence = { snoozedUntil: adj?.evidence?.snoozedUntil, enabled: ev.enabled ? undefined : false, prompt: ev.prompt.trim() || undefined };
-    await svc.saveAdjustment({ ...adj, ...f, endDate: f.endDate || undefined, evidence });
-    toast('Adjustment saved');
-    onClose();
-  }
-  async function remove() {
-    if (!adj || !confirm('Delete this adjustment and its entire implementation history? Consider setting an end date instead to keep the record.')) return;
-    await svc.deleteAdjustment(adj.id);
-    onClose();
-  }
-  const sorted = [...students].sort((a, b) => a.lastName.localeCompare(b.lastName));
-  return (
-    <Sheet title={adj ? 'Edit adjustment' : 'New ICP adjustment'} onClose={onClose}>
-      {!studentId && (
-        <Field label="Student">
-          <select class="input" value={f.studentId} onChange={set('studentId')}>
-            <option value="">Choose a student…</option>
-            {classes.map((c) => {
-              const list = sorted.filter((s) => s.classId === c.id);
-              return list.length ? <optgroup key={c.id} label={c.name}>{list.map((s) => <option key={s.id} value={s.id}>{displayName(s)}</option>)}</optgroup> : null;
-            })}
-          </select>
-        </Field>
-      )}
-      <Field label="Adjustment"><input class="input" value={f.title} onInput={set('title')} placeholder="e.g. Preferential seating" /></Field>
-      {!adj && <div class="chips" style="flex-wrap:wrap;margin:-4px 0 10px">{TEMPLATES.map((t) => <button key={t} class="chip small" onClick={() => setF({ ...f, title: t })}>{t}</button>)}</div>}
-      <Field label="Details (what was agreed)"><textarea class="input" value={f.details} onInput={set('details')} /></Field>
-      <Field label="Expected frequency">
-        <select class="input" value={f.frequency} onChange={set('frequency')}>{ICP_FREQUENCIES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}</select>
-      </Field>
-      <div class="grid2">
-        <Field label="Start date"><input class="input" type="date" value={f.startDate} onInput={set('startDate')} /></Field>
-        <Field label="End date (optional)"><input class="input" type="date" value={f.endDate} onInput={set('endDate')} /></Field>
-      </div>
-      {hasFeature('evidence') && (
-        <>
-          <Switch label="Ask for evidence" checked={ev.enabled} onChange={(v) => setEv({ ...ev, enabled: v })} hint="For learning support meetings: asks the first time you record this adjustment, then monthly. Evidence stays on this device." />
-          {ev.enabled && <Field label="What to collect (optional)"><input class="input" value={ev.prompt} onInput={(e) => setEv({ ...ev, prompt: (e.target as HTMLInputElement).value })} placeholder="e.g. Photo of the scaffolded worksheet" /></Field>}
-        </>
-      )}
-      {adj && <Switch label="Active" checked={f.active} onChange={(v) => setF({ ...f, active: v })} hint="Inactive adjustments keep their history but stop reminders." />}
-      <div class="actions">
-        {adj && <button class="btn danger" onClick={remove}><Icon name="trash" /></button>}
-        <button class="btn" onClick={onClose}>Cancel</button>
-        <button class="btn primary" onClick={save}>Save</button>
-      </div>
-    </Sheet>
   );
 }
 

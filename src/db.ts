@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Assessment, AssessmentCheck, BrainBreakLog, Category, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
+  Assessment, AssessmentCheck, BrainBreakLog, ReliefPass, Category, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -33,6 +33,7 @@ export class PulseDB extends Dexie {
   assessmentChecks!: Table<AssessmentCheck, string>;
   brainBreaks!: Table<BrainBreakLog, string>;
   customBreaks!: Table<BrainBreak, string>;
+  reliefPasses!: Table<ReliefPass, string>;
   /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
   evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
@@ -97,6 +98,8 @@ export class PulseDB extends Dexie {
     this.version(11).stores({ journal: 'id, classId, date, lessonId', assessments: 'id, classId', assessmentChecks: 'id, assessmentId, studentId, classId, date' });
     // v12: brain breaks used in lessons, and the teacher's own breaks (round 5).
     this.version(12).stores({ brainBreaks: 'id, classId, lessonId, date', customBreaks: 'id' });
+    // v13: relief passes (round 6).
+    this.version(13).stores({ reliefPasses: 'id, classId' });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -107,7 +110,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 

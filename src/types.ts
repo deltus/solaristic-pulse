@@ -79,6 +79,8 @@ export type CheckinStatus = 'complete' | 'partial' | 'absent' | 'skipped';
 export type CheckinSource = 'daily' | 'extra' | 'manual';
 
 export interface Checkin {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   studentId: string;
   classId: string;
@@ -150,6 +152,8 @@ export interface Lesson {
 
 export type ColdCallResult = 'good' | 'struggled';
 export interface ColdCall {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   lessonId: string;
   classId: string;
@@ -162,6 +166,8 @@ export interface ColdCall {
 
 /** Homework check: Done / Not done for one student in one lesson. Not a daily check-in. */
 export interface HomeworkCheck {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string; // `${lessonId}|${studentId}`
   lessonId: string;
   /** The lesson the homework was set in (the previous lesson of this class). */
@@ -408,6 +414,8 @@ export type AssessmentResult = 'on_track' | 'behind';
 
 /** One student's result in one Assessment check (one per lesson per task). */
 export interface AssessmentCheck {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string; // `${assessmentId}|${lessonId}|${studentId}`
   assessmentId: string;
   classId: string;
@@ -422,6 +430,8 @@ export interface AssessmentCheck {
 
 /** One brain break used in a lesson. No student data. */
 export interface BrainBreakLog {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   classId: string;
   lessonId: string;
@@ -434,4 +444,34 @@ export interface BrainBreakLog {
   at: number;
   /** "Did it help?" (optional). */
   helped?: 'yes' | 'no';
+}
+
+/** A relief (CRT) teacher's access to one class for up to 5 school days. */
+export interface ReliefPass {
+  id: string;
+  classId: string;
+  /** First and last day (local dates). It stops working at the end of `to`. */
+  from: string;
+  to: string;
+  reliefName?: string;
+  /** If set, only this email can use the pass. */
+  reliefEmail?: string;
+  /** Off by default: the relief teacher only sees an ICP marker. */
+  shareIcp: boolean;
+  plan?: string;
+  createdAt: number;
+  createdBy?: string;
+  cancelledAt?: number;
+  /** The one device the pass is locked to once it's opened (set by the server). */
+  claimedDevice?: string;
+  /** Every time the pass was used (set by the server). */
+  uses?: { at: number; device: string; email?: string }[];
+}
+
+/** Marks a record entered by a relief teacher, for the class teacher to review. */
+export interface ReliefTag {
+  passId: string;
+  name: string;
+  /** Set when the class teacher accepts it (otherwise accepted automatically after 7 days). */
+  reviewed?: boolean;
 }

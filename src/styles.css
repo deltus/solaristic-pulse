@@ -892,3 +892,11 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .bb-calm-rule { margin: 12px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--ok-50, rgba(42, 107, 92, 0.1)); }
 .bb-btn { margin: 10px 0 14px; min-height: 76px; }
 .bb-setting { align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); } .bb-setting:first-of-type { border-top: 0; } .bb-setting .switch { padding: 0; }
+
+/* ---------- Round 6: relief passes ---------- */
+.relief-pass { padding: 12px 14px; }
+.relief-pass details { margin-top: 6px; }
+.relief-banner { margin: 0 0 12px; padding: 10px 14px; border-radius: 14px; background: var(--burgundy); color: #fff; font-size: 14px; }
+.relief-page .card.flat { margin-bottom: 10px; }
+.relief-page .hub-btn:disabled { opacity: 0.7; cursor: default; }
+.relief-review { border-color: var(--blue); }

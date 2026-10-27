@@ -4,7 +4,7 @@
 
 import { db, newId, getSettings, saveSettings } from './db';
 import type {
-  Assessment, AssessmentCheck, ColdCall, JournalEntry, Lesson, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
+  Assessment, AssessmentCheck, ColdCall, JournalEntry, Lesson, ReliefPass, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
 } from './types';
 import { rankStudents } from './logic/priority';
 import { openFollowUp, followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
@@ -325,6 +325,12 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), studentId: jack.id, date: addDays(today, -10), text: 'Moved to the front table this week.', createdAt: Date.now() }
   );
 
+  // Round 6: yesterday a fictional relief teacher took the first class; their check-ins wait for review.
+  const reliefDay = addDays(today, -1);
+  const reliefPass: ReliefPass = { id: newId(), classId: classes[0].id, from: reliefDay, to: reliefDay, reliefName: 'Sam Relief', shareIcp: false, plan: 'Read chapter 4 and answer the questions.', createdAt: Date.now() - 2 * 86_400_000 };
+  checkins.filter((c) => c.classId === classes[0].id && c.date === reliefDay && c.status === 'complete').slice(0, 3)
+    .forEach((c) => { c.relief = { passId: reliefPass.id, name: 'Sam Relief' }; c.createdAt = Date.now() - 86_400_000; });
+
   await db.transaction('rw', [db.classes, db.students, db.timetable, db.categories, db.questions, db.checkins, db.observations, db.icpAdjustments, db.icpChecks, db.notes, db.plans, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls], async () => {
     await db.lessons.bulkAdd(lessons);
     await db.coldCalls.bulkAdd(coldCalls);
@@ -355,10 +361,11 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), classId: c0.id, date: addDays(today, -6), lessonId: c0Lessons[2]?.id, text: 'Tried a silent start with the do-now on the board. Much calmer first ten minutes.', tags: ['Behaviour management', 'Lesson design'], aitsl: 4, createdAt: Date.now() },
     { id: newId(), classId: c0.id, date: addDays(today, -2), lessonId: c0Lessons[0]?.id, text: 'Mentor observed. Feedback: more wait time after questions; cold call worked well.', tags: ['Mentor feedback', 'Engagement'], aitsl: 3, createdAt: Date.now() }
   ];
-  await db.transaction('rw', [db.assessments, db.assessmentChecks, db.journal], async () => {
+  await db.transaction('rw', [db.assessments, db.assessmentChecks, db.journal, db.reliefPasses], async () => {
     await db.assessments.add(task);
     await db.assessmentChecks.bulkAdd(assessmentChecks);
     await db.journal.bulkAdd(journal);
+    await db.reliefPasses.add(reliefPass);
   });
   await saveSettings({ currentClassId: classes[0].id });
 }

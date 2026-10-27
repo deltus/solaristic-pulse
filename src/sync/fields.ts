@@ -2,7 +2,7 @@
 
 export const SYNCED_TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses'
 ] as const;
 // Not synced: `evidence` (photos, files, voice memos stay on the device in this version).
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
@@ -12,7 +12,7 @@ export const isSynced = (t: string): t is SyncedTable => (SYNCED_TABLES as reado
 export const ENCRYPTED: Record<SyncedTable, string[]> = {
   classes: [],
   students: ['firstName', 'lastName', 'preferredName', 'externalId', 'flag'],
-  checkins: ['note'],
+  checkins: ['note', 'relief'],
   observations: ['note', 'context'],
   plans: ['entries'],
   questions: [],
@@ -23,17 +23,19 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   timetable: ['notes'],
   checkouts: ['note'],
   issueTags: ['note'],
-  homework: [],
+  homework: ['relief'],
   // Learning intention, homework text and the teacher's own answers about the lesson.
   lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note'],
-  coldCalls: [],
+  coldCalls: ['relief'],
   // The teacher journal is private: its text, tags and standard are encrypted like notes.
   journal: ['text', 'tags', 'aitsl'],
   assessments: ['name', 'checkpoints'],
-  assessmentChecks: [],
+  assessmentChecks: ['relief'],
   // Brain breaks hold no student data.
-  brainBreaks: [],
-  customBreaks: []
+  brainBreaks: ['relief'],
+  customBreaks: [],
+  // Who the relief teacher is, today's plan and the use log are encrypted.
+  reliefPasses: ['reliefName', 'reliefEmail', 'plan', 'uses', 'claimedDevice']
 };
 
 type Row = Record<string, unknown>;

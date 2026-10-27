@@ -4,6 +4,7 @@
 
 import type { BrainBreakLog, Checkin, ColdCall, HomeworkCheck, IssueTag, Lesson, Observation } from '../types';
 import { brainBreakText } from './brainBreaks';
+import { reliefLabel } from './relief';
 import { lessonOf, summarise, summaryText } from './checkin';
 import { coldCallText } from './coldcall';
 import { formatShort } from '../lib/dates';
@@ -25,7 +26,7 @@ export function studentTimeline(input: {
     const h = hw.find((x) => x.lessonId === l.id);
     const calls = cc.filter((x) => x.lessonId === l.id);
     if (!c && !h && !calls.length) return null;
-    const checkin = c ? summaryText(summarise(c, input.observations, input.tags)) : undefined;
+    const checkin = c ? `${summaryText(summarise(c, input.observations, input.tags))}${c.relief ? ` (${reliefLabel(c.relief)})` : ''}` : undefined;
     const homework = h ? (h.done ? 'done' : `not done${h.reason ? `, ${(HOMEWORK_REASONS.find((r) => r.id === h.reason)?.label ?? h.reason).toLowerCase()}` : ''}`) : undefined;
     const coldCall = calls.length ? calls.map(coldCallText).join('; ') : undefined;
     const bb = (input.brainBreaks ?? []).filter((x) => x.lessonId === l.id);

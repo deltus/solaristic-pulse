@@ -1,6 +1,6 @@
 # Build status
 
-_Last updated: 15/10/2026_
+_Last updated: 27/10/2026 — rounds 0, 3, 3b and 4 merged into main (live). Rounds 5 and 6 still on their branches._
 
 ## Stages
 | Stage | Status |

@@ -4,7 +4,7 @@ import { db, getSettings, saveSettings, sortedCategories } from '../../db';
 import * as svc from '../../services';
 import { lastCheckedDate } from '../../logic/priority';
 import { needByStudent, needWords, type NeedRow } from '../../logic/need';
-import { openFollow, followLead } from '../../logic/checkin';
+import { openFollow, followLead, minorCounts } from '../../logic/checkin';
 import { homeworkHistory } from '../../logic/lessons';
 import { coldCallHistory, coldCallsLastLessons, coldCallStats } from '../../logic/coldcall';
 import { EVIDENCE_KINDS } from '../../logic/evidence';
@@ -130,7 +130,9 @@ export function StudentProfile({ id }: { id: string }) {
   const byLesson = studentTimeline({ lessons: classLessons, checkins, observations, tags, homework, coldCalls, studentId: s.id }, 10);
   const follow = openFollow(checkins, observations, tags);
   const catName = (cid: string) => categories.find((c) => c.id === cid)?.name ?? cid;
-  const usedCats = categories.filter((c) => c.builtIn || observations.some((o) => o.categoryId === c.id));
+  // Wellbeing is a flag only, with no running average, so it has no trend chart.
+  const usedCats = categories.filter((c) => c.id !== 'wellbeing' && (c.builtIn || observations.some((o) => o.categoryId === c.id)));
+  const minor = minorCounts(tags, date);
   const last = lastCheckedDate(checkins);
   const absences = checkins.filter((c) => c.status === 'absent').length;
 
@@ -265,6 +267,7 @@ export function StudentProfile({ id }: { id: string }) {
         </>
       )}
 
+      {minor.length > 0 && <p class="small" style="margin:10px 0 0"><b>Minor:</b> {minor.map((m) => `${m.label} ${m.count}× this term`).join(' · ')}</p>}
       <div class="section"><h2>Trends</h2><span class="tiny muted">last 8 weeks · includes Blitz</span></div>
       <div class="legend" style="margin-bottom:8px"><span><i style="background:var(--ok)" />Meeting expectations</span><span><i style="background:var(--some)" />Needs support</span><span>Line: share of the last 5 answers meeting expectations</span></div>
       {usedCats.map((c) => {

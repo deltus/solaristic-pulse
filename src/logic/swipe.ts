@@ -1,6 +1,5 @@
 // Swipe decisions, kept apart from the screen so they can be tested.
 
-import { CHECKIN_AREAS } from '../config/checkin';
 
 /** A long enough drag, or a short quick flick, counts as a swipe. */
 export const SWIPE_DISTANCE = 80;
@@ -16,17 +15,34 @@ export function decideSwipe(dx: number, dy: number, ms: number): 'left' | 'right
   return null;
 }
 
-export type IssueOutcome = 'save' | 'details' | 'back' | 'cancel' | 'none';
+export type IssueOutcome = 'save' | 'back' | 'cancel' | 'none';
 
 /**
- * Issue screen. Towards "good" (right) = done: nothing ticked goes back to the card; Coping or
- * "Add note / evidence" goes to "Anything else?"; otherwise save straight away. Towards "issue"
- * (left) = cancel, nothing saved.
+ * Issue screen. Towards "good" (right) = done: nothing ticked goes back to the card, otherwise it
+ * saves straight away (notes, evidence and follow-up are all on the issue screen itself).
+ * Towards "issue" (left) = cancel, nothing saved.
  */
-export function issueSwipe(action: 'good' | 'issue' | 'up', picked: Record<string, string[]>, wantsDetails: boolean): IssueOutcome {
+export function issueSwipe(action: 'good' | 'issue' | 'up', picked: Record<string, string[]>, minor: string[] = []): IssueOutcome {
   if (action === 'issue') return 'cancel';
   if (action === 'up') return 'none';
-  if (!Object.keys(picked).length) return 'back';
-  const asks = CHECKIN_AREAS.some((a) => a.asksNote && picked[a.id] !== undefined);
-  return asks || wantsDetails ? 'details' : 'save';
+  return Object.keys(picked).length || minor.length ? 'save' : 'back';
+}
+
+export type FlyStyle = 'fly' | 'fade';
+export interface FlyPlan { style: FlyStyle; ms: number; dx: number; dy: number; rotate: number; wash: 'good' | 'issue' | 'up' }
+
+/** Fly-off length and the quicker cross-fade used for reduced motion or "Swipe animations" off. */
+export const FLY_MS = 250;
+export const FADE_MS = 100;
+export const ENTER_MS = 150;
+
+/**
+ * How a swiped card leaves: flies off in the swipe direction with about an 8° tilt, or (reduced
+ * motion / setting off) a 100 ms cross-fade. The colour wash and icon show either way.
+ */
+export function flyPlan(action: 'good' | 'issue' | 'up', side: 'left' | 'right' | null, opts: { animate: boolean; reduceMotion: boolean }): FlyPlan {
+  if (!opts.animate || opts.reduceMotion) return { style: 'fade', ms: FADE_MS, dx: 0, dy: 0, rotate: 0, wash: action };
+  if (action === 'up') return { style: 'fly', ms: FLY_MS, dx: 0, dy: -1, rotate: 0, wash: action };
+  const dir = side === 'left' ? -1 : 1;
+  return { style: 'fly', ms: FLY_MS, dx: dir, dy: 0, rotate: 8 * dir, wash: action };
 }

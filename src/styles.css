@@ -811,3 +811,61 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
   border: 1.5px solid #fff; background: transparent; color: #fff; border-radius: 999px;
   padding: 3px 10px; font: inherit; cursor: pointer;
 }
+
+/* ---------- Swipe fly-off (src/ui/Swipe.tsx) ---------- */
+.card-enter { animation: cardEnter 150ms ease-out; }
+@keyframes cardEnter { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+.swipe-ghost { z-index: 60; pointer-events: none; overflow: hidden; }
+.swipe-ghost .swipe-stamp { display: none; }
+.swipe-wash { position: absolute; inset: 0; display: grid; place-items: center; border-radius: inherit; animation: washIn 120ms ease-out forwards; opacity: 0; }
+.swipe-wash span { font-size: 64px; font-weight: 800; line-height: 1; color: #fff; }
+.swipe-wash.good { background: rgba(46, 160, 98, 0.72); }
+.swipe-wash.issue { background: rgba(230, 150, 30, 0.72); }
+.swipe-wash.up { background: rgba(120, 128, 140, 0.6); }
+@keyframes washIn { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  @keyframes cardEnter { from { opacity: 0; } to { opacity: 1; } }
+}
+
+/* ---------- Roll (src/ui/Roll.tsx) ---------- */
+.roll { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 12px 0 16px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+.roll-window { position: relative; width: 100%; overflow: hidden; border-radius: 18px; background: var(--surface); border: 1px solid var(--line, rgba(0,0,0,0.08));
+  -webkit-mask-image: linear-gradient(transparent, #000 28%, #000 72%, transparent); mask-image: linear-gradient(transparent, #000 28%, #000 72%, transparent); }
+.roll-strip { will-change: transform; }
+.roll-item { display: flex; align-items: center; justify-content: center; font-size: clamp(26px, 7vw, 44px); font-weight: 750; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 12px; transition: color 0.2s, transform 0.2s; }
+.roll-item.hit { color: var(--blue); transform: scale(1.08); }
+.roll-marker { position: absolute; left: 8px; right: 8px; border-radius: 12px; border: 3px solid transparent; pointer-events: none; transition: border-color 0.2s, background 0.2s; }
+.roll.landed .roll-marker { border-color: var(--blue); background: rgba(35, 80, 216, 0.08); }
+.roll-skip { min-height: 1em; }
+
+/* ---------- Round 3b: issue screen, daily target ---------- */
+.area-name { display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 2px; padding: 8px 0; }
+.area-q { display: block; font-size: 12.5px; font-weight: 500; opacity: 0.75; line-height: 1.25; }
+.area-toggle.on .area-q { opacity: 0.9; }
+.sub-opt { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.sub-hint { padding-left: 6px; max-width: 170px; line-height: 1.2; }
+.hold-chip { position: relative; overflow: hidden; }
+.hold-chip .hold-fill { position: absolute; inset: 0; background: rgba(35, 80, 216, 0.22); transform: scaleX(0); transform-origin: left center; pointer-events: none; }
+.hold-chip.holding .hold-fill { transform: scaleX(1); transition: transform var(--hold, 500ms) linear; }
+.hold-chip .opt-label { position: relative; }
+.chip-note { width: 13px; height: 13px; margin-left: 4px; position: relative; }
+.sub-note { display: grid; gap: 6px; margin: 8px 0 4px; }
+.sub-note .btn { justify-self: end; }
+.minor-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px 4px; }
+.tiny-chip { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+.wellbeing-box { margin-top: 4px; padding: 10px 12px; border-radius: 14px; border: 1px dashed var(--line-strong); }
+.wellbeing-box.on { border-style: solid; border-color: var(--burgundy); }
+.wellbeing-check { align-items: flex-start; margin: 0; }
+.wellbeing-check .area-q { margin-top: 2px; }
+.wellbeing-note { margin: 8px 0 0; }
+.issue-extras { display: grid; gap: 6px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.issue-extras .check-row { margin: 0; }
+.tip-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -4px 0 12px; padding: 8px 12px; border-radius: 12px; background: rgba(35, 80, 216, 0.08); }
+.issue-bar.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.target-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 10px; }
+.target-count { font-size: 15px; }
+.target-count.met b { color: var(--ok); }
+.milestone-card { margin-top: 12px; padding: 22px 18px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(14, 26, 58, 0.08); text-align: center; }
+.milestone-card h2 { margin: 10px 0 0; }
+.milestone-card .check { margin: 0 auto; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: var(--ok); color: #fff; }
+.milestone-card.small { padding: 16px; }

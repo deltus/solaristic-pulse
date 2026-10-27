@@ -22,7 +22,7 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   icpChecks: ['note'],
   timetable: ['notes'],
   checkouts: ['note'],
-  issueTags: [],
+  issueTags: ['note'],
   homework: [],
   // Learning intention, homework text and the teacher's own answers about the lesson.
   lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note'],

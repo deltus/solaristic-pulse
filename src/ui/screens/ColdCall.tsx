@@ -1,11 +1,12 @@
-// Cold call: pick a student fairly with a quick name shuffle, show their last 5 cold calls,
+// Cold call: pick a student fairly with a name roll (src/ui/Roll.tsx), show their last 5 cold calls,
 // then swipe: right = answered well, left = struggled (optional ticks), up = pick someone else.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import * as svc from '../../services';
 import { UNDO_SECONDS } from '../../config/checkin';
 import { lessonOf } from '../../logic/checkin';
-import { coldCallHistory, coldCallSummary, pickColdCall, planShuffle, STRUGGLE_TAGS } from '../../logic/coldcall';
+import { coldCallHistory, coldCallSummary, pickColdCall, planRoll, STRUGGLE_TAGS, type RollPlan } from '../../logic/coldcall';
+import { Roll } from '../Roll';
 import { useLive, useSettings } from '../hooks';
 import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
@@ -19,7 +20,10 @@ export function ColdCallScreen({ classId }: { classId: string }) {
   const chosenRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<'idle' | 'shuffle' | 'card' | 'struggle'>('idle');
   const [pickedId, setPickedId] = useState<string | null>(null);
-  const [flash, setFlash] = useState('');
+  const [roll, setRoll] = useState<RollPlan | null>(null);
+  /** Bumped by a tap anywhere on the screen during the roll, which jumps it to the landed name. */
+  const [skipTick, setSkipTick] = useState(0);
+  const [rollN, setRollN] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
   const [justCalled, setJustCalled] = useState<{ studentId: string; createdAt: number }[]>([]);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -42,23 +46,27 @@ export function ColdCallScreen({ classId }: { classId: string }) {
     if (!chosen) return;
     setTags([]);
     chosenRef.current = chosen.id;
-    const plan = planShuffle(present.map(displayName), displayName(chosen), {
+    const plan = planRoll(present.map(displayName), displayName(chosen), {
       animate: settings?.coldCallAnimation !== false,
       reduceMotion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     }, Math.random);
     if (!plan.total) return reveal();
+    setSkipTick(0);
+    setRollN((n) => n + 1);
+    setRoll(plan);
     setPhase('shuffle');
-    for (const f of plan.frames.slice(0, -1)) timers.current.push(setTimeout(() => setFlash(f.name), f.at));
-    timers.current.push(setTimeout(reveal, plan.total));
   }
-  /** Show the chosen student (end of the shuffle, a tap on it, or no animation). */
+  /** The roll landed (or was tapped): a moment on the highlighted name, then the card. */
+  function landed() {
+    timers.current.push(setTimeout(reveal, 700));
+  }
+  /** Show the chosen student (after the roll, a second tap, or no animation). */
   function reveal() {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     if (!chosenRef.current) return;
     setPickedId(chosenRef.current);
     setPhase('card');
-    navigator.vibrate?.(15);
   }
 
   async function save(result: 'good' | 'struggled', t: string[] = []) {
@@ -83,12 +91,12 @@ export function ColdCallScreen({ classId }: { classId: string }) {
 
   if (phase === 'idle' || phase === 'shuffle') {
     return (
-      <div class="cc checkin">
+      <div class="cc checkin" onClick={(e) => { if (phase === 'shuffle' && !(e.target as HTMLElement).closest('.roll, a')) setSkipTick((n) => n + 1); }}>
         {header}
         <div class="cc-eyebrow" style="margin-top:8px">Cold call</div>
-        <div class={`shuffle-box ${phase === 'shuffle' ? 'spinning' : ''}`} aria-live="polite" role={phase === 'shuffle' ? 'button' : undefined} onClick={() => phase === 'shuffle' && reveal()}>
-          {phase === 'shuffle' ? <span><span class="shuffle-name">{flash || '…'}</span><span class="tiny muted shuffle-skip">Tap to show now</span></span> : <span class="muted">Least recently called first, then random. Not here today: left out.</span>}
-        </div>
+        {phase === 'shuffle' && roll
+          ? <Roll key={rollN} plan={roll} skip={skipTick} onLanded={landed} />
+          : <div class="shuffle-box"><span class="muted">Least recently called first, then random. Not here today: left out.</span></div>}
         <button class="btn primary big block" disabled={phase === 'shuffle' || !present.length} onClick={() => pick()}><Icon name="user" /> {phase === 'shuffle' ? 'Picking…' : 'Pick a student'}</button>
       </div>
     );

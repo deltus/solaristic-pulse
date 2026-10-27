@@ -4,6 +4,7 @@
 
 import { db, getSettings } from './db';
 import { makeScrubber, pseudonymMap } from './logic/deidentify';
+import { stripWellbeing } from './logic/checkin';
 import { splitMinutes } from './logic/checkout';
 
 type Val = string | number | null | undefined;
@@ -29,10 +30,12 @@ const SCHEMA: Record<string, string[]> = {
 };
 
 export async function buildSqlScript(opts: { deidentify: boolean }): Promise<string> {
-  const [settings, classes, students, categories, questions, checkins, observations, notes, adjustments, icpChecks, timetable, checkouts, tags, homework, lessons, coldCalls] = await Promise.all([
+  const [settings, classes, students, categories, questions, checkinsAll, observationsAll, notes, adjustments, icpChecks, timetable, checkouts, tagsAll, homework, lessons, coldCalls] = await Promise.all([
     getSettings(), db.classes.toArray(), db.students.toArray(), db.categories.toArray(), db.questions.toArray(), db.checkins.toArray(),
     db.observations.toArray(), db.notes.toArray(), db.icpAdjustments.toArray(), db.icpChecks.toArray(), db.timetable.toArray(), db.checkouts.toArray(), db.issueTags.toArray(), db.homework.toArray(), db.lessons.toArray(), db.coldCalls.toArray()
   ]);
+  // Wellbeing is sensitive: left out of de-identified exports.
+  const { observations, tags, checkins } = opts.deidentify ? stripWellbeing(observationsAll, tagsAll, checkinsAll) : { observations: observationsAll, tags: tagsAll, checkins: checkinsAll };
   const pseudo = pseudonymMap(students);
   const scrub = opts.deidentify ? makeScrubber(students, pseudo, [settings.profile.name, settings.profile.school ?? '']) : (t?: string) => t ?? '';
 

@@ -133,7 +133,7 @@ describe('backup, restore, deletion (scenario 18)', () => {
 
     await svc.deleteAllData();
     expect(await db.students.count()).toBe(0);
-    expect(await db.questions.count()).toBe(4); // core questions restored
+    expect(await db.questions.count()).toBe(5); // core questions restored (including Wellbeing)
     expect((await getSettings()).onboarded).toBe(false);
 
     await svc.restoreBackup(backup);

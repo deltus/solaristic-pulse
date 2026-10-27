@@ -21,13 +21,14 @@ beforeEach(async () => {
 const lesson = (id: string, date: string, extra: Partial<Lesson> = {}): Lesson => ({ id, classId: 'c1', date, openedAt: new Date(`${date}T09:00:00`).getTime(), status: 'closed', createdAt: 0, ...extra });
 
 describe('issue screen swipes', () => {
-  it('right with ticks saves; right with Coping (or "Add note / evidence") goes to details; right with nothing goes back; left cancels', () => {
-    expect(issueSwipe('good', { behaviour: ['disruptive'] }, false)).toBe('save');
-    expect(issueSwipe('good', { focus: [] }, false)).toBe('save');
-    expect(issueSwipe('good', { coping: ['workload'] }, false)).toBe('details');
-    expect(issueSwipe('good', { behaviour: [] }, true)).toBe('details');
-    expect(issueSwipe('good', {}, false)).toBe('back');
-    expect(issueSwipe('issue', { behaviour: ['disruptive'] }, false)).toBe('cancel');
+  it('right with ticks saves straight away (no extra screen); right with nothing goes back; left cancels', () => {
+    expect(issueSwipe('good', { behaviour: ['disruptive'] })).toBe('save');
+    expect(issueSwipe('good', { focus: [] })).toBe('save');
+    expect(issueSwipe('good', { coping: ['workload'] })).toBe('save');
+    expect(issueSwipe('good', { wellbeing: ['withdrawn'] })).toBe('save');
+    expect(issueSwipe('good', {}, ['gum'])).toBe('save');
+    expect(issueSwipe('good', {})).toBe('back');
+    expect(issueSwipe('issue', { behaviour: ['disruptive'] })).toBe('cancel');
   });
 
   it('saving from the swipe uses "follow up next time"; cancelling saves nothing', async () => {
@@ -35,9 +36,9 @@ describe('issue screen swipes', () => {
     const s = await svc.addStudent(c.id, { firstName: 'Ava', lastName: 'Test' });
     const l = await svc.openLesson(c.id);
     const t = { studentId: s.id, classId: c.id, date: today(), lessonId: l.id };
-    if (issueSwipe('issue', { behaviour: ['disruptive'] }, false) === 'save') await svc.logIssue(t, { areas: { behaviour: ['disruptive'] } });
+    if (issueSwipe('issue', { behaviour: ['disruptive'] }) === 'save') await svc.logIssue(t, { areas: { behaviour: ['disruptive'] } });
     expect(await db.checkins.count()).toBe(0);
-    if (issueSwipe('good', { behaviour: ['peer_interactions'] }, false) === 'save') await svc.logIssue(t, { areas: { behaviour: ['peer_interactions'] }, followUp: true });
+    if (issueSwipe('good', { behaviour: ['peer_interactions'] }) === 'save') await svc.logIssue(t, { areas: { behaviour: ['peer_interactions'] }, followUp: true });
     expect(await db.checkins.toArray()).toMatchObject([{ result: 'issue', followUp: true }]);
     expect((await db.issueTags.toArray()).map((x) => x.tagId)).toEqual(['peer_interactions']);
   });
@@ -53,14 +54,15 @@ describe('issue screen swipes', () => {
 });
 
 describe('sub-options', () => {
-  it('offers the new lists, and still labels old coping options in history', () => {
+  it('offers the final lists, and still labels older options in history', () => {
     const subs = (id: string) => CHECKIN_AREAS.find((a) => a.id === id)!.subs.map((s) => s.id);
     expect(subs('behaviour')).toContain('peer_interactions');
-    expect(subs('focus')).toContain('low_productivity');
-    expect(subs('coping')).toEqual(['workload', 'pace', 'content', 'dysregulated', 'withdrawn']);
+    expect(subs('focus')).toEqual(['off_task', 'not_listening', 'low_effort']);
+    expect(subs('coping')).toEqual(['pace', 'content', 'workload', 'assessment_progress']);
     expect(subs('coping')).not.toContain('upset');
     expect(subLabel('coping', 'upset')).toBe('Upset or distressed');
-    expect(subLabel('coping', 'outside')).toBe('Mentioned something outside school');
+    expect(subLabel('focus', 'distracted')).toBe('Distracted');
+    expect(subLabel('wellbeing', 'friendship')).toBe('Friendship issues');
     // An older check-in with a legacy coping tag still reads properly.
     const r = buildIssue({ studentId: 's', classId: 'c', date: '2026-10-01', lessonId: 'L' }, { areas: { coping: [] } });
     const legacy: IssueTag = { id: 'x', checkinId: r.checkin.id, studentId: 's', classId: 'c', date: '2026-10-01', areaId: 'coping', tagId: 'tired', source: 'observed', createdAt: 0 };

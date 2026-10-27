@@ -4,7 +4,7 @@ import { db, getSettings, sortedCategories } from './db';
 import type { Category, Checkin, IcpAdjustment, IcpCheck, Observation, Student, StudentNote } from './types';
 import { lastCheckedDate } from './logic/priority';
 import { needByStudent, needWords, type NeedRow } from './logic/need';
-import { openFollow, type OpenFollow } from './logic/checkin';
+import { openFollow, stripWellbeing, type OpenFollow } from './logic/checkin';
 import { coldCallText } from './logic/coldcall';
 import { studentTimeline } from './logic/timeline';
 import { HOMEWORK_REASONS, subLabel } from './config/checkin';
@@ -66,7 +66,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     : allStudents.filter((s) => o.classIds.includes(s.classId));
   const ids = students.map((s) => s.id);
   const classIds = [...new Set(students.map((s) => s.classId))];
-  const [observationsAll, checkinsAll, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework, classLessons, coldCallsAll] = await Promise.all([
+  const [observationsRaw, checkinsRaw, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework, classLessons, coldCallsAll] = await Promise.all([
     db.observations.where('studentId').anyOf(ids).toArray(), db.checkins.where('studentId').anyOf(ids).toArray(),
     db.notes.where('studentId').anyOf(ids).toArray(), db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
@@ -76,7 +76,11 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     db.issueTags.where('classId').anyOf(classIds).toArray(), db.homework.where('classId').anyOf(classIds).toArray(),
     db.lessons.where('classId').anyOf(classIds).toArray(), db.coldCalls.where('studentId').anyOf(ids).toArray()
   ]);
-  const tagsAll = classTags.filter((t) => ids.includes(t.studentId));
+  // Wellbeing is sensitive: left out of de-identified exports (the ranking below still uses it).
+  const kept = o.deidentify ? stripWellbeing(observationsRaw, classTags.filter((t) => ids.includes(t.studentId)), checkinsRaw) : null;
+  const observationsAll = kept?.observations ?? observationsRaw;
+  const checkinsAll = kept?.checkins ?? checkinsRaw;
+  const tagsAll = kept?.tags ?? classTags.filter((t) => ids.includes(t.studentId));
   const homeworkAll = classHomework.filter((h) => ids.includes(h.studentId));
   const inRange = (d: string) => (!o.from || d >= o.from) && (!o.to || d <= o.to);
   const cats = new Set(o.categoryIds);

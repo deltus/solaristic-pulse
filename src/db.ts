@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS } from './types';
 import type { SavedFile } from './files';
 import { outboxMiddleware, type OutboxEntry } from './sync/outbox';
 import { dbName } from './preview';
+import { SUB_MOVES } from './config/checkin';
 
 export class PulseDB extends Dexie {
   classes!: Table<SchoolClass, string>;
@@ -82,6 +83,10 @@ export class PulseDB extends Dexie {
       const coping = CORE_CATEGORIES.find((c) => c.id === 'coping')!;
       await tx.table('categories').update('coping', { tags: coping.tags });
     });
+    // v10: final check-in lists (round 3b). Wellbeing becomes its own flag; older sub-options move (SUB_MOVES).
+    this.version(10).stores({}).upgrade(async (tx) => {
+      await moveSubOptions(tx);
+    });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -113,7 +118,9 @@ export const CORE_CATEGORIES: Category[] = [
   { id: 'focus', name: 'Attention', phrase: 'attention', builtIn: true, notePrompt: 'What got in the way?', tags: ['Independent work', 'Group work', 'Whole class', 'Devices'] },
   { id: 'homework', name: 'Preparedness', phrase: 'being prepared for class', builtIn: true, notePrompt: 'What was missing?', tags: ['Homework', 'Equipment', 'Uniform', 'Late'] },
   { id: 'behaviour', name: 'Behaviour', phrase: 'behaviour', builtIn: true, notePrompt: 'What happened?', tags: ['Peers', 'Instructions', 'Transitions', 'Language'] },
-  { id: 'coping', name: 'Coping with work', phrase: 'coping with the work', builtIn: true, notePrompt: 'What were they finding hard?', tags: ['Workload', 'Pace', 'Content', 'Dysregulated', 'Withdrawn'] }
+  { id: 'coping', name: 'Coping with work', phrase: 'coping with the work', builtIn: true, notePrompt: 'What were they finding hard?', tags: ['Workload', 'Pace', 'Content', 'Dysregulated', 'Withdrawn'] },
+  // Flag only: recorded when ticked, never as "fine". No running average.
+  { id: 'wellbeing', name: 'Wellbeing', phrase: 'wellbeing', builtIn: true, notePrompt: 'What did you notice?', tags: [] }
 ];
 
 const core = { allowDetail: true, classIds: [], studentIds: [], frequencyDays: 0, enabled: true, builtIn: true };
@@ -122,7 +129,9 @@ export const CORE_QUESTIONS: Question[] = [
   { ...core, id: 'q-homework', order: 0, categoryId: 'homework', text: 'Was {name} prepared for class?', shortText: 'Prepared for class?', options: TWO('Meeting expectations', 'Needs support'), enabled: false },
   { ...core, id: 'q-focus', order: 1, categoryId: 'focus', text: "How was {name}'s attention?", shortText: 'Attention', options: TWO('Meeting expectations', 'Needs support') },
   { ...core, id: 'q-behaviour', order: 2, categoryId: 'behaviour', text: "How was {name}'s behaviour?", shortText: 'Behaviour today?', options: TWO('Meeting expectations', 'Needs support') },
-  { ...core, id: 'q-coping', order: 3, categoryId: 'coping', text: 'Is {name} coping with the work?', shortText: 'Coping with the work?', options: TWO('Yes', 'No', true) }
+  { ...core, id: 'q-coping', order: 3, categoryId: 'coping', text: 'Is {name} coping with the work?', shortText: 'Coping with the work?', options: TWO('Yes', 'No', true) },
+  // Wellbeing is only recorded through its tick box on the issue screen, so it is never asked as a question.
+  { ...core, id: 'q-wellbeing', order: 4, categoryId: 'wellbeing', text: 'Is {name} OK in themselves?', shortText: 'Wellbeing', options: TWO('Meeting expectations', 'Needs support'), enabled: false }
 ];
 
 export let db = new PulseDB();
@@ -193,3 +202,50 @@ export async function addHistoricalLessons(tx: { table: (n: string) => Table<any
   });
   if (rows.length) await tx.table('lessons').bulkPut(rows);
 }
+
+export interface SubMoveCounts { tagsMoved: number; toWellbeing: number; wellbeingRows: number; copingCleared: number }
+
+/**
+ * v10 upgrade (also used by tests): older sub-options follow the round 3b lists (SUB_MOVES).
+ * Check-ins whose coping details move to Wellbeing get a Wellbeing row; if none of their coping
+ * details are left, Coping goes back to "meets" (the note moves with them). Coping "needs support"
+ * with no details at all stays as Coping.
+ */
+export async function moveSubOptions(tx: { table: (n: string) => Table<any, any> }): Promise<SubMoveCounts> {
+  if (!(await tx.table('categories').get(WELLBEING_CATEGORY.id))) await tx.table('categories').put(WELLBEING_CATEGORY);
+  if (!(await tx.table('questions').get(WELLBEING_QUESTION.id))) await tx.table('questions').put(WELLBEING_QUESTION);
+  const counts: SubMoveCounts = { tagsMoved: 0, toWellbeing: 0, wellbeingRows: 0, copingCleared: 0 };
+  const tags = (await tx.table('issueTags').toArray()) as IssueTag[];
+  const touched = new Set<string>();
+  for (const t of tags) {
+    const to = SUB_MOVES[`${t.areaId}|${t.tagId}`];
+    if (!to) continue;
+    const id = `${t.checkinId}|${to[0]}|${to[1]}`;
+    await tx.table('issueTags').delete(t.id);
+    if (!tags.some((x) => x.id === id)) await tx.table('issueTags').put({ ...t, id, areaId: to[0], tagId: to[1] });
+    counts.tagsMoved++;
+    if (to[0] === 'wellbeing') { counts.toWellbeing++; touched.add(t.checkinId); }
+  }
+  for (const checkinId of touched) {
+    const coping = (await tx.table('observations').get(`${checkinId}|q-coping`)) as Observation | undefined;
+    if (!coping) continue;
+    const left = await tx.table('issueTags').where('checkinId').equals(checkinId).filter((t: IssueTag) => t.areaId === 'coping').count();
+    const id = `${checkinId}|${WELLBEING_QUESTION.id}`;
+    const moveNote = !left && !!coping.note;
+    if (!(await tx.table('observations').get(id))) {
+      await tx.table('observations').put({
+        ...coping, id, questionId: WELLBEING_QUESTION.id, categoryId: WELLBEING_CATEGORY.id, response: 'Needs support', level: 1, source: coping.source ?? 'observed',
+        note: moveNote ? coping.note : undefined
+      });
+      counts.wellbeingRows++;
+    }
+    if (!left) {
+      await tx.table('observations').put({ ...coping, response: 'Meeting expectations', level: 0, source: 'implied', note: undefined });
+      counts.copingCleared++;
+    }
+  }
+  return counts;
+}
+
+export const WELLBEING_CATEGORY = CORE_CATEGORIES.find((c) => c.id === 'wellbeing')!;
+export const WELLBEING_QUESTION = CORE_QUESTIONS.find((q) => q.id === 'q-wellbeing')!;

@@ -110,3 +110,28 @@ export function coldCallsLastLessons(calls: ColdCall[], lessons: Lesson[], class
   const trend = a.pct === null || b.pct === null ? null : a.pct - b.pct >= 10 ? 'up' : b.pct - a.pct >= 10 ? 'down' : 'flat';
   return { count: a.count, goodPct: a.pct, prevCount: b.count, prevGoodPct: b.pct, trend };
 }
+
+/** Roll animation (src/ui/Roll.tsx): names roll past like a slot reel and land on the chosen one. */
+export const ROLL_MS = 2000;
+export interface RollPlan { reel: string[]; landIndex: number; total: number }
+
+/**
+ * The reel for one roll: random names, the already-chosen one at `landIndex`, and a couple after it
+ * so the reel doesn't end on an empty row. No animation (setting off, reduced motion or one name):
+ * just the chosen one.
+ */
+export function planRoll(names: string[], chosen: string, opts: { animate: boolean; reduceMotion?: boolean }, random: () => number, ms = ROLL_MS, length = 26): RollPlan {
+  if (!opts.animate || opts.reduceMotion || names.length < 2) return { reel: [chosen], landIndex: 0, total: 0 };
+  const pickOther = (prev?: string) => {
+    for (let i = 0; i < 6; i++) { const n = names[Math.floor(random() * names.length)]; if (n !== prev) return n; }
+    return names[0];
+  };
+  const reel: string[] = [];
+  for (let i = 0; i < length; i++) reel.push(pickOther(reel[i - 1]));
+  const landIndex = length - 3;
+  reel[landIndex] = chosen;
+  return { reel, landIndex, total: ms };
+}
+
+/** What a roll shows when it lands, or when it is tapped to skip: always the chosen one. */
+export const rollResult = (plan: RollPlan) => plan.reel[plan.landIndex];

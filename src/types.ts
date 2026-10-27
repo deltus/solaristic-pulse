@@ -112,6 +112,10 @@ export interface IssueTag {
   tagId: string;
   source: RecordedAs;
   createdAt: number;
+  /** A minor item (e.g. gum): saved, but not an issue. */
+  minor?: boolean;
+  /** Note held onto this one sub-option (encrypted when synced). */
+  note?: string;
 }
 
 export type LessonStatus = 'open' | 'finishing' | 'closed';
@@ -340,6 +344,13 @@ export interface Settings {
   checkoutSkipped?: { date: string; ids: string[] };
   /** Cold call name shuffle before showing the student. Default on. */
   coldCallAnimation?: boolean;
+  /** Card fly-off and colour flash after a swipe. Default on; off (or reduced motion) = a quick cross-fade. */
+  swipeAnimations?: boolean;
+  /** Small messages every few students past the daily check-in target. Default on. */
+  extraEncouragement?: boolean;
+  /** One-time tips already shown (e.g. 'hold-note'), and how many issue screens have shown sub-option hints. */
+  tipsSeen?: string[];
+  subHintsShown?: number;
   /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
   devTools?: boolean;
 }

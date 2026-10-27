@@ -15,7 +15,7 @@ import { planId, checkinIdFor } from './services';
 import { buildAllGood, buildIssue } from './logic/checkin';
 import { pickColdCall, STRUGGLE_TAGS } from './logic/coldcall';
 import { rankByNeed } from './logic/need';
-import { CHECKIN_AREAS, HOMEWORK_REASONS } from './config/checkin';
+import { CHECKIN_AREAS, HOMEWORK_REASONS, WELLBEING } from './config/checkin';
 
 /** Swipe check-ins start this many days ago in the demo; older days use the previous format. */
 const SWIPE_FROM = 12;
@@ -270,9 +270,14 @@ export async function loadDemoData(): Promise<void> {
         const p = (profile[a.id] ?? 0.08) * (helped && a.id === 'focus' ? 0.35 : 1);
         if (swipeRand() < p) areas[a.id] = a.subs.filter(() => swipeRand() < 0.3).map((x) => x.id).slice(0, 2);
       }
+      // Now and then a Wellbeing flag, and a minor item (gum, uniform) that isn't an issue.
+      if (swipeRand() < 0.04) areas[WELLBEING.id] = [WELLBEING.subs[Math.floor(swipeRand() * WELLBEING.subs.length)].id];
+      const minorOpts = CHECKIN_AREAS.find((a) => a.id === 'behaviour')!.minor ?? [];
+      const minor = swipeRand() < 0.06 ? { behaviour: [minorOpts[Math.floor(swipeRand() * minorOpts.length)].id] } : undefined;
       if (Object.keys(areas).length) issues++;
-      const r = Object.keys(areas).length
-        ? buildIssue(t, { areas, note: areas.coping ? 'Quiet and withdrawn during group work.' : swipeRand() < 0.4 ? 'Needed several reminders.' : undefined })
+      const note = areas[WELLBEING.id] ? 'Quiet and withdrawn during group work.' : areas.coping ? 'Finding the pace hard today.' : swipeRand() < 0.4 ? 'Needed several reminders.' : undefined;
+      const r = Object.keys(areas).length || minor
+        ? buildIssue(t, { areas, minor, note })
         : buildAllGood(t);
       checkins.push(r.checkin);
       observations.push(...r.observations);

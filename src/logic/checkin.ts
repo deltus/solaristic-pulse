@@ -3,7 +3,7 @@
 // Pure functions: no database access, so they are easy to test.
 
 import type { Checkin, IssueTag, Observation, Student } from '../types';
-import { CHECKIN_AREAS, STREAK, areaById, subLabel } from '../config/checkin';
+import { CHECKIN_AREAS, ISSUE_AREAS, STREAK, WELLBEING, WELLBEING_RECENT_DAYS, areaById, isMinor, subLabel } from '../config/checkin';
 import { daysBetween, formatShort } from '../lib/dates';
 
 /** Until lessons are their own records, a lesson is one class on one day. */
@@ -39,29 +39,52 @@ export function buildAllGood(t: CheckinTarget): SavedRecords {
 }
 
 export interface IssueInput {
-  /** Tapped areas → ticked sub-option ids (may be empty). Untapped areas are left out. */
+  /** Tapped areas → ticked sub-option ids (may be empty). Untapped areas are left out. Includes 'wellbeing' when its tick box is on. */
   areas: Record<string, string[]>;
+  /** Minor items ticked (e.g. behaviour → ['gum']). They never make their area an issue. */
+  minor?: Record<string, string[]>;
   note?: string;
+  /** Notes held onto single sub-options, keyed `${areaId}|${subId}`. */
+  subNotes?: Record<string, string>;
   followUp?: boolean;
 }
 
-/** Issue: tapped areas "needs support" (observed), untapped "meets" (implied), one row per ticked sub-option. */
+/**
+ * Issue: tapped areas "needs support" (observed), untapped "meets" (implied), one row per ticked
+ * sub-option. Wellbeing only gets a row when ticked. Minor items alone save as tags on an otherwise
+ * All good check-in, so they don't change the area's average or the ranking.
+ */
 export function buildIssue(t: CheckinTarget, input: IssueInput): SavedRecords {
   const now = t.now ?? Date.now();
   const id = checkinIdFor(t.lessonId, t.studentId);
   const note = input.note?.trim() || undefined;
-  const tapped = CHECKIN_AREAS.filter((a) => input.areas[a.id] !== undefined);
-  if (!tapped.length) throw new Error('Choose at least one area');
+  const issueAreas = ISSUE_AREAS.filter((a) => input.areas[a.id] !== undefined);
+  const minorPicked = ISSUE_AREAS.flatMap((a) => [...new Set(input.minor?.[a.id] ?? [])].filter((m) => isMinor(a.id, m)).map((m) => [a.id, m] as const));
+  const minorOnly = !issueAreas.length && minorPicked.length > 0;
+  if (!issueAreas.length && !minorOnly) throw new Error('Choose at least one area');
+  const isIssue = (areaId: string) => issueAreas.some((a) => a.id === areaId);
+  const noteArea = issueAreas[0]?.id;
+  const tag = (areaId: string, sub: string, minor: boolean): IssueTag => {
+    const subNote = input.subNotes?.[`${areaId}|${sub}`]?.trim();
+    return {
+      id: `${id}|${areaId}|${sub}`, checkinId: id, studentId: t.studentId, classId: t.classId, date: t.date, areaId, tagId: sub,
+      source: 'observed', createdAt: now, ...(minor ? { minor: true } : {}), ...(subNote ? { note: subNote } : {})
+    };
+  };
   return {
     checkin: {
       id, studentId: t.studentId, classId: t.classId, date: t.date, lessonId: t.lessonId, createdAt: now, status: 'complete', source: 'daily',
-      result: 'issue', followUp: input.followUp ?? true, ...(note ? { note } : {})
+      result: minorOnly ? 'good' : 'issue', ...(minorOnly ? {} : { followUp: input.followUp ?? true }), ...(note ? { note } : {})
     },
-    // The note also goes on the first tapped area so older screens and reports show it.
-    observations: CHECKIN_AREAS.map((a) => areaRow(t, id, a.id, input.areas[a.id] !== undefined, now, a.id === tapped[0].id ? note : undefined)),
-    tags: tapped.flatMap((a) => [...new Set(input.areas[a.id])]
-      .filter((sub) => a.subs.some((s) => s.id === sub))
-      .map((sub) => ({ id: `${id}|${a.id}|${sub}`, checkinId: id, studentId: t.studentId, classId: t.classId, date: t.date, areaId: a.id, tagId: sub, source: 'observed' as const, createdAt: now })))
+    // The note also goes on the first issue area so older screens and reports show it.
+    observations: [
+      ...CHECKIN_AREAS.map((a) => areaRow(t, id, a.id, isIssue(a.id), now, a.id === noteArea ? note : undefined)),
+      ...(isIssue(WELLBEING.id) ? [areaRow(t, id, WELLBEING.id, true, now, noteArea === WELLBEING.id ? note : undefined)] : [])
+    ],
+    tags: [
+      ...issueAreas.flatMap((a) => [...new Set(input.areas[a.id])].filter((sub) => a.subs.some((s) => s.id === sub)).map((sub) => tag(a.id, sub, false))),
+      ...minorPicked.map(([areaId, m]) => tag(areaId, m, true))
+    ]
   };
 }
 
@@ -70,20 +93,29 @@ export interface CheckinSummary {
   kind: 'good' | 'issue' | 'absent' | 'skipped';
   /** Areas with an issue, with their ticked sub-options. */
   issues: { areaId: string; name: string; subs: string[] }[];
+  /** Notes held onto single sub-options ("Disruptive: threw a pen"). */
+  subNotes: string[];
+  /** Minor items ticked (e.g. "Gum"). */
+  minor: string[];
 }
+
+const tagIsMinor = (t: IssueTag) => !!t.minor || isMinor(t.areaId, t.tagId);
 
 /** Works for swipe check-ins and older question-by-question ones (any "needs support" answer = issue). */
 export function summarise(c: Checkin, obs: Observation[], tags: IssueTag[]): CheckinSummary {
-  if (c.status === 'absent' || c.status === 'skipped') return { checkin: c, kind: c.status, issues: [] };
+  if (c.status === 'absent' || c.status === 'skipped') return { checkin: c, kind: c.status, issues: [], subNotes: [], minor: [] };
   const mine = obs.filter((o) => o.checkinId === c.id && !o.exceeding);
   const bad = mine.filter((o) => (o.level ?? 0) >= 1);
+  const myTags = tags.filter((t) => t.checkinId === c.id);
   const issues = [...new Set(bad.map((o) => o.categoryId))].map((areaId) => ({
     areaId,
     name: areaById(areaId)?.name ?? areaId,
-    subs: tags.filter((t) => t.checkinId === c.id && t.areaId === areaId).map((t) => subLabel(areaId, t.tagId))
+    subs: myTags.filter((t) => t.areaId === areaId && !tagIsMinor(t)).map((t) => subLabel(areaId, t.tagId))
   }));
+  const minor = myTags.filter(tagIsMinor).map((t) => subLabel(t.areaId, t.tagId));
   const kind = c.result ?? (issues.length ? 'issue' : 'good');
-  return { checkin: c, kind, issues };
+  const subNotes = myTags.filter((t) => t.note).map((t) => `${subLabel(t.areaId, t.tagId)}: ${t.note}`);
+  return { checkin: c, kind, issues, subNotes, minor };
 }
 
 const newestFirst = (a: Checkin, b: Checkin) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt;
@@ -96,8 +128,28 @@ export function recentSummaries(checkins: Checkin[], obs: Observation[], tags: I
 export function summaryText(s: CheckinSummary): string {
   if (s.kind === 'absent') return 'Not here';
   if (s.kind === 'skipped') return 'Skipped';
-  if (s.kind === 'good') return 'All good';
-  return s.issues.map((i) => (i.subs.length ? `${i.name}: ${i.subs.join(', ').toLowerCase()}` : i.name)).join(' · ') || 'Issue';
+  const minor = s.minor?.length ? `Minor: ${s.minor.join(', ').toLowerCase()}` : '';
+  if (s.kind === 'good') return minor ? `All good · ${minor}` : 'All good';
+  const main = s.issues.map((i) => (i.subs.length ? `${i.name}: ${i.subs.join(', ').toLowerCase()}` : i.name)).join(' · ') || 'Issue';
+  return minor ? `${main} · ${minor}` : main;
+}
+
+/** Times Wellbeing was flagged in the last few weeks ("Wellbeing flagged 2× recently" on the card). */
+export function wellbeingRecent(obs: Observation[], today: string, days = WELLBEING_RECENT_DAYS): number {
+  return new Set(obs.filter((o) => o.categoryId === WELLBEING.id && (o.level ?? 0) >= 1 && daysBetween(o.date, today) >= 0 && daysBetween(o.date, today) < days).map((o) => o.checkinId)).size;
+}
+
+/** Minor items over a period ("Uniform 3× this term"), most frequent first. */
+export function minorCounts(tags: IssueTag[], today: string, days = 70): { label: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const t of tags) {
+    if (!tagIsMinor(t)) continue;
+    const d = daysBetween(t.date, today);
+    if (d < 0 || d >= days) continue;
+    const label = subLabel(t.areaId, t.tagId);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
 }
 
 export interface OpenFollow { date: string; text: string; summary: CheckinSummary }
@@ -111,7 +163,8 @@ export function openFollow(checkins: Checkin[], obs: Observation[], tags: IssueT
   if (!last || last.followUp === false) return null;
   const s = summarise(last, obs, tags);
   if (s.kind !== 'issue' || !s.issues.length) return null;
-  return { date: last.date, text: `${summaryText(s)}${last.note ? ` ("${last.note}")` : ''}`, summary: s };
+  const notes = [...(last.note ? [last.note] : []), ...s.subNotes];
+  return { date: last.date, text: `${summaryText(s)}${notes.length ? ` ("${notes.join("; ")}")` : ""}`, summary: s };
 }
 
 export function followLead(f: OpenFollow, today: string): string {
@@ -146,4 +199,17 @@ export function areaAverage(obs: Observation[], areaId: string, n = 10): AreaAve
     trend = diff > 0.1 ? 'up' : diff < -0.1 ? 'down' : 'flat';
   }
   return { meets, total: last.length, prevMeets, prevTotal: prev.length, trend };
+}
+
+/**
+ * De-identified exports leave Wellbeing out entirely: its rows and details, and the notes on any
+ * check-in that flagged it (a shared note could describe it).
+ */
+export function stripWellbeing<O extends Observation, T extends IssueTag, C extends Checkin>(observations: O[], tags: T[], checkins: C[]) {
+  const flagged = new Set(observations.filter((o) => o.categoryId === WELLBEING.id).map((o) => o.checkinId));
+  return {
+    observations: observations.filter((o) => o.categoryId !== WELLBEING.id).map((o) => (flagged.has(o.checkinId) && o.note ? { ...o, note: undefined } : o)),
+    tags: tags.filter((t) => t.areaId !== WELLBEING.id),
+    checkins: checkins.map((c) => (flagged.has(c.id) && c.note ? { ...c, note: undefined } : c))
+  };
 }

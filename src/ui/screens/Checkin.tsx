@@ -1,24 +1,26 @@
 // Daily check-in: a ranked queue of the whole class, one swipeable card at a time.
 // Right (by default) = All good, left = Issue, up = Skip. Also used for "Select student"
-// (one student, same card).
+// (one student, same card). A daily target per lesson ("3 of 5 today") with clear stopping points.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IcpAdjustment, IcpOutcome, Student } from '../../types';
 import * as svc from '../../services';
-import { CHECKIN_AREAS, UNDO_SECONDS, type CheckinArea } from '../../config/checkin';
-import { areaAverage, checkinIdFor, lessonOf, openFollow, followLead, streakDue, type CheckinTarget } from '../../logic/checkin';
+import { saveSettings } from '../../db';
+import { CHECKIN_AREAS, SUB_HINT_TIMES, UNDO_SECONDS, WELLBEING, type CheckinArea, type SubOption } from '../../config/checkin';
+import { areaAverage, checkinIdFor, lessonOf, openFollow, followLead, streakDue, wellbeingRecent, type CheckinTarget } from '../../logic/checkin';
 import { issueSwipe, type IssueOutcome } from '../../logic/swipe';
 import { needWords, rankByNeed, type NeedRow } from '../../logic/need';
+import { extraMessage, milestoneAfter, type Milestone } from '../../logic/target';
 import { icpDueStatus } from '../../logic/icp';
 import { evidenceDue } from '../../logic/evidence';
 import { hasFeature } from '../../features';
 import { today } from '../../lib/dates';
-import { go, useLive } from '../hooks';
+import { go, useLive, useSettings } from '../hooks';
 import { displayName, Empty, Icon, initials, Switch, toast } from '../components';
-import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
+import { SwipeCard, haptic, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { EvidencePrompt, EvidenceSheet } from '../Evidence';
 
-type Step = 'card' | 'issue' | 'details' | 'icp';
+type Step = 'card' | 'issue' | 'icp';
 
 const ICP_PICK: { value: IcpOutcome; label: string; cls: string }[] = [
   { value: 'implemented', label: 'Yes', cls: 'l0' },
@@ -27,22 +29,30 @@ const ICP_PICK: { value: IcpOutcome; label: string; cls: string }[] = [
   { value: 'na', label: 'Not needed', cls: 'ln' }
 ];
 
+/** Everything typed or ticked on the issue screen. */
+interface IssueDraft {
+  picked: Record<string, string[]>;
+  minor: Record<string, string[]>;
+  noteOn: boolean;
+  note: string;
+  subNotes: Record<string, string>;
+  follow: boolean;
+}
+const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, follow: true };
+
 export function CheckinScreen({ classId, studentId }: { classId: string; studentId?: string }) {
   const date = today();
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
+  const settings = useSettings();
   const lessonId = ctx?.lesson?.id ?? '';
   const [skipped, setSkipped] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(studentId ?? null);
   const [step, setStep] = useState<Step>('card');
-  const [picked, setPicked] = useState<Record<string, string[]>>({});
-  const [note, setNote] = useState('');
-  const [follow, setFollow] = useState(true);
-  /** "Add note / evidence" tapped on the issue screen: swipe right goes to "Anything else?". */
-  const [wantsDetails, setWantsDetails] = useState(false);
+  const [draft, setDraft] = useState<IssueDraft>(EMPTY_DRAFT);
   const [withEvidence, setWithEvidence] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceCount, setEvidenceCount] = useState(0);
-  const [tick, setTick] = useState(0);
+  const [milestone, setMilestone] = useState<Milestone | null>(null);
   // ICP adjustments for the ICP step, fixed when the step opens (answering one marks it done for today).
   const [icpList, setIcpList] = useState<IcpAdjustment[]>([]);
   const [streakDone, setStreakDone] = useState<Set<string>>(new Set());
@@ -50,11 +60,16 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
 
   // Saved this session (before the database refresh arrives) plus everything already in the database.
   const [justLogged, setJustLogged] = useState<Set<string>>(new Set());
-  const loggedHere = new Set([...(ctx?.checkins ?? []).filter((c) => lessonOf(c) === lessonId).map((c) => c.studentId), ...justLogged]);
+  /** All good / Issue saved this session: these count toward the target ("Not here" doesn't). */
+  const [justChecked, setJustChecked] = useState<Set<string>>(new Set());
+  const thisLesson = (ctx?.checkins ?? []).filter((c) => lessonOf(c) === lessonId);
+  const loggedHere = new Set([...thisLesson.map((c) => c.studentId), ...justLogged]);
+  const checkedHere = new Set([...thisLesson.filter((c) => c.status === 'complete' || c.status === 'partial').map((c) => c.studentId), ...justChecked]);
   const ranked: NeedRow[] = ctx ? rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere }) : [];
   // Skipped students go to the end, in the order they were skipped.
   const queue = [...ranked.filter((r) => !skipped.includes(r.studentId)), ...skipped.map((id) => ranked.find((r) => r.studentId === id)).filter((r): r is NeedRow => !!r)];
   const single = !!studentId;
+  const target = ctx ? ctx.cls.dailyTarget ?? settings?.dailyTarget ?? 5 : 5;
   // Keep the current student on screen until the teacher moves on.
   useEffect(() => { if (!single && !activeId && queue[0]) setActiveId(queue[0].studentId); }, [activeId, queue[0]?.studentId]);
 
@@ -63,19 +78,33 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const { cls, students } = ctx;
   const s = students.find((x) => x.id === activeId);
   const back = `#/class/${classId}`;
-  const target = (id: string): CheckinTarget => ({ studentId: id, classId, date, lessonId });
+  const targetOf = (id: string): CheckinTarget => ({ studentId: id, classId, date, lessonId });
 
-  function reset() { setStep('card'); setPicked({}); setNote(''); setFollow(true); setWantsDetails(false); setWithEvidence(false); setEvidenceOpen(false); setEvidenceCount(0); }
+  function reset() { setStep('card'); setDraft(EMPTY_DRAFT); setWithEvidence(false); setEvidenceOpen(false); setEvidenceCount(0); }
   function moveOn() {
     reset();
     if (single) { go(`class/${classId}`); return; }
     setActiveId(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  /** Marks a student as done this lesson; All good / Issue also count toward the target. */
+  const markLogged = (id: string, checked: boolean) => {
+    setJustLogged((j) => new Set([...j, id]));
+    if (!checked) return;
+    setJustChecked((j) => new Set([...j, id]));
+    const count = new Set([...checkedHere, id]).size;
+    const everyoneSeen = !queue.some((r) => r.studentId !== id);
+    if (!single) setMilestone(milestoneAfter(count, target, { extra: settings?.extraEncouragement !== false, everyoneSeen }));
+  };
   /** Undo for 5 seconds after any save: removes what was saved and brings the student back. */
-  const markLogged = (id: string) => setJustLogged((j) => new Set([...j, id]));
   function offerUndo(label: string, studentId: string, run: () => Promise<unknown>) {
-    toast(label, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { await run(); setJustLogged((j) => { const n = new Set(j); n.delete(studentId); return n; }); reset(); setActiveId(studentId); } });
+    toast(label, {
+      label: 'Undo', seconds: UNDO_SECONDS, run: async () => {
+        await run();
+        const drop = (j: Set<string>) => { const n = new Set(j); n.delete(studentId); return n; };
+        setJustLogged(drop); setJustChecked(drop); setMilestone(null); reset(); setActiveId(studentId);
+      }
+    });
   }
   function icpDue(id: string) {
     return ctx!.adjustments.filter((a) => a.studentId === id && a.active && a.startDate <= date && (!a.endDate || a.endDate >= date))
@@ -89,16 +118,16 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   }
 
   async function allGood(id: string) {
-    const r = await svc.logAllGood(target(id));
-    markLogged(id);
-    setTick((t) => t + 1);
+    const r = await svc.logAllGood(targetOf(id));
+    markLogged(id, true);
     offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
     afterSave(id);
   }
   async function saveIssue(id: string) {
-    const r = await svc.logIssue(target(id), { areas: picked, note, followUp: follow });
-    markLogged(id);
-    offerUndo(`Issue saved · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
+    const d = draft;
+    const r = await svc.logIssue(targetOf(id), { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: d.follow });
+    markLogged(id, true);
+    offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
     afterSave(id);
   }
   function onCard(a: SwipeAction) {
@@ -112,7 +141,13 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const header = (
     <div class="row between">
       <a class="link-btn back-btn" href={back}><Icon name="back" /> {cls.name}</a>
-      {!single && <span class="tiny muted mono">{loggedHere.size} seen · {queue.length} to go</span>}
+      {!single && <span class="tiny muted mono">{queue.length} to go</span>}
+    </div>
+  );
+  const progress = !single && (
+    <div class="target-bar">
+      <span class={`target-count ${checkedHere.size >= target ? 'met' : ''}`}><b>{checkedHere.size}</b> of {target} today</span>
+      <a class="btn small" href={back}>Done for now</a>
     </div>
   );
 
@@ -122,10 +157,35 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
         {header}
         <div class="done-state">
           <div class="check"><Icon name="check" /></div>
-          <h2>Everyone's been seen this lesson</h2>
-          <p class="muted small">{cls.name} · {loggedHere.size} logged</p>
+          <h2>That's the whole class. All done for this lesson</h2>
+          <p class="muted small">{cls.name} · {checkedHere.size} checked in</p>
           <a class="btn primary" href={back} style="margin-top:10px">Back to {cls.name}</a>
         </div>
+      </div>
+    );
+  }
+
+  // Between cards: the target card, or a small message every few students after it.
+  if (milestone && step === 'card') {
+    return (
+      <div class="cc">
+        {header}
+        {progress}
+        {milestone.kind === 'target' ? (
+          <div class="milestone-card card-enter">
+            <div class="check"><Icon name="check" /></div>
+            <h2>Nice work! You've hit today's check-in target for {cls.name}.</h2>
+            <div class="grid2" style="margin-top:14px">
+              <a class="btn big" href={back}>Finish for now</a>
+              <button class="btn big primary" onClick={() => setMilestone(null)}>Keep going</button>
+            </div>
+          </div>
+        ) : (
+          <div class="milestone-card small card-enter">
+            <p style="margin:0 0 10px"><b>{extraMessage(milestone.count)}</b></p>
+            <button class="btn primary block" onClick={() => setMilestone(null)}>Next student <Icon name="arrow" /></button>
+          </div>
+        )}
       </div>
     );
   }
@@ -138,13 +198,14 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const fu = openFollow(sChk, sObs, sTags, lessonId);
   const askStreak = step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
   const already = sChk.find((c) => lessonOf(c) === lessonId);
+  const wellbeing = wellbeingRecent(sObs, date);
   const good = { side: sideOf('good'), btn: <button class="btn big good-btn" onClick={() => card.current?.fling('good')}><Icon name="check" /> All good</button> };
   const issue = { side: sideOf('issue'), btn: <button class="btn big issue-btn" onClick={() => card.current?.fling('issue')}><Icon name="alert" /> Issue</button> };
 
   return (
     <div class="cc checkin">
       {header}
-      {tick > 0 && <div key={tick} class="good-tick" aria-hidden="true"><Icon name="check" /></div>}
+      {step === 'card' && progress}
 
       {step === 'card' && (
         <>
@@ -169,13 +230,14 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
                 );
               })}
             </div>
+            {wellbeing > 0 && <p class="tiny muted wellbeing-note">Wellbeing flagged {wellbeing}× recently</p>}
             {fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
             {askStreak && (
               <div class="streak-box pop-in">
                 <b class="small">Consistently good lately. Exceeding in any area?</b>
                 <div class="chips" style="flex-wrap:wrap;margin-top:8px">
-                  {CHECKIN_AREAS.map((a) => <button key={a.id} class="chip small" onClick={async () => { await svc.answerStreak(target(s.id), a.id); setStreakDone(new Set([...streakDone, s.id])); }}>{a.name}</button>)}
-                  <button class="chip small" onClick={async () => { await svc.answerStreak(target(s.id), null); setStreakDone(new Set([...streakDone, s.id])); }}>No, at level</button>
+                  {CHECKIN_AREAS.map((a) => <button key={a.id} class="chip small" onClick={async () => { await svc.answerStreak(targetOf(s.id), a.id); setStreakDone(new Set([...streakDone, s.id])); }}>{a.name}</button>)}
+                  <button class="chip small" onClick={async () => { await svc.answerStreak(targetOf(s.id), null); setStreakDone(new Set([...streakDone, s.id])); }}>No, at level</button>
                 </div>
               </div>
             )}
@@ -184,8 +246,8 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
           <div class="row between" style="margin-top:10px">
             <button class="link-btn" onClick={() => card.current?.fling('up')}><Icon name="skip" /> {single ? 'Cancel' : 'Skip'}</button>
             <button class="link-btn" onClick={async () => {
-              const id = await svc.markNotHere(target(s.id));
-              markLogged(s.id);
+              const id = await svc.markNotHere(targetOf(s.id));
+              markLogged(s.id, false);
               offerUndo(`Not here · ${displayName(s)}`, s.id, () => svc.undoCheckin(id));
               moveOn();
             }}>Not here</button>
@@ -204,33 +266,13 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       )}
 
       {step === 'issue' && (
-        <IssueStep s={s} picked={picked} setPicked={setPicked} wantsDetails={wantsDetails} setWantsDetails={setWantsDetails}
-          onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'details') setStep('details'); else if (o === 'back' || o === 'cancel') reset(); }} />
+        <IssueStep s={s} draft={draft} setDraft={setDraft}
+          evidence={hasFeature('evidence') ? { on: withEvidence, count: evidenceCount, toggle: (v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }, open: () => setEvidenceOpen(true) } : null}
+          onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'back' || o === 'cancel') reset(); }} />
       )}
-
-      {step === 'details' && (
-        <div class="fade-up">
-          <div class="cc-eyebrow">Issue · {displayName(s)}</div>
-          <h2 style="margin:6px 0 12px">Anything else?</h2>
-          {picked.coping !== undefined && <p class="small" style="margin:0 0 6px"><b>Coping with work:</b> a short note helps next time.</p>}
-          <textarea class="input" autoFocus value={note} placeholder={picked.coping !== undefined ? 'What did you notice?' : 'Note (optional)'} onInput={(e) => setNote((e.target as HTMLTextAreaElement).value)} />
-          {picked.coping !== undefined && <p class="tiny muted safety-line">{CHECKIN_AREAS.find((a) => a.id === 'coping')!.safetyLine}</p>}
-          <label class="check-row"><input type="checkbox" checked={follow} onChange={(e) => setFollow((e.target as HTMLInputElement).checked)} /> Follow up next time</label>
-          {hasFeature('evidence') && (
-            <div class="evidence-toggle">
-              <Switch label="Include evidence?" hint="A photo of the work, a file, a note or a voice memo. Stays on this device." checked={withEvidence} onChange={(v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }} />
-              {withEvidence && <button class="btn small" onClick={() => setEvidenceOpen(true)}><Icon name="camera" /> {evidenceCount ? `${evidenceCount} added · add more` : 'Add evidence'}</button>}
-            </div>
-          )}
-          {evidenceOpen && (
-            <EvidenceSheet checkin={{ id: checkinIdFor(lessonId, s.id), studentId: s.id, label: `Check-in · ${displayName(s)}` }}
-              onClose={async () => { setEvidenceOpen(false); setEvidenceCount(await svc.countEvidence(checkinIdFor(lessonId, s.id))); }} />
-          )}
-          <div class="grid2" style="margin-top:14px">
-            <button class="btn" onClick={() => setStep('issue')}><Icon name="back" /> Back</button>
-            <button class="btn primary" onClick={() => saveIssue(s.id)}>Save <Icon name="check" /></button>
-          </div>
-        </div>
+      {evidenceOpen && (
+        <EvidenceSheet checkin={{ id: checkinIdFor(lessonId, s.id), studentId: s.id, label: `Check-in · ${displayName(s)}` }}
+          onClose={async () => { setEvidenceOpen(false); setEvidenceCount(await svc.countEvidence(checkinIdFor(lessonId, s.id))); }} />
       )}
 
       {step === 'icp' && <IcpStep s={s} due={icpList} ctx={ctx} date={date} onDone={moveOn} />}
@@ -239,64 +281,171 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   );
 }
 
+const HOLD_NOTE_MS = 500;
+
+/** A sub-option chip: tap to tick, hold for half a second to add a note to just this issue. */
+function HoldChip({ label, on, hasNote, onTap, onHold }: { label: string; on: boolean; hasNote: boolean; onTap: () => void; onHold: () => void }) {
+  const [holding, setHolding] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const st = useRef<{ x: number; y: number; fired: boolean } | null>(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const cancel = () => { clearTimeout(timer.current); st.current = null; setHolding(false); };
+  return (
+    <button
+      class={`chip small hold-chip ${on ? 'active' : ''} ${holding ? 'holding' : ''}`} aria-pressed={on}
+      style={{ '--hold': `${HOLD_NOTE_MS}ms` } as Record<string, string>}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        st.current = { x: e.clientX, y: e.clientY, fired: false };
+        setHolding(true);
+        timer.current = setTimeout(() => { if (st.current) st.current.fired = true; setHolding(false); haptic(25); onHold(); }, HOLD_NOTE_MS);
+      }}
+      onPointerMove={(e) => { if (st.current && !st.current.fired && Math.hypot(e.clientX - st.current.x, e.clientY - st.current.y) > 8) cancel(); }}
+      onPointerUp={() => { const fired = st.current?.fired; const pressed = !!st.current; cancel(); if (pressed && !fired) onTap(); }}
+      onPointerLeave={() => { if (!st.current?.fired) cancel(); }}
+      onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => { if (e.detail === 0) onTap(); /* keyboard activation */ }}
+    >
+      <span class="hold-fill" aria-hidden="true" />
+      <span class="opt-label">{label}</span>{hasNote && <Icon name="edit" class="chip-note" />}
+    </button>
+  );
+}
+
 /**
- * Issue screen: tap areas, tick sub-options. Swipe right (towards "good") when done: it saves,
- * or goes to "Anything else?" for Coping or "Add note / evidence"; with nothing ticked it goes back.
- * Swipe left cancels. Next is pinned to the bottom so it is always on screen.
+ * Issue screen: tap areas, tick sub-options (hold one to give it its own note), Wellbeing as a separate
+ * tick box, minor items under Behaviour, and an optional note, evidence and "follow up next time".
+ * Swipe right (towards "good") saves straight away; with nothing ticked it goes back. Swipe left cancels.
  */
-function IssueStep({ s, picked, setPicked, wantsDetails, setWantsDetails, onOutcome }: {
-  s: Student; picked: Record<string, string[]>; setPicked: (f: (p: Record<string, string[]>) => Record<string, string[]>) => void;
-  wantsDetails: boolean; setWantsDetails: (v: boolean) => void; onOutcome: (o: IssueOutcome) => void;
+function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
+  s: Student; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
+  evidence: { on: boolean; count: number; toggle: (v: boolean) => void; open: () => void } | null;
+  onOutcome: (o: IssueOutcome) => void;
 }) {
+  const settings = useSettings();
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
   const [opened, setOpened] = useState<string | null>(null);
+  const [noteFor, setNoteFor] = useState<string | null>(null);
+  // Sub-option hints for the first few issue screens; the count is taken once when the screen opens.
+  const [showHints, setShowHints] = useState<boolean | null>(null);
+  const [tipShown, setTipShown] = useState(false);
+  useEffect(() => {
+    if (!settings || showHints !== null) return;
+    const n = settings.subHintsShown ?? 0;
+    setShowHints(n < SUB_HINT_TIMES);
+    if (n < SUB_HINT_TIMES) void saveSettings({ subHintsShown: n + 1 });
+    if (!(settings.tipsSeen ?? []).includes('hold-note')) setTipShown(true);
+  }, [settings]);
   // Bring a newly opened area (and its options) into view.
   useEffect(() => {
     if (!opened) return;
     const t = setTimeout(() => refs.current[opened]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60);
     return () => clearTimeout(t);
   }, [opened]);
+  const { picked, minor } = draft;
   const toggleArea = (a: CheckinArea) => {
     if (picked[a.id] === undefined) setOpened(a.id);
-    setPicked((p) => {
-      const next = { ...p };
+    setDraft((d) => {
+      const next = { ...d.picked };
       if (next[a.id]) delete next[a.id]; else next[a.id] = [];
-      return next;
+      return { ...d, picked: next };
     });
   };
-  const toggleSub = (a: CheckinArea, sub: string) => setPicked((p) => {
-    const cur = p[a.id] ?? [];
-    return { ...p, [a.id]: cur.includes(sub) ? cur.filter((x) => x !== sub) : [...cur, sub] };
+  const toggleSub = (a: CheckinArea, sub: string, on?: boolean) => setDraft((d) => {
+    const cur = d.picked[a.id] ?? [];
+    const want = on ?? !cur.includes(sub);
+    return { ...d, picked: { ...d.picked, [a.id]: want ? [...new Set([...cur, sub])] : cur.filter((x) => x !== sub) } };
   });
-  const any = Object.keys(picked).length > 0;
-  const done = issueSwipe('good', picked, wantsDetails);
+  const toggleMinor = (a: CheckinArea, m: string) => setDraft((d) => {
+    const cur = d.minor[a.id] ?? [];
+    return { ...d, minor: { ...d.minor, [a.id]: cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m] } };
+  });
+  const minorList = Object.values(minor).flat();
+  const any = Object.keys(picked).length > 0 || minorList.length > 0;
+  const dismissTip = () => { setTipShown(false); void saveSettings({ tipsSeen: [...(settings?.tipsSeen ?? []), 'hold-note'] }); };
+
+  const subChips = (a: CheckinArea) => (
+    <>
+      <div class="chips sub-chips pop-in">
+        {a.subs.map((x: SubOption) => {
+          const key = `${a.id}|${x.id}`;
+          return (
+            <span key={x.id} class="sub-opt">
+              <HoldChip label={x.label} on={picked[a.id]?.includes(x.id) ?? false} hasNote={!!draft.subNotes[key]}
+                onTap={() => toggleSub(a, x.id)} onHold={() => { toggleSub(a, x.id, true); setNoteFor(key); }} />
+              {showHints && x.hint && <span class="sub-hint tiny muted">{x.hint}</span>}
+            </span>
+          );
+        })}
+      </div>
+      {noteFor?.startsWith(`${a.id}|`) && (
+        <div class="sub-note pop-in">
+          <label class="tiny muted">Note for {a.subs.find((x) => `${a.id}|${x.id}` === noteFor)?.label}</label>
+          <textarea class="input" autoFocus value={draft.subNotes[noteFor] ?? ''} onInput={(e) => { const v = (e.target as HTMLTextAreaElement).value; setDraft((d) => ({ ...d, subNotes: { ...d.subNotes, [noteFor]: v } })); }} />
+          <button class="btn small" onClick={() => setNoteFor(null)}>Done</button>
+        </div>
+      )}
+    </>
+  );
+
+  const wb = picked[WELLBEING.id] !== undefined;
   return (
     <>
-      <SwipeCard onSwipe={(a) => onOutcome(issueSwipe(a, picked, wantsDetails))} allow={['good', 'issue']} labels={{ good: any ? 'Done' : 'Back', issue: 'Cancel' }} class="issue-card">
+      <SwipeCard onSwipe={(a) => onOutcome(issueSwipe(a, picked, minorList))} allow={['good', 'issue']} labels={{ good: any ? 'Save' : 'Back', issue: 'Cancel' }} class="issue-card">
         <div class="cc-eyebrow">Issue · {displayName(s)}</div>
         <h2 style="margin:6px 0 12px">What happened?</h2>
+        {tipShown && (
+          <div class="tip-box pop-in">
+            <span class="small">Tip: hold an issue to add a note to it.</span>
+            <button class="link-btn" onClick={dismissTip}>Got it</button>
+          </div>
+        )}
         <div class="area-list">
           {CHECKIN_AREAS.map((a) => {
             const on = picked[a.id] !== undefined;
             return (
               <div key={a.id} ref={(el) => { refs.current[a.id] = el; }} class={`area-toggle ${on ? 'on' : ''}`}>
-                <button class="area-btn" aria-pressed={on} onClick={() => toggleArea(a)}>{a.name}{on && <Icon name="check" />}</button>
-                {on && (
-                  <div class="chips sub-chips pop-in">
-                    {a.subs.map((x) => <button key={x.id} class={`chip small ${picked[a.id].includes(x.id) ? 'active' : ''}`} aria-pressed={picked[a.id].includes(x.id)} onClick={() => toggleSub(a, x.id)}>{x.label}</button>)}
+                <button class="area-btn" aria-pressed={on} onClick={() => toggleArea(a)}>
+                  <span class="area-name">{a.name}<span class="area-q">{a.question}</span></span>{on && <Icon name="check" />}
+                </button>
+                {on && subChips(a)}
+                {!!a.minor?.length && (
+                  <div class="minor-row">
+                    <span class="tiny muted">Minor:</span>
+                    {a.minor.map((m) => <button key={m.id} class={`chip tiny-chip ${minor[a.id]?.includes(m.id) ? 'active' : ''}`} aria-pressed={minor[a.id]?.includes(m.id) ?? false} onClick={() => toggleMinor(a, m.id)}>{m.label}</button>)}
                   </div>
                 )}
-                {on && a.safetyLine && <p class="tiny muted safety-line">{a.safetyLine}</p>}
               </div>
             );
           })}
+          <div ref={(el) => { refs.current[WELLBEING.id] = el; }} class={`wellbeing-box ${wb ? 'on' : ''}`}>
+            <label class="check-row wellbeing-check">
+              <input type="checkbox" checked={wb} onChange={() => toggleArea(WELLBEING)} />
+              <span><b>Wellbeing</b> <span class="tiny muted">(flag only)</span><span class="area-q">{WELLBEING.question}</span></span>
+            </label>
+            {wb && subChips(WELLBEING)}
+            {wb && <p class="tiny muted safety-line">{WELLBEING.safetyLine}</p>}
+            {wb && !draft.noteOn && <p class="tiny muted" style="margin:6px 0 0">A short note helps.</p>}
+          </div>
         </div>
-        <p class="hold-hint">Swipe {sideOf('good')} when done · {sideOf('issue')} to cancel. Nothing is saved if you cancel.</p>
+
+        <div class="issue-extras">
+          <label class="check-row"><input type="checkbox" checked={draft.noteOn} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, noteOn: v })); }} /> Add a note</label>
+          {draft.noteOn && <textarea class="input" autoFocus value={draft.note} placeholder={wb ? 'What did you notice?' : 'Note'} onInput={(e) => { const v = (e.target as HTMLTextAreaElement).value; setDraft((d) => ({ ...d, note: v })); }} />}
+          {evidence && (
+            <div class="evidence-toggle">
+              <Switch label="Include evidence?" hint="A photo of the work, a file, a note or a voice memo. Stays on this device." checked={evidence.on} onChange={evidence.toggle} />
+              {evidence.on && <button class="btn small" onClick={evidence.open}><Icon name="camera" /> {evidence.count ? `${evidence.count} added · add more` : 'Add evidence'}</button>}
+            </div>
+          )}
+          <label class="check-row"><input type="checkbox" checked={draft.follow} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, follow: v })); }} /> Follow up next time</label>
+        </div>
+        <p class="hold-hint">Swipe {sideOf('good')} to save · {sideOf('issue')} to cancel. Nothing is saved if you cancel.</p>
       </SwipeCard>
-      <div class="issue-bar">
+      <div class="issue-bar two">
         <button class="btn" onClick={() => onOutcome('cancel')}><Icon name="x" /> Cancel</button>
-        <button class={`btn small-text ${wantsDetails ? 'active-soft' : ''}`} aria-pressed={wantsDetails} onClick={() => setWantsDetails(!wantsDetails)}><Icon name="edit" /> Add note / evidence</button>
-        <button class="btn primary" disabled={!any} onClick={() => onOutcome(done)}>{done === 'save' ? 'Save' : 'Next'} <Icon name="arrow" /></button>
+        <button class="btn primary" disabled={!any} onClick={() => onOutcome('save')}>Save <Icon name="check" /></button>
       </div>
     </>
   );

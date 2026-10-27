@@ -11,6 +11,8 @@ export default defineConfig({
   plugins: [
     preact(),
     VitePWA({
+      // Preview builds (VITE_PREVIEW=<branch>) have no service worker, so they never cache or take over pages.
+      disable: !!process.env.VITE_PREVIEW,
       registerType: 'prompt',
       includeAssets: ['icons/*.png'],
       manifest: {
@@ -31,7 +33,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,woff2,csv,wasm}'],
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // Branch previews live under /preview/ on the same site: the live service worker must leave them alone.
+        navigateFallbackDenylist: [/\/preview\//]
       }
     })
   ],

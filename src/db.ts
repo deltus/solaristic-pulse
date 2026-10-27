@@ -6,6 +6,7 @@ import type {
 import { DEFAULT_SETTINGS } from './types';
 import type { SavedFile } from './files';
 import { outboxMiddleware, type OutboxEntry } from './sync/outbox';
+import { dbName } from './preview';
 
 export class PulseDB extends Dexie {
   classes!: Table<SchoolClass, string>;
@@ -32,7 +33,7 @@ export class PulseDB extends Dexie {
   outbox!: Table<OutboxEntry, [string, string]>;
   syncState!: Table<{ key: string; value: unknown }, string>;
 
-  constructor(name = 'solaristic-pulse') {
+  constructor(name = dbName()) {
     super(name);
     this.version(1).stores({
       classes: 'id',

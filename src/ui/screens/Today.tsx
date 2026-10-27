@@ -131,6 +131,7 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
         {assess.length > 0 && <a class="hub-btn" href={`#/class/${classId}/assessment${assess.length === 1 ? `/${assess[0].id}` : ''}`}><Icon name="reports" /><b>Assessment check</b><span>{assess.length === 1 ? `${assess[0].name}${dueText(assess[0], today()) ? ` · ${dueText(assess[0], today()).toLowerCase()}` : ''}` : `${assess.length} tasks`}</span></a>}
         <a class="hub-btn" href={`#/icp/class/${classId}`}><Icon name="icp" /><b>ICP {icpDue > 0 && <span class="count-badge" aria-label={`${icpDue} due today`}>{icpDue}</span>}</b><span>{icpDue ? `${icpDue} check${icpDue === 1 ? '' : 's'} due today` : 'Nothing due today'}</span></a>
       </div>
+      <a class="hub-btn wide bb-btn" href={`#/class/${classId}/brainbreak`}><Icon name="bolt" /><b>Brain break</b><span>A quick subject game or a calm reset</span></a>
       {assess.map((a) => <div key={a.id} class="card flat cc-summary"><span class="eyebrow">Assessment</span><div class="small">{assessmentSummary(a, ctx.students, ctx.assessmentChecks).text}</div></div>)}
       {ctx.students.length > 0 && (
         <div class="card flat cc-summary">

@@ -351,6 +351,8 @@ export interface Settings {
   /** One-time tips already shown (e.g. 'hold-note'), and how many issue screens have shown sub-option hints. */
   tipsSeen?: string[];
   subHintsShown?: number;
+  /** Brain breaks hidden from the roll (Settings → Brain breaks). */
+  hiddenBreaks?: string[];
   /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
   devTools?: boolean;
 }
@@ -416,4 +418,20 @@ export interface AssessmentCheck {
   reasons?: string[];
   checkpoint?: string;
   createdAt: number;
+}
+
+/** One brain break used in a lesson. No student data. */
+export interface BrainBreakLog {
+  id: string;
+  classId: string;
+  lessonId: string;
+  date: string;
+  breakId: string;
+  /** Kept so history still reads if the break is later hidden or deleted. */
+  name: string;
+  type: 'calm' | 'perk';
+  group: string;
+  at: number;
+  /** "Did it help?" (optional). */
+  helped?: 'yes' | 'no';
 }

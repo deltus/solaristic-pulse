@@ -10,6 +10,7 @@ import { HomeworkScreen } from './screens/Homework';
 import { CloseLessonScreen } from './screens/CloseLesson';
 import { ColdCallScreen } from './screens/ColdCall';
 import { AssessmentCheckScreen } from './screens/Assessment';
+import { BrainBreakScreen } from './screens/BrainBreak';
 import { TeachingScreen } from './screens/Teaching';
 import { lessonsToClose, lessonName } from '../logic/lessons';
 import { HomeScreen } from './screens/Home';
@@ -99,6 +100,7 @@ export function App() {
         : sub === 'close' ? <CloseLessonScreen classId={id} />
         : sub === 'coldcall' ? <ColdCallScreen classId={id} />
         : sub === 'assessment' ? <AssessmentCheckScreen key={extra ?? ''} classId={id} assessmentId={extra} />
+        : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />
         : <ClassHub classId={id} reminder={reminder} />;
       break;

@@ -103,7 +103,7 @@ export function StudentProfile({ id }: { id: string }) {
   const data = useLive(async () => {
     const student = await db.students.get(id);
     if (!student) return { student: undefined };
-    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls, evidence, assessments, classAssessmentChecks] = await Promise.all([
+    const [cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, classStudents, classCheckins, classObs, classTags, classHomework, classLessons, coldCalls, evidence, assessments, classAssessmentChecks, brainBreaks] = await Promise.all([
       db.classes.get(student.classId), db.observations.where('studentId').equals(id).toArray(), db.checkins.where('studentId').equals(id).toArray(),
       db.questions.filter((q) => q.enabled).toArray(), db.questions.toArray(), sortedCategories(), db.notes.where('studentId').equals(id).toArray(),
       db.icpAdjustments.where('studentId').equals(id).toArray(), db.icpChecks.where('studentId').equals(id).toArray(),
@@ -112,13 +112,14 @@ export function StudentProfile({ id }: { id: string }) {
       db.observations.where('classId').equals(student.classId).toArray(), db.issueTags.where('classId').equals(student.classId).toArray(),
       db.homework.where('classId').equals(student.classId).toArray(), db.lessons.where('classId').equals(student.classId).toArray(),
       db.coldCalls.where('studentId').equals(id).toArray(), db.evidence.where('studentId').equals(id).toArray(),
-      db.assessments.where('classId').equals(student.classId).toArray(), db.assessmentChecks.where('classId').equals(student.classId).toArray()
+      db.assessments.where('classId').equals(student.classId).toArray(), db.assessmentChecks.where('classId').equals(student.classId).toArray(),
+      db.brainBreaks.where('classId').equals(student.classId).toArray()
     ]);
     const row = needByStudent(classStudents, classCheckins, classObs, classTags, classHomework, today(), classLessons, classAssessmentChecks).get(id);
     const assessmentHistory = studentAssessmentHistory(assessments, classAssessmentChecks, id);
     const tags = classTags.filter((t) => t.studentId === id);
     const homework = classHomework.filter((h) => h.studentId === id);
-    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence, assessmentHistory };
+    return { student, cls, observations, checkins, questions, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence, assessmentHistory, brainBreaks };
   }, [id]);
   const [editing, setEditing] = useState(false);
   const [note, setNote] = useState('');
@@ -127,12 +128,12 @@ export function StudentProfile({ id }: { id: string }) {
 
   if (!data) return null;
   if (!data.student) return <p>Student not found. <a href="#/students">Back</a></p>;
-  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence, assessmentHistory } = data as Required<typeof data>;
+  const { student: s, cls, observations, checkins, allQuestions, categories, notes, adjustments, icpChecks, timetable, row, tags, homework, classLessons, coldCalls, evidence, assessmentHistory, brainBreaks } = data as Required<typeof data>;
   const ccRecentLessons = coldCallsLastLessons(coldCalls, classLessons, s.classId, s.id);
   const hwHistory = homeworkHistory(classLessons, homework, s.classId, s.id);
   const ccStats = coldCallStats(coldCalls, date);
   const ccRecent = coldCallHistory(coldCalls, classLessons, s.id, 5);
-  const byLesson = studentTimeline({ lessons: classLessons, checkins, observations, tags, homework, coldCalls, studentId: s.id }, 10);
+  const byLesson = studentTimeline({ lessons: classLessons, checkins, observations, tags, homework, coldCalls, brainBreaks, studentId: s.id }, 10);
   const follow = openFollow(checkins, observations, tags);
   const catName = (cid: string) => categories.find((c) => c.id === cid)?.name ?? cid;
   // Wellbeing is a flag only, with no running average, so it has no trend chart.

@@ -2,16 +2,19 @@
 // lesson, named by its learning intention.
 // "Mon 26 Oct · Rivers and meanders · All good · Homework: not done · Cold call: answered well"
 
-import type { Checkin, ColdCall, HomeworkCheck, IssueTag, Lesson, Observation } from '../types';
+import type { BrainBreakLog, Checkin, ColdCall, HomeworkCheck, IssueTag, Lesson, Observation } from '../types';
+import { brainBreakText } from './brainBreaks';
 import { lessonOf, summarise, summaryText } from './checkin';
 import { coldCallText } from './coldcall';
 import { formatShort } from '../lib/dates';
 import { HOMEWORK_REASONS } from '../config/checkin';
 
-export interface TimelineRow { lesson: Lesson; date: string; name: string; checkin?: string; homework?: string; coldCall?: string; text: string }
+export interface TimelineRow { lesson: Lesson; date: string; name: string; checkin?: string; homework?: string; coldCall?: string; brainBreak?: string; text: string }
 
 export function studentTimeline(input: {
   lessons: Lesson[]; checkins: Checkin[]; observations: Observation[]; tags: IssueTag[]; homework: HomeworkCheck[]; coldCalls: ColdCall[]; studentId: string;
+  /** Class brain breaks: shown on lessons the student has a row for. */
+  brainBreaks?: BrainBreakLog[];
 }, n = 10): TimelineRow[] {
   const { lessons, studentId } = input;
   const chk = input.checkins.filter((c) => c.studentId === studentId);
@@ -25,8 +28,10 @@ export function studentTimeline(input: {
     const checkin = c ? summaryText(summarise(c, input.observations, input.tags)) : undefined;
     const homework = h ? (h.done ? 'done' : `not done${h.reason ? `, ${(HOMEWORK_REASONS.find((r) => r.id === h.reason)?.label ?? h.reason).toLowerCase()}` : ''}`) : undefined;
     const coldCall = calls.length ? calls.map(coldCallText).join('; ') : undefined;
+    const bb = (input.brainBreaks ?? []).filter((x) => x.lessonId === l.id);
+    const brainBreak = bb.length ? bb.map(brainBreakText).join('; ') : undefined;
     const name = l.intention?.trim() ?? '';
-    const text = [formatShort(l.date), name, checkin, homework && `Homework: ${homework}`, coldCall && `Cold call: ${coldCall}`].filter(Boolean).join(' · ');
-    return { lesson: l, date: l.date, name, checkin, homework, coldCall, text };
+    const text = [formatShort(l.date), name, checkin, homework && `Homework: ${homework}`, coldCall && `Cold call: ${coldCall}`, brainBreak].filter(Boolean).join(' · ');
+    return { lesson: l, date: l.date, name, checkin, homework, coldCall, brainBreak, text };
   }).filter((r): r is TimelineRow => !!r).slice(0, n);
 }

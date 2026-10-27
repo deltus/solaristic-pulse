@@ -6,13 +6,14 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { planAutoSync } from './plan';
 import { currentAccount, onAccountChange, sb, thisDeviceId } from '../cloud';
 import { db, getSettings, saveSettings } from '../db';
+import { storageKey } from '../preview';
 import { fromB64Url, importKey, keyMatches, makeKeyCheck, newKeyBytes, toB64Url, toRecoveryKey } from './crypto';
 import {
   clearLocalForDownload, enqueueAll, resetPosition, startSync, stopSync, storeKey, storedKey, syncNow, type SyncRow, type Transport
 } from './engine';
 
-const SYNC_ON = 'pulse.sync';
-const PENDING_KEY = 'pulse.pendingKey';
+const SYNC_ON = storageKey('pulse.sync');
+const PENDING_KEY = storageKey('pulse.pendingKey');
 const ls = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
@@ -22,7 +23,7 @@ const ls = {
 export const syncWanted = () => ls.get(SYNC_ON) === 'on';
 /** True when the teacher switched sync off on this device; then it isn't turned back on automatically. */
 const syncDeclined = () => ls.get(SYNC_ON) === 'off';
-const KEY_UNSAVED = 'pulse.keyUnsaved';
+const KEY_UNSAVED = storageKey('pulse.keyUnsaved');
 
 /* ---------- Things the teacher needs to do (shown as a banner) ---------- */
 
@@ -264,7 +265,7 @@ export async function forgetAccountOnThisDevice() {
   await db.syncState.clear();
   await db.outbox.clear();
   try {
-    for (const k of Object.keys(localStorage)) if (k.startsWith('pulse.')) localStorage.removeItem(k);
+    for (const k of Object.keys(localStorage)) if (k.startsWith(storageKey('pulse.'))) localStorage.removeItem(k);
   } catch { /* private mode */ }
   setAttention(null);
 }

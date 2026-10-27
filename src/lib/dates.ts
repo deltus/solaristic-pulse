@@ -1,3 +1,5 @@
+import { storageKey } from '../preview';
+
 // Local-date helpers. Dates are stored as local 'YYYY-MM-DD' strings so a
 // check-in belongs to the teacher's school day regardless of time zone quirks.
 
@@ -11,7 +13,7 @@ export function toISODate(d: Date): string {
  * Shifts the app's idea of "today" forward so multi-day behaviour (rotation,
  * follow-ups, overdue, ICP due dates) can be tried without waiting. Stored per device.
  */
-const OFFSET_KEY = 'pulse-day-offset';
+const OFFSET_KEY = storageKey('pulse-day-offset');
 let offsetDays = (() => {
   try { return Number(localStorage.getItem(OFFSET_KEY)) || 0; } catch { return 0; }
 })();

@@ -6,14 +6,22 @@ import { App } from './ui/App';
 import { isNative } from './platform';
 import { initCloud } from './cloud';
 import { initSync } from './sync/cloudSync';
+import { PREVIEW } from './preview';
+import { PreviewBanner } from './ui/PreviewBanner';
 
 initSync();
 initCloud();
 
 render(<App />, document.getElementById('app')!);
 
-// Offline support: cache the app shell with a service worker (web builds only).
-if (!isNative() && 'serviceWorker' in navigator && import.meta.env.PROD) {
+if (PREVIEW) {
+  const strip = document.createElement('div');
+  document.body.prepend(strip);
+  render(<PreviewBanner />, strip);
+}
+
+// Offline support: cache the app shell with a service worker (web builds only, never in previews).
+if (!PREVIEW && !isNative() && 'serviceWorker' in navigator && import.meta.env.PROD) {
   import('virtual:pwa-register').then(({ registerSW }) => {
     const update = registerSW({
       onNeedRefresh() {

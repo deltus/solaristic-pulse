@@ -1,11 +1,15 @@
-# On every push to main: run the tests, build the app and publish it to GitHub Pages.
+# On every push to main or a round* branch: run that branch's tests, then build one combined site and
+# publish it to GitHub Pages: main (the live app) at the root, and each round* branch under preview/<branch>/.
+# If the pushed branch's tests fail, nothing is published, so the site stays exactly as it was.
 # Only the app code is published; student data never leaves each user's device.
 # The Supabase URL and anon key are public by design (row-level security protects the data).
+# Previews are built with VITE_PREVIEW=<branch> and no Supabase settings: their own database, no sign-in,
+# no sync and no service worker (see src/preview.ts).
 name: Test and publish
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'round*']
   workflow_dispatch:
 
 permissions:
@@ -22,23 +26,75 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: repo
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+
+      - name: Test the pushed branch
+        working-directory: repo
+        run: |
+          npm ci
+          npm test
+
+      - name: Build the live app (main) at the root
         env:
           # Repository → Settings → Secrets and variables → Actions → Variables. Empty = accounts off.
           VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           VITE_PUBLIC_APP_URL: ${{ vars.PUBLIC_APP_URL }}
           VITE_ANDROID_APK_URL: ${{ vars.ANDROID_APK_URL }}
+        run: |
+          mkdir -p site
+          git -C repo worktree add -q --detach "$PWD/w/main" origin/main
+          cd w/main
+          # Until main has its own copy of this rule, keep the live service worker away from /preview/ pages.
+          grep -q navigateFallbackDenylist vite.config.ts || sed -i 's#maximumFileSizeToCacheInBytes: 4 \* 1024 \* 1024#&, navigateFallbackDenylist: [/[/]preview[/]/]#' vite.config.ts
+          grep -q navigateFallbackDenylist vite.config.ts
+          npm ci
+          npm run build
+          cp -r dist/. ../../site/
+
+      - name: Build each round* branch into preview/<branch>/
+        run: |
+          mkdir -p site/preview
+          rows=""
+          for b in $(git -C repo for-each-ref --format='%(refname:lstrip=3)' 'refs/remotes/origin/round*'); do
+            when=$(git -C repo log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M UTC' "origin/$b")
+            dir="$PWD/w/$b"
+            git -C repo worktree add -q --detach "$dir" "origin/$b"
+            # Only branches that include round 0's preview safety (own database, no service worker) are published.
+            if [ ! -f "$dir/src/preview.ts" ] || ! grep -q VITE_PREVIEW "$dir/vite.config.ts"; then
+              echo "::warning::$b skipped: it doesn't have the preview safety changes from round0 yet"
+              rows="$rows<li><b>$b</b> · not published (needs the round0 changes) · updated $when</li>"
+              continue
+            fi
+            if (cd "$dir" && npm ci && VITE_PREVIEW="$b" VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= VITE_PUBLIC_APP_URL= npm run build); then
+              mkdir -p "site/preview/$b"
+              cp -r "$dir/dist/." "site/preview/$b/"
+              rows="$rows<li><a href=\"./$b/\">$b</a> · updated $when</li>"
+            else
+              echo "::warning::$b failed to build and was not published"
+              rows="$rows<li><b>$b</b> · build failed, not published · updated $when</li>"
+            fi
+          done
+          cat > site/preview/index.html <<EOF
+          <!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Solaristic Radar previews</title>
+          <style>body{font:16px/1.5 system-ui,sans-serif;margin:0 auto;max-width:640px;padding:16px;background:#F4F0E8;color:#0E1A3A}li{margin:8px 0}a{color:#0E1A3A;font-weight:600}</style>
+          </head><body><h1>Previews</h1>
+          <p>Test copies of each round. Each has its own data, no sign-in and no sync. <a href="../">Live app</a></p>
+          <ul>${rows:-<li>No previews yet.</li>}</ul>
+          <p><small>Published $(date -u '+%Y-%m-%d %H:%M UTC') from ${GITHUB_REF_NAME}.</small></p>
+          </body></html>
+          EOF
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: site
 
   deploy:
     needs: build

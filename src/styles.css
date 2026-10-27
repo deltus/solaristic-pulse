@@ -800,3 +800,14 @@ input[type='range'] { width: 100%; accent-color: var(--burgundy); }
 .success-latest i, .multi-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .cc-glance { margin-top: 10px; }
 .cc-glance b { font-size: 20px; }
+
+/* Branch previews only (src/ui/PreviewBanner.tsx). */
+.preview-banner {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 12px;
+  padding: 6px 12px; padding-top: max(6px, env(safe-area-inset-top));
+  background: #FF3EA5; color: #fff; font: 600 13px/1.3 system-ui, sans-serif; text-align: center;
+}
+.preview-banner button {
+  border: 1.5px solid #fff; background: transparent; color: #fff; border-radius: 999px;
+  padding: 3px 10px; font: inherit; cursor: pointer;
+}

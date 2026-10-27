@@ -9,12 +9,14 @@ import { isNative } from './platform';
 import { deviceName, readLaunchParams } from './logic/invite';
 import { getSettings, saveSettings } from './db';
 import { toast } from './ui/components';
+import { PREVIEW, storageKey } from './preview';
 
 const URL_ = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const LIVE_APP_URL = 'https://deltus.github.io/solaristic-pulse/';
 
-export const cloudConfigured = () => !!(URL_ && KEY);
+// Previews never sign in or sync, even if a build accidentally has the settings.
+export const cloudConfigured = () => !PREVIEW && !!(URL_ && KEY);
 
 /** Public address used in invite links and sign-in emails. */
 export function appUrl(): string {
@@ -34,7 +36,7 @@ export function sb(): Promise<SupabaseClient> {
   if (!cloudConfigured()) throw new Error('Cloud sign-in is not set up in this build.');
   client ??= import('@supabase/supabase-js').then(({ createClient }) => {
     const c = createClient(URL_!, KEY!, {
-      auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'pulse.auth' }
+      auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: storageKey('pulse.auth') }
     });
     c.auth.onAuthStateChange((event, session) => {
       setAccount(session?.user ? { status: 'signedIn', user: session.user } : { status: 'signedOut' });
@@ -72,9 +74,9 @@ export function useAccount(): Account {
 
 /* ---------- Start-up ---------- */
 
-const INVITE_KEY = 'pulse.invite';
-const SIGNIN_KEY = 'pulse.signinEmail';
-const DEVICE_KEY = 'pulse.deviceId';
+const INVITE_KEY = storageKey('pulse.invite');
+const SIGNIN_KEY = storageKey('pulse.signinEmail');
+const DEVICE_KEY = storageKey('pulse.deviceId');
 
 const ls = {
   get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },

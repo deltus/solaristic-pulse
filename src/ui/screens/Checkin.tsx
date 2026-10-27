@@ -18,6 +18,7 @@ import { today } from '../../lib/dates';
 import { go, useLive, useSettings } from '../hooks';
 import { displayName, Empty, Icon, initials, Switch, toast } from '../components';
 import { SwipeCard, haptic, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
+import { isRelief, reliefBundle, reliefOrder } from '../../relief/device';
 import { EvidencePrompt, EvidenceSheet } from '../Evidence';
 
 type Step = 'card' | 'issue' | 'icp';
@@ -65,7 +66,9 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const thisLesson = (ctx?.checkins ?? []).filter((c) => lessonOf(c) === lessonId);
   const loggedHere = new Set([...thisLesson.map((c) => c.studentId), ...justLogged]);
   const checkedHere = new Set([...thisLesson.filter((c) => c.status === 'complete' || c.status === 'partial').map((c) => c.studentId), ...justChecked]);
-  const ranked: NeedRow[] = ctx ? rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere }) : [];
+  // Relief teachers get the class teacher's order (without the reasons).
+  const ranked: NeedRow[] = ctx ? reliefOrder(rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere })) : [];
+  const relief = isRelief();
   // Skipped students go to the end, in the order they were skipped.
   const queue = [...ranked.filter((r) => !skipped.includes(r.studentId)), ...skipped.map((id) => ranked.find((r) => r.studentId === id)).filter((r): r is NeedRow => !!r)];
   const single = !!studentId;
@@ -194,9 +197,10 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const sChk = ctx.checkins.filter((c) => c.studentId === s.id);
   const sObs = ctx.observations.filter((o) => o.studentId === s.id);
   const sTags = ctx.tags.filter((t) => t.studentId === s.id);
-  const hasIcp = ctx.adjustments.some((a) => a.studentId === s.id && a.active);
+  const reliefInfo = relief ? reliefBundle()?.students.find((x) => x.id === s.id) : undefined;
+  const hasIcp = relief ? !!reliefInfo?.icp : ctx.adjustments.some((a) => a.studentId === s.id && a.active);
   const fu = openFollow(sChk, sObs, sTags, lessonId);
-  const askStreak = step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
+  const askStreak = !relief && step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
   const already = sChk.find((c) => lessonOf(c) === lessonId);
   const wellbeing = wellbeingRecent(sObs, date);
   const good = { side: sideOf('good'), btn: <button class="btn big good-btn" onClick={() => card.current?.fling('good')}><Icon name="check" /> All good</button> };
@@ -214,11 +218,12 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
               <span class="avatar big">{initials(s)}</span>
               <div class="grow">
                 <h1 class="card-name">{displayName(s)} {s.flag && <Icon name="flag" class="flag" />}{hasIcp && <span class="icp-mark" title="Has ICP adjustments">ICP</span>}</h1>
-                {row && <div class="tiny muted">{needWords(row)}</div>}
+                {row && !relief && <div class="tiny muted">{needWords(row)}</div>}
+                {reliefInfo?.icp && (reliefInfo.adjustments ? reliefInfo.adjustments.map((a, i) => <div key={i} class="tiny">{a.title}{a.details ? `: ${a.details}` : ''}</div>) : <div class="tiny muted">ICP: ask the school for details</div>)}
               </div>
             </div>
             {already && <p class="tiny muted" style="margin:8px 0 0">Already logged this lesson ({already.status === 'absent' ? 'not here' : already.result === 'issue' ? 'issue' : 'all good'}). Logging again replaces it.</p>}
-            <div class="area-rows">
+            {!relief && <div class="area-rows">
               {CHECKIN_AREAS.map((a) => {
                 const av = areaAverage(sObs, a.id);
                 return (
@@ -229,9 +234,9 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
                   </div>
                 );
               })}
-            </div>
-            {wellbeing > 0 && <p class="tiny muted wellbeing-note">Wellbeing flagged {wellbeing}× recently</p>}
-            {fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
+            </div>}
+            {!relief && wellbeing > 0 && <p class="tiny muted wellbeing-note">Wellbeing flagged {wellbeing}× recently</p>}
+            {!relief && fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
             {askStreak && (
               <div class="streak-box pop-in">
                 <b class="small">Consistently good lately. Exceeding in any area?</b>

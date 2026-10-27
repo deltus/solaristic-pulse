@@ -25,7 +25,7 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   issueTags: ['note'],
   homework: ['relief'],
   // Learning intention, homework text and the teacher's own answers about the lesson.
-  lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note'],
+  lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note', 'relief'],
   coldCalls: ['relief'],
   // The teacher journal is private: its text, tags and standard are encrypted like notes.
   journal: ['text', 'tags', 'aitsl'],
@@ -35,7 +35,7 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   brainBreaks: ['relief'],
   customBreaks: [],
   // Who the relief teacher is, today's plan and the use log are encrypted.
-  reliefPasses: ['reliefName', 'reliefEmail', 'plan', 'uses', 'claimedDevice']
+  reliefPasses: ['reliefName', 'reliefEmail', 'plan', 'uses', 'claimedDevice', 'key']
 };
 
 type Row = Record<string, unknown>;

@@ -126,6 +126,8 @@ export type PlanDone = 'yes' | 'partly' | 'no';
 
 /** One lesson of one class, from Open lesson to Close lesson. */
 export interface Lesson {
+  /** Opened by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   classId: string;
   /** Date the lesson was opened (YYYY-MM-DD). */
@@ -464,6 +466,10 @@ export interface ReliefPass {
   cancelledAt?: number;
   /** The one device the pass is locked to once it's opened (set by the server). */
   claimedDevice?: string;
+  /** The pass key (only in the pass link and in the class teacher's own encrypted sync). */
+  key?: string;
+  /** When the sealed class data was last sent to the server. */
+  sentAt?: number;
   /** Every time the pass was used (set by the server). */
   uses?: { at: number; device: string; email?: string }[];
 }

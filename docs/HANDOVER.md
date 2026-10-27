@@ -1,18 +1,10 @@
 # Handover
 
-**Current branch:** round6 (pushed, not merged). This branch has the latest HANDOVER. Rounds are stacked: round0 → round3 (3 + 3b) → round4 → round5 → round6, each branched from the one before, so round6 contains everything. **Nothing is merged into main.**
+**Current branch:** round6 (pushed, not merged). Rounds are stacked: round0 → round3 → round4 → round5 → round6. Nothing is merged into main.
 
-**Done:**
-- round0: preview links (docs/briefs/round0.md). Preview safety in src/preview.ts.
-- round3 (+3b): check-in lists, Wellbeing, minor items, DB v10, inline notes, daily target, swipe fly-off, cold call roll (src/ui/Roll.tsx).
-- round4: shared class setup, import buttons, ICP forms + import, year level in exports, journal, Assessment check, DB v11.
-- round5: brain breaks (all 24, unvetted ⬜), DB v12.
-- round6 (part): relief pass form, list/cancel, rules, privacy-filtered sealed bundle and preview, relief entry review; DB v13 (src/logic/relief.ts, src/ui/Relief.tsx).
+**Round 6, option A (server pass, key in link) — IN PROGRESS, not finished:**
+- Done: supabase/migrations/20261027000000_relief_passes.sql (NOT yet run in Supabase); src/relief/server.ts (server calls), src/relief/owner.ts (send/cancel/use log/import entries), src/relief/device.ts (relief session in its own DB, claim, push, expiry cleanup), src/ui/ReliefApp.tsx (relief teacher's app), src/main.tsx (opens relief mode from ?relief=…#rk=…), Relief tab Send sheet (QR/link/email), relief tweaks in Checkin and CloseLesson, relief lessons excluded from openLessonFor/lessonsToClose. Existing 156 tests pass; typecheck passes.
+- Left to do: tests for owner/device with a fake ReliefServer (import/apply rules, push, tick/expiry, claim refusals); update docs/briefs/round6.md (option A built, click-by-click Supabase steps: SQL Editor → New query → paste the migration → Run; then test with two browser profiles via `npm run dev` + .env.local); add relief tables to docs/SUPABASE.md; BUILD_STATUS line; browser check; push.
+- Untested against a real Supabase. Review the SQL before running it.
 
-**Stopped / needs Azeem:**
-1. **Round 6 decision:** pick option A, B or C in docs/briefs/round6.md (how a relief teacher's device gets the class and sends entries back). Nothing server-side has been built or changed.
-2. **Previews:** they only publish after adding the `round*` rule to GitHub Settings → Environments → github-pages (steps in docs/briefs/round0.md). Then re-run the latest "Test and publish" action.
-3. Test each preview, then say "merge" per round (CLAUDE.md). Later rounds include the earlier ones.
-4. Vet the brain breaks (all ⬜) and the "(check link)" games.
-
-**Next:** after the round 6 option is chosen, continue on `round6` (docs/prompts/round6.md sections 2–5).
+**Needs Azeem:** GitHub `round*` rule for previews (docs/briefs/round0.md); vet brain breaks; say "merge" per round.

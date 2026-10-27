@@ -12,6 +12,7 @@ import { Icon, toast } from '../components';
 import { Speedometer, ZONE_COLOUR } from '../Speedometer';
 import { cancelClosePrompt, promptToClose } from '../lessonPrompts';
 import { JournalForm } from '../Journal';
+import { isRelief } from '../../relief/device';
 
 const HAPPY: { v: Happy; label: string }[] = [{ v: 'yes', label: 'Yes' }, { v: 'mostly', label: 'Mostly' }, { v: 'no', label: 'No' }];
 const PLAN: { v: PlanDone; label: string }[] = [{ v: 'yes', label: 'Yes' }, { v: 'partly', label: 'Partly' }, { v: 'no', label: 'No' }];
@@ -44,7 +45,9 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
   const zone = pct === null ? null : zoneFor(pct);
   const move = (v: number) => { setSkipped(false); setPct(clampPct(v)); };
   const attentionDone = pct !== null || skipped;
-  const ready = attentionDone && !!happy && !!plan;
+  // Relief teachers skip the teacher check: those answers are the class teacher's own reflection.
+  const relief = isRelief();
+  const ready = attentionDone && (relief || (!!happy && !!plan));
 
   async function close() {
     await svc.closeLesson(lesson.id, answers());
@@ -91,7 +94,7 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
         <p class="tiny muted" style="margin-top:6px">Ticked: Homework check appears next lesson.</p>
       </section>
 
-      <section class="close-part">
+      {!relief && <section class="close-part">
         <h3>Teacher check</h3>
         <p class="small" style="margin:8px 0 6px">Happy with today's lesson?</p>
         <div class="seg">{HAPPY.map((o) => <button key={o.v} class={happy === o.v ? 'sel' : ''} aria-pressed={happy === o.v} onClick={() => setHappy(o.v)}>{o.label}</button>)}</div>
@@ -101,10 +104,11 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
         <p class="tiny muted">Your answers are private to you. They feed "My teaching" and are never in reports or shared exports.</p>
         <button class="link-btn" style="padding:4px 0;color:var(--blue)" onClick={() => setJournal(true)}><Icon name="edit" /> Write a journal entry</button>
         {journal && <JournalForm classId={classId} start={{ lessonId: lesson.id, text: note }} onClose={() => setJournal(false)} />}
-      </section>
+      </section>}
 
       <button class="btn primary block" disabled={!ready} onClick={close}><Icon name="check" /> Close lesson</button>
-      {!ready && <p class="hold-hint">{!attentionDone ? 'Set the class attention (or tap Skip)' : ''}{!attentionDone && (!happy || !plan) ? ' and answer' : !happy || !plan ? 'Answer' : ''}{!happy || !plan ? ' the two teacher questions' : ''} to close.</p>}
+      {!ready && relief && <p class="hold-hint">Set the class attention (or tap Skip) to close.</p>}
+      {!ready && !relief && <p class="hold-hint">{!attentionDone ? 'Set the class attention (or tap Skip)' : ''}{!attentionDone && (!happy || !plan) ? ' and answer' : !happy || !plan ? 'Answer' : ''}{!happy || !plan ? ' the two teacher questions' : ''} to close.</p>}
       <button class="btn ghost block" style="margin-top:8px" onClick={later}><Icon name="clock" /> Remind me in {REMIND_LATER_MIN} minutes</button>
     </div>
   );

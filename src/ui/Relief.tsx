@@ -1,16 +1,19 @@
-// Relief passes (class teacher's side): create, list, cancel, see the use log, and preview exactly
-// what the relief teacher would get. Plus the "Relief entries to review" card for Home.
-// Sending a pass to another teacher's device needs a server step that isn't built yet (see
-// docs/briefs/round6.md), so passes can be prepared and previewed but not used yet.
+// Relief passes (class teacher's side): create, send (QR code, link, email), list, cancel, see the
+// use log, and preview exactly what the relief teacher gets. Plus the "Relief entries to review"
+// card for Home. Sending needs the teacher to be signed in (passes go through the account server).
 
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { db } from '../db';
 import type { ReliefPass } from '../types';
 import * as svc from '../services';
-import { AUTO_ACCEPT_DAYS, MAX_SCHOOL_DAYS, passStatus, reliefEntries, reliefToReview, type ReliefBundle, type ReliefEntry, type PassStatus } from '../logic/relief';
+import { AUTO_ACCEPT_DAYS, MAX_SCHOOL_DAYS, passStatus, reliefEntries, reliefLink, reliefToReview, type ReliefBundle, type ReliefEntry, type PassStatus } from '../logic/relief';
 import { summarise, summaryText } from '../logic/checkin';
 import { openLessonFor } from '../logic/lessons';
 import { formatDate, formatShort, today } from '../lib/dates';
+import { appUrl, useAccount } from '../cloud';
+import { mailtoLink, shareText } from '../platform';
+import { canSendPasses, cancelPass, runReliefOwner, sendPass } from '../relief/owner';
+import { CopyLink, QrCode } from './Account';
 import { useLive, useTick } from './hooks';
 import { displayName, Empty, Field, Icon, Sheet, toast } from './components';
 
@@ -22,14 +25,26 @@ const dates = (p: Pick<ReliefPass, 'from' | 'to'>) => (p.from === p.to ? formatD
 /** Manage class → Relief: passes for this class. */
 export function ReliefPanel({ classId }: { classId: string }) {
   useTick(60_000);
+  const account = useAccount();
   const passes = useLive(() => db.reliefPasses.where('classId').equals(classId).toArray(), [classId]);
   const [creating, setCreating] = useState(false);
   const [preview, setPreview] = useState<ReliefPass | null>(null);
+  const [sending, setSending] = useState<ReliefPass | null>(null);
+  // Fresh use log and any relief entries when the tab opens.
+  useEffect(() => { void runReliefOwner(); }, [account.status]);
   if (!passes) return null;
   const now = Date.now();
+  const canSend = canSendPasses();
   const sorted = [...passes].sort((a, b) => b.createdAt - a.createdAt);
   const current = sorted.filter((p) => ['active', 'upcoming'].includes(passStatus(p, now)));
   const past = sorted.filter((p) => !current.includes(p));
+  async function send(p: ReliefPass) {
+    try {
+      setSending(await sendPass(p.id));
+    } catch (e) {
+      toast(`Couldn't send the pass: ${(e as Error).message}`);
+    }
+  }
   const row = (p: ReliefPass) => {
     const st = passStatus(p, now);
     const last = p.uses?.length ? p.uses[p.uses.length - 1] : undefined;
@@ -37,27 +52,53 @@ export function ReliefPanel({ classId }: { classId: string }) {
       <div key={p.id} class="card relief-pass">
         <div class="row between"><b>{p.reliefName || 'Relief teacher'}</b><span class={`badge ${STATUS[st].cls}`}>{STATUS[st].label}</span></div>
         <div class="small">{dates(p)}{p.reliefEmail ? ` · ${p.reliefEmail}` : ''}</div>
-        <div class="tiny muted">{p.shareIcp ? 'ICP adjustments shared' : 'ICP marker only'} · {last ? `Last used ${formatShort(new Date(last.at).toISOString().slice(0, 10))}` : 'Not used yet'}</div>
+        <div class="tiny muted">{p.shareIcp ? 'ICP adjustments shared' : 'ICP marker only'} · {last ? `Last used ${new Date(last.at).toLocaleString('en-AU', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : p.sentAt ? 'Sent, not used yet' : 'Not sent yet'}</div>
         {!!p.uses?.length && (
           <details class="tiny"><summary>Use log ({p.uses.length})</summary>{p.uses.map((u, i) => <div key={i}>{new Date(u.at).toLocaleString('en-AU')} · {u.email ?? 'unknown email'} · device {u.device.slice(0, 8)}</div>)}</details>
         )}
         <div class="row wrap" style="gap:6px;margin-top:8px">
+          {(st === 'active' || st === 'upcoming') && canSend && <button class="btn small primary" onClick={() => send(p)}><Icon name="qr" /> Send</button>}
           <button class="btn small" onClick={() => setPreview(p)}><Icon name="search" /> What they'll see</button>
-          {(st === 'active' || st === 'upcoming') && <button class="btn small danger" onClick={async () => { if (confirm('Cancel this relief pass? It stops working straight away.')) { await svc.cancelReliefPass(p.id); toast('Pass cancelled'); } }}><Icon name="x" /> Cancel pass</button>}
+          {(st === 'active' || st === 'upcoming') && <button class="btn small danger" onClick={async () => {
+            if (!confirm('Cancel this relief pass? It stops working straight away.')) return;
+            try { await cancelPass(p.id); toast('Pass cancelled'); } catch { toast('Cancelled here. Connect to the internet so it stops on their device too.'); }
+          }}><Icon name="x" /> Cancel pass</button>}
         </div>
       </div>
     );
   };
   return (
     <div>
-      <div class="notice small" style="margin-bottom:12px"><b>Not live yet.</b> You can prepare a pass and see exactly what a relief teacher would get. Sending it to their phone needs a one-time server update first (see the round 6 brief).</div>
+      {!canSend && <div class="notice small" style="margin-bottom:12px">To send a relief pass, sign in first: Settings → <a href="#/settings/account">Account &amp; devices</a>. You can still prepare a pass and preview it.</div>}
       <button class="btn primary small" style="margin-bottom:12px" onClick={() => setCreating(true)}><Icon name="plus" /> Relief pass</button>
       <div class="section"><h3>Active and upcoming</h3></div>
       {current.length ? current.map(row) : <div class="card"><Empty icon="user">No relief passes.</Empty></div>}
       {past.length > 0 && <><div class="section"><h3>Past</h3></div>{past.map(row)}</>}
-      {creating && <ReliefPassForm classId={classId} onClose={(p) => { setCreating(false); if (p) setPreview(p); }} />}
+      {creating && <ReliefPassForm classId={classId} onClose={(p) => { setCreating(false); if (p) (canSend ? send(p) : setPreview(p)); }} />}
       {preview && <ReliefPreviewSheet pass={preview} onClose={() => setPreview(null)} />}
+      {sending && <SendPassSheet pass={sending} onClose={() => setSending(null)} />}
     </div>
+  );
+}
+
+/** QR code, copy link, email and share for a pass. The key is only in the link. */
+function SendPassSheet({ pass, onClose }: { pass: ReliefPass; onClose: () => void }) {
+  const cls = useLive(() => db.classes.get(pass.classId), [pass.classId]);
+  const link = reliefLink(appUrl(), pass.id, pass.key!);
+  const name = cls?.name ?? 'my class';
+  const subject = `Relief pass for ${name}`;
+  const body = `Hi${pass.reliefName ? ` ${pass.reliefName}` : ''},\n\nHere's your Solaristic Radar relief pass for ${name} (${dates(pass)}). Open this link on the phone or laptop you'll use, then sign in with ${pass.reliefEmail ? pass.reliefEmail : 'your school email'}:\n\n${link}\n\nIt works on one device only and stops at the end of ${formatDate(pass.to)}.`;
+  return (
+    <Sheet title="Send relief pass" onClose={onClose}>
+      <p class="small">Scan this on the relief teacher's phone, or send them the link. It works on <b>one device</b>, until the end of <b>{formatDate(pass.to)}</b>{pass.reliefEmail ? <>, for <b>{pass.reliefEmail}</b> only</> : ''}.</p>
+      <QrCode text={link} filename="relief-pass-qr.png" />
+      <CopyLink link={link} />
+      <div class="row wrap" style="gap:8px;margin-top:10px">
+        <a class="btn primary" href={mailtoLink(pass.reliefEmail ?? '', subject, body)}><Icon name="mail" /> Email</a>
+        <button class="btn" onClick={() => shareText(subject, body, link)}><Icon name="arrow" /> Share</button>
+      </div>
+      <p class="tiny muted" style="margin-top:10px">Anyone with this link who can sign in{pass.reliefEmail ? ' with that email' : ''} can open the pass, so only send it to the relief teacher.</p>
+    </Sheet>
   );
 }
 

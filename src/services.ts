@@ -18,7 +18,7 @@ import { addDays, nowMs } from './lib/dates';
 import { REMIND_LATER_MIN, lessonName, openLessonFor } from './logic/lessons';
 import { docxBlob, filterJournal, journalDocumentXml } from './logic/journal';
 import type { BrainBreak } from './config/brainBreaks';
-import { buildReliefBundle, makeReliefPass, passProblem, type PassInput, type ReliefBundle, type ReliefEntry } from './logic/relief';
+import { buildReliefBundle, makeReliefPass, newPassKey, passProblem, type PassInput, type ReliefBundle, type ReliefEntry } from './logic/relief';
 import { saveFile } from './files';
 import { formatDate } from './lib/dates';
 
@@ -839,7 +839,7 @@ export async function createReliefPass(p: PassInput): Promise<ReliefPass> {
   const problem = passProblem(p, todayISO());
   if (problem) throw new Error(problem);
   const settings = await getSettings();
-  const pass = makeReliefPass({ ...p, createdBy: p.createdBy ?? (settings.profile.name || undefined) }, newId(), Date.now());
+  const pass = { ...makeReliefPass({ ...p, createdBy: p.createdBy ?? (settings.profile.name || undefined) }, newId(), Date.now()), key: newPassKey() };
   await db.reliefPasses.put(pass);
   return pass;
 }

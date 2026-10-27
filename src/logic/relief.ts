@@ -102,6 +102,8 @@ export interface ReliefBundle {
   /** Check-in order (the class teacher's ranking), without the reasons. */
   queue: string[];
   homeworkLastLesson?: string;
+  /** That lesson, so Homework check on the relief device links its results to it. */
+  homeworkLesson?: { id: string; date: string; openedAt: number };
   /** Active assessment names, so Assessment check could be added later. */
   assessments?: { id: string; name: string; dueDate?: string }[];
 }
@@ -128,19 +130,99 @@ export function buildReliefBundle(pass: ReliefPass, d: {
       };
     }),
     queue,
-    ...(last?.homeworkSet ? { homeworkLastLesson: last.homeworkText || 'Homework (no details)' } : {}),
+    ...(last?.homeworkSet ? { homeworkLastLesson: last.homeworkText || 'Homework (no details)', homeworkLesson: { id: last.id, date: last.date, openedAt: last.openedAt } } : {}),
     ...(d.assessments?.length ? { assessments: d.assessments.filter((a) => a.classId === d.cls.id && !a.closed && (!a.dueDate || a.dueDate >= d.today)).map((a) => ({ id: a.id, name: a.name, ...(a.dueDate ? { dueDate: a.dueDate } : {}) })) } : {})
   };
 }
 
-/** Encrypts a bundle with a new key made for this pass. The key goes in the link after '#'. */
-export async function sealBundle(bundle: ReliefBundle): Promise<{ key: string; sealed: string }> {
-  const raw = newKeyBytes();
-  return { key: toB64Url(raw), sealed: await encryptJson(await importKey(raw), bundle) };
+/** A new key for a pass (base64url, goes in the link after '#'). */
+export const newPassKey = () => toB64Url(newKeyBytes());
+
+/** Seals data with the pass key. */
+export async function seal(key: string, value: unknown): Promise<string> {
+  return encryptJson(await importKey(fromB64Url(key)), value);
 }
 
-export async function openBundle(key: string, sealed: string): Promise<ReliefBundle> {
-  return decryptJson<ReliefBundle>(await importKey(fromB64Url(key)), sealed);
+export async function unseal<T>(key: string, sealed: string): Promise<T> {
+  return decryptJson<T>(await importKey(fromB64Url(key)), sealed);
+}
+
+/** Encrypts a bundle with the pass key (a new one if none is given). */
+export async function sealBundle(bundle: ReliefBundle, key = newPassKey()): Promise<{ key: string; sealed: string }> {
+  return { key, sealed: await seal(key, bundle) };
+}
+
+export const openBundle = (key: string, sealed: string) => unseal<ReliefBundle>(key, sealed);
+
+/* ---------- The pass link: ?relief=<pass id>#rk=<key> ---------- */
+
+export function reliefLink(appUrl: string, passId: string, key: string): string {
+  const u = new URL(appUrl);
+  u.search = '';
+  u.hash = '';
+  u.searchParams.set('relief', passId);
+  return `${u.toString()}#rk=${key}`;
+}
+
+/** Reads a pass link; returns the cleaned address (no pass id or key) to put back in the address bar. */
+export function readReliefLink(href: string): { passId: string; key: string; clean: string } | null {
+  const u = new URL(href);
+  const passId = u.searchParams.get('relief')?.trim();
+  const key = u.hash.match(/^#rk=([A-Za-z0-9_-]{40,})/)?.[1];
+  if (!passId || !key || !/^[A-Za-z0-9-]{8,64}$/.test(passId)) return null;
+  u.searchParams.delete('relief');
+  u.hash = '#/';
+  return { passId, key, clean: u.toString() };
+}
+
+/** The server copy of a pass (dates as instants, the class data sealed). */
+export function serverPass(pass: ReliefPass, sealed: string) {
+  return {
+    id: pass.id, class_id: pass.classId, starts_at: new Date(parseISODate(pass.from).getTime()).toISOString(), ends_at: new Date(passEnds(pass)).toISOString(),
+    relief_email: pass.reliefEmail ?? null, sealed, cancelled_at: pass.cancelledAt ? new Date(pass.cancelledAt).toISOString() : null
+  };
+}
+
+/* ---------- Relief entries travelling back ---------- */
+
+/** What a relief teacher can create (and what the server accepts). */
+export const RELIEF_TABLES = ['lessons', 'checkins', 'observations', 'issueTags', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks'] as const;
+/** Records that carry the "Relief: name" tag. */
+const TAGGED = new Set(['lessons', 'checkins', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks']);
+
+export interface SealedEntry { row?: Record<string, unknown>; deleted?: boolean }
+
+export type ApplyResult =
+  | { action: 'put'; tbl: string; row: Record<string, unknown> }
+  | { action: 'delete'; tbl: string; id: string }
+  | { action: 'skip'; reason: string };
+
+/**
+ * On the class teacher's device: decide what to do with one unsealed relief entry. Only the
+ * record types a relief teacher can make, only for the pass's class and its students, never
+ * the teacher's own reflection fields, and deletes only of records that came from this pass.
+ */
+export function applyReliefEntry(
+  e: { tbl: string; id: string; body: SealedEntry }, pass: Pick<ReliefPass, 'id' | 'classId' | 'reliefName' | 'reliefEmail'>,
+  ctx: { studentIds: Set<string>; existing?: Record<string, unknown>; parentCheckin?: Record<string, unknown> }
+): ApplyResult {
+  if (!(RELIEF_TABLES as readonly string[]).includes(e.tbl)) return { action: 'skip', reason: 'not a relief record type' };
+  const fromThisPass = (r?: Record<string, unknown>) => !!r && (r.relief as { passId?: string } | undefined)?.passId === pass.id;
+  if (e.body.deleted || !e.body.row) {
+    if (!ctx.existing) return { action: 'skip', reason: 'nothing to delete' };
+    const ok = TAGGED.has(e.tbl) ? fromThisPass(ctx.existing) : fromThisPass(ctx.parentCheckin);
+    return ok ? { action: 'delete', tbl: e.tbl, id: e.id } : { action: 'skip', reason: 'not from this pass' };
+  }
+  const row = { ...e.body.row };
+  if (row.id !== e.id) return { action: 'skip', reason: 'id mismatch' };
+  if (row.classId !== pass.classId) return { action: 'skip', reason: 'another class' };
+  if (typeof row.studentId === 'string' && !ctx.studentIds.has(row.studentId)) return { action: 'skip', reason: 'unknown student' };
+  // Never overwrite the class teacher's own records.
+  if (ctx.existing && TAGGED.has(e.tbl) && !fromThisPass(ctx.existing)) return { action: 'skip', reason: 'class teacher record' };
+  if (!TAGGED.has(e.tbl) && ctx.parentCheckin && !fromThisPass(ctx.parentCheckin)) return { action: 'skip', reason: 'class teacher record' };
+  if (e.tbl === 'lessons') { delete row.happy; delete row.planDone; delete row.note; }
+  if (TAGGED.has(e.tbl)) row.relief = { passId: pass.id, name: pass.reliefName || pass.reliefEmail || 'Relief teacher' };
+  return { action: 'put', tbl: e.tbl, row };
 }
 
 /* ---------- Class teacher: reviewing relief entries ---------- */

@@ -13,6 +13,13 @@
 - Left: tests with a fake ReliefServer, docs/briefs/round6.md (click-by-click Supabase steps), the relief tables in docs/SUPABASE.md, a BUILD_STATUS line, a browser check, push. Relief teachers must not see Wellbeing (from round 3b).
 - Rebase/merge onto the reworked round5 when that's done.
 
+**After round 6: Round 7 (seating plan assistant), branch `round7`.** Prompt: docs/prompts/round7-seating.md. Agreed with Azeem on 29/10/2026:
+- Relationships (works well / keep apart). Peer interactions in check-ins can record "With who?"; keep-aparts are suggested after 2 incidents and the teacher confirms.
+- Being left out never separates students. It suggests seating them with someone they work well with.
+- No built-in gender field. Teacher-made balance tags (e.g. A/B, EAL, new) with "don't leave anyone alone", stored encrypted.
+- "Nobody sits alone" is a strong preference. It can be broken with a warning, then the student gets a "How are they going at Table 3?" check-in question for 3 lessons; "Not settled" flags a seat review.
+- "Support right now" (needs more support / on track / ready for extension): off by default, per class, reviewed each term, teacher-only, encrypted, never on the projector, print or relief.
+
 **Small fixes to fold in:** on the previews list page, the "updated" times are local time but labelled UTC (.github/workflows/pages.yml).
 
 **Unsure / to check on a phone:** swipe fly-off and cold-call roll motion; vibration (Android only); Word journal export opened in Word; Android notifications.

@@ -20,6 +20,10 @@
 - "Nobody sits alone" is a strong preference. It can be broken with a warning, then the student gets a "How are they going at Table 3?" check-in question for 3 lessons; "Not settled" flags a seat review.
 - "Support right now" (needs more support / on track / ready for extension): off by default, per class, reviewed each term, teacher-only, encrypted, never on the projector, print or relief.
 
+**Then Round 8 (serious incidents, follow-ups, Close day, Brain dump), branch `round8`.** Prompt: docs/prompts/round8-incidents.md.
+**Then Round 9 (Check for understanding), branch `round9`.** Prompt: docs/prompts/round9-cfu.md.
+**Parked (don't build):** the primary version, capability snapshots and the report builder. See docs/BACKLOG.md. Secondary comes first.
+
 **Small fixes to fold in:** on the previews list page, the "updated" times are local time but labelled UTC (.github/workflows/pages.yml).
 
 **Unsure / to check on a phone:** swipe fly-off and cold-call roll motion; vibration (Android only); Word journal export opened in Word; Android notifications.

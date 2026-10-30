@@ -1,7 +1,6 @@
 # Round 7: Seating plan assistant
 
 ## Preview link
-Not published yet: the branch is **local only** (you asked not to push). When you say push, it will be at
 https://deltus.github.io/solaristic-pulse/preview/round7/
 
 Branched from main (rounds 0, 3, 3b and 4), not from round 5 or 6, so it doesn't wait for brain breaks or relief passes.

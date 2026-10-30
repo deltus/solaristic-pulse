@@ -2,9 +2,8 @@
 
 **Live (main):** rounds 0, 3, 3b and 4, merged 27/10/2026. Previews: https://deltus.github.io/solaristic-pulse/preview/
 
-**Current branch: `round7` (seating plan assistant), committed LOCALLY only.** Azeem asked not to push yet and to do the Supabase work after rounds 5 and 6 roll out. Branched from main. Brief: docs/briefs/round7.md (includes a checklist for wiring relief passes when round 6 merges). 160 tests pass; build passes.
+**Current branch: `round7` (seating plan assistant), pushed (preview: https://deltus.github.io/solaristic-pulse/preview/round7/), not merged.** Azeem wants the Supabase work done after rounds 5 and 6 roll out. Branched from main. Brief: docs/briefs/round7.md (includes a checklist for wiring relief passes when round 6 merges). 160 tests pass; build passes.
 - New: src/config/seating.ts, src/logic/rooms.ts, src/logic/seating.ts (planner), src/logic/seatingData.ts (suggestions, support, seat watch), src/logic/seatingPrint.ts (projector/print, names only), src/ui/screens/Seating.tsx. DB v14 (relationships, rooms, seatingPlans), synced with sensitive fields encrypted (src/sync/fields.ts). Demo class 8B Humanities.
-- To publish a preview later: `git push -u origin round7`.
 
 **Database versions across branches:** round5 = v12, round6 = v13, round7 = v14. Whichever round goes live after a higher version is already live must move its schema change above it (e.g. round 7 live first → round 5/6 changes become v15/v16).
 
@@ -18,7 +17,9 @@
    - Left: tests with a fake ReliefServer, the brief with click-by-click Supabase steps, docs/SUPABASE.md, a BUILD_STATUS line, a browser check, push.
    - The Supabase migration hasn't been run yet; Azeem wants to do the Supabase steps after rounds 5 and 6.
    - Relief teachers must not see Wellbeing; seating wiring is in docs/briefs/round7.md.
-3. **Then Round 7:** push the preview, test, merge.
+3. **Then Round 7:** test the preview, adjust, merge.
+
+**Also on main (added from another device, 31/10):** prompts for round 8 (incidents, follow-ups, Close day, Brain dump) and round 9 (Check for understanding), and docs/BACKLOG.md. round7 doesn't include them yet; merge main into the next branch first.
 
 **Small fixes to fold in:** on the previews list page, the "updated" times are local time but labelled UTC (.github/workflows/pages.yml).
 

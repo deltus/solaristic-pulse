@@ -2,7 +2,7 @@
 
 export const SYNCED_TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'relationships', 'rooms', 'seatingPlans'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans'
 ] as const;
 // Not synced: `evidence` (photos, files, voice memos stay on the device in this version).
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
@@ -13,7 +13,7 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   // Seating: balance tags, seating needs, support levels and the seat watch are sensitive.
   classes: ['balanceTags'],
   students: ['firstName', 'lastName', 'preferredName', 'externalId', 'flag', 'seatingNeeds', 'seatingNeedNote', 'seatingIcpDismissed', 'support', 'balanceTags', 'seatWatch'],
-  checkins: ['note'],
+  checkins: ['note', 'relief'],
   observations: ['note', 'context'],
   plans: ['entries'],
   questions: [],
@@ -24,14 +24,19 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   timetable: ['notes'],
   checkouts: ['note'],
   issueTags: ['note'],
-  homework: [],
+  homework: ['relief'],
   // Learning intention, homework text and the teacher's own answers about the lesson.
-  lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note'],
-  coldCalls: [],
+  lessons: ['intention', 'homeworkText', 'happy', 'planDone', 'note', 'relief'],
+  coldCalls: ['relief'],
   // The teacher journal is private: its text, tags and standard are encrypted like notes.
   journal: ['text', 'tags', 'aitsl'],
   assessments: ['name', 'checkpoints'],
-  assessmentChecks: [],
+  assessmentChecks: ['relief'],
+  // Brain breaks hold no student data.
+  brainBreaks: ['relief'],
+  customBreaks: [],
+  // Who the relief teacher is, today's plan and the use log are encrypted.
+  reliefPasses: ['reliefName', 'reliefEmail', 'plan', 'uses', 'claimedDevice', 'key'],
   // Who works well with or is kept apart from whom (and why) is sensitive.
   relationships: ['type', 'strength', 'note'],
   rooms: ['name'],

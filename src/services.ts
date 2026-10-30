@@ -4,7 +4,7 @@ import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from 
 import { CHECKIN_AREAS } from './config/checkin';
 import type {
   ColdCall, ColdCallResult, Happy, Lesson, PlanDone, HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
-  Assessment, AssessmentCheck, AssessmentResult, BalanceTag, JournalEntry, Relationship, RelationshipType, Room, SeatWatch, SeatingPlan, SupportLevel, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
+  Assessment, AssessmentCheck, AssessmentResult, BalanceTag, BrainBreakLog, ReliefPass, JournalEntry, Relationship, RelationshipType, Room, SeatWatch, SeatingPlan, SupportLevel, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
 import { dueQuestions } from './logic/schedule';
@@ -17,6 +17,8 @@ import { buildAllGood, buildIssue, checkinIdFor as swipeCheckinId, type CheckinT
 import { addDays, nowMs } from './lib/dates';
 import { REMIND_LATER_MIN, lessonName, openLessonFor } from './logic/lessons';
 import { docxBlob, filterJournal, journalDocumentXml } from './logic/journal';
+import type { BrainBreak } from './config/brainBreaks';
+import { buildReliefBundle, makeReliefPass, newPassKey, passProblem, type PassInput, type ReliefBundle, type ReliefEntry } from './logic/relief';
 import { saveFile } from './files';
 import { formatDate } from './lib/dates';
 import { SIGNALS } from './config/seating';
@@ -44,7 +46,9 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks, db.relationships, db.seatingPlans], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks, db.brainBreaks, db.reliefPasses, db.relationships, db.seatingPlans], async () => {
+    await db.reliefPasses.where('classId').equals(id).delete();
+    await db.brainBreaks.where('classId').equals(id).delete();
     await db.relationships.where('classId').equals(id).delete();
     await db.seatingPlans.where('classId').equals(id).delete();
     await db.journal.where('classId').equals(id).delete();
@@ -822,6 +826,65 @@ export async function deleteAssessment(id: string) {
   });
 }
 
+/* ---------------- Brain breaks (no student data) ---------------- */
+
+export async function logBrainBreak(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, b: Pick<BrainBreak, 'id' | 'name' | 'type' | 'group'>, at = Date.now()): Promise<BrainBreakLog> {
+  const row: BrainBreakLog = { id: newId(), classId: lesson.classId, lessonId: lesson.id, date: lesson.date, breakId: b.id, name: b.name, type: b.type, group: b.group, at };
+  await db.brainBreaks.add(row);
+  return row;
+}
+
+export const setBreakHelped = (id: string, helped: 'yes' | 'no') => db.brainBreaks.update(id, { helped });
+
+export async function saveCustomBreak(b: Omit<BrainBreak, 'id' | 'custom'> & { id?: string }): Promise<BrainBreak> {
+  const full: BrainBreak = { ...b, id: b.id ?? `custom-${newId()}`, custom: true, name: b.name.trim(), steps: b.steps.map((s) => s.trim()).filter(Boolean), resources: b.resources.map((r) => r.trim()).filter(Boolean) };
+  await db.customBreaks.put(full);
+  return full;
+}
+
+export const deleteCustomBreak = (id: string) => db.customBreaks.delete(id);
+
+/* ---------------- Relief passes ---------------- */
+
+/** Creates a pass (any class: a future reception/admin role can call this too). Throws a plain-English problem. */
+export async function createReliefPass(p: PassInput): Promise<ReliefPass> {
+  const problem = passProblem(p, todayISO());
+  if (problem) throw new Error(problem);
+  const settings = await getSettings();
+  const pass = { ...makeReliefPass({ ...p, createdBy: p.createdBy ?? (settings.profile.name || undefined) }, newId(), Date.now()), key: newPassKey() };
+  await db.reliefPasses.put(pass);
+  return pass;
+}
+
+/** Stops a pass straight away. */
+export const cancelReliefPass = (id: string) => db.reliefPasses.update(id, { cancelledAt: Date.now() });
+
+/** Exactly what the relief teacher's device would receive for this pass. */
+export async function reliefBundleFor(passId: string): Promise<ReliefBundle> {
+  const pass = await db.reliefPasses.get(passId);
+  if (!pass) throw new Error('Pass not found');
+  const ctx = await loadLessonContext(pass.classId);
+  if (!ctx) throw new Error('Class not found');
+  return buildReliefBundle(pass, { ...ctx, today: todayISO() });
+}
+
+/** Accept relief entries (they stay; the review card stops showing them). */
+export async function acceptReliefEntries(entries: ReliefEntry[]) {
+  for (const e of entries) {
+    const t = TABLE_OF[e.kind];
+    await db.table(t).update(e.id, { relief: { ...e.relief, reviewed: true } });
+  }
+}
+
+/** Remove one relief entry (and, for a check-in, its answers and details). */
+export async function removeReliefEntry(e: ReliefEntry) {
+  if (e.kind === 'checkin') return undoCheckin(e.id);
+  if (e.kind === 'coldcall') return undoColdCall(e.id);
+  if (e.kind === 'homework') return undoHomeworkCheck(e.id);
+  await db.table(TABLE_OF[e.kind]).delete(e.id);
+}
+
+const TABLE_OF: Record<ReliefEntry['kind'], string> = { checkin: 'checkins', homework: 'homework', coldcall: 'coldCalls', brainbreak: 'brainBreaks', assessment: 'assessmentChecks' };
 /* ---------------- Seating plans (round 7) ---------------- */
 
 /** Everything the seating screens need for one class. */

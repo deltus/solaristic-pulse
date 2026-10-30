@@ -8,3 +8,6 @@ release
 .claude
 .env.local
 .env.*.local
+
+# Local database snapshots (may hold real data). Demo files must not be .json, or add a !samples/<name>.json exception.
+samples/*.json

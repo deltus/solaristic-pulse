@@ -22,6 +22,7 @@ import { AccountSection, InviteSection } from '../Account';
 import { currentAccount, saveProfile } from '../../cloud';
 import { forgetAccountOnThisDevice, syncWanted } from '../../sync/cloudSync';
 import { SeatingSettings } from './Seating';
+import { BrainBreaksSection } from '../BrainBreakSettings';
 
 const SECTIONS: [string, string, string, string][] = [
   ['profile', 'Profile', 'user', 'Name, email and school'],
@@ -30,6 +31,7 @@ const SECTIONS: [string, string, string, string][] = [
   ['checkins', 'Check-ins', 'check', 'Daily target, coverage and quick notes'],
   ['questions', 'Questions & categories', 'edit', 'Custom questions in the rotation'],
   ['seating', 'Seating', 'students', 'Support levels and what seating data is used for'],
+  ['brainbreaks', 'Brain breaks', 'bolt', 'Hide breaks or add your own'],
   ['timetable', 'Timetable', 'calendar', 'Import or edit your lessons'],
   ['reminders', 'Reminders', 'bell', 'Lesson, daily and ICP reminders'],
   ['security', 'PIN lock', 'lock', 'Protect the app with a PIN'],
@@ -72,6 +74,7 @@ export function SettingsScreen({ section }: { section?: string; sub?: string }) 
       {section === 'checkins' && <CheckinSection s={settings} />}
       {section === 'questions' && <QuestionsSection />}
       {section === 'seating' && <SeatingSettings on={!!settings.seatingSupport} onChange={(v) => saveSettings({ seatingSupport: v })} />}
+      {section === 'brainbreaks' && <BrainBreaksSection s={settings} />}
       {section === 'timetable' && <TimetableSection />}
       {section === 'reminders' && <RemindersSection s={settings} />}
       {section === 'security' && <SecuritySection s={settings} />}

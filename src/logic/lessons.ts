@@ -15,13 +15,14 @@ const byOpened = (a: Lesson, b: Lesson) => a.openedAt - b.openedAt || a.id.local
 
 /** The class's lesson that hasn't been closed yet (open, or waiting to be finished), if any. */
 export function openLessonFor(lessons: Lesson[], classId: string): Lesson | undefined {
-  return lessons.filter((l) => l.classId === classId && l.status !== 'closed').sort(byOpened).pop();
+  // A relief teacher's lesson (brought in from a relief pass) is never the class teacher's open lesson.
+  return lessons.filter((l) => l.classId === classId && l.status !== 'closed' && !l.relief).sort(byOpened).pop();
 }
 
 /** Lessons to offer for closing: open for an hour or more, or a "remind me" that has come due. */
 export function lessonsToClose(lessons: Lesson[], now: number): Lesson[] {
   return lessons.filter((l) => {
-    if (l.status === 'closed') return false;
+    if (l.status === 'closed' || l.relief) return false;
     if (l.status === 'finishing') return !l.remindAt || l.remindAt <= now;
     return now - l.openedAt >= CLOSE_PROMPT_MIN * 60_000;
   }).sort(byOpened);

@@ -10,6 +10,7 @@ import { formatShort, today } from '../../lib/dates';
 import { useLive } from '../hooks';
 import { Empty, Icon, PageHead } from '../components';
 import { JournalList } from '../Journal';
+import { brainBreakText } from '../../logic/brainBreaks';
 
 const HAPPY = { yes: 'Happy', mostly: 'Mostly happy', no: 'Not happy' };
 const PLAN = { yes: 'got through the plan', partly: 'partly through the plan', no: "didn't get through the plan" };
@@ -17,10 +18,10 @@ const PLAN = { yes: 'got through the plan', partly: 'partly through the plan', n
 export function TeachingScreen() {
   const date = today();
   const data = useLive(async () => {
-    const [lessons, classes, observations, homework, checkins, plans] = await Promise.all([
-      db.lessons.toArray(), db.classes.toArray(), db.observations.filter((o) => o.categoryId === 'focus' || o.categoryId === 'behaviour').toArray(), db.homework.toArray(), db.checkins.toArray(), db.seatingPlans.toArray()
+    const [lessons, classes, observations, homework, checkins, plans, brainBreaks] = await Promise.all([
+      db.lessons.toArray(), db.classes.toArray(), db.observations.filter((o) => o.categoryId === 'focus' || o.categoryId === 'behaviour').toArray(), db.homework.toArray(), db.checkins.toArray(), db.seatingPlans.toArray(), db.brainBreaks.toArray()
     ]);
-    return { lessons, classes, observations, homework, plans, checkinLesson: new Map(checkins.map((c) => [c.id, lessonOf(c)])) };
+    return { lessons, classes, observations, homework, plans, brainBreaks, checkinLesson: new Map(checkins.map((c) => [c.id, lessonOf(c)])) };
   }, [date]);
   if (!data) return null;
   const done = reflectedLessons(data.lessons, date);
@@ -52,6 +53,7 @@ export function TeachingScreen() {
                 {l.intention && <div class="small">{lessonName(l)}</div>}
                 <div class="tiny muted">{HAPPY[l.happy!]} · {PLAN[l.planDone!]}{l.attentionPct !== undefined ? ` · attention ${l.attentionPct}%` : ''}{l.homeworkSet ? ' · homework set' : ''}</div>
                 {l.note && <div class="small" style="margin-top:2px">“{l.note}”</div>}
+                {data.brainBreaks.filter((b) => b.lessonId === l.id).map((b) => <div key={b.id} class="tiny muted">{brainBreakText(b)}</div>)}
               </div>
             ))}
           </div>

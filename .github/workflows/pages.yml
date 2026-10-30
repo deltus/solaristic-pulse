@@ -62,7 +62,7 @@ jobs:
           mkdir -p site/preview
           rows=""
           for b in $(git -C repo for-each-ref --format='%(refname:lstrip=3)' 'refs/remotes/origin/round*'); do
-            when=$(git -C repo log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M UTC' "origin/$b")
+            when=$(TZ=UTC git -C repo log -1 --format=%cd --date=format-local:'%Y-%m-%d %H:%M UTC' "origin/$b")
             dir="$PWD/w/$b"
             git -C repo worktree add -q --detach "$dir" "origin/$b"
             # Only branches that include round 0's preview safety (own database, no service worker) are published.

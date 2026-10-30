@@ -66,7 +66,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     : allStudents.filter((s) => o.classIds.includes(s.classId));
   const ids = students.map((s) => s.id);
   const classIds = [...new Set(students.map((s) => s.classId))];
-  const [observationsRaw, checkinsRaw, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework, classLessons, coldCallsAll, assessmentsAll, assessmentChecksAll] = await Promise.all([
+  const [observationsRaw, checkinsRaw, notesAll, adjustments, icpAll, checkoutsAll, evidenceAll, classCheckins, classObs, classTags, classHomework, classLessons, coldCallsAll, assessmentsAll, assessmentChecksAll, brainBreaksAll] = await Promise.all([
     db.observations.where('studentId').anyOf(ids).toArray(), db.checkins.where('studentId').anyOf(ids).toArray(),
     db.notes.where('studentId').anyOf(ids).toArray(), db.icpAdjustments.where('studentId').anyOf(ids).toArray(),
     db.icpChecks.where('studentId').anyOf(ids).toArray(),
@@ -75,7 +75,8 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
     db.checkins.where('classId').anyOf(classIds).toArray(), db.observations.where('classId').anyOf(classIds).toArray(),
     db.issueTags.where('classId').anyOf(classIds).toArray(), db.homework.where('classId').anyOf(classIds).toArray(),
     db.lessons.where('classId').anyOf(classIds).toArray(), db.coldCalls.where('studentId').anyOf(ids).toArray(),
-    db.assessments.where('classId').anyOf(classIds).toArray(), db.assessmentChecks.where('studentId').anyOf(ids).toArray()
+    db.assessments.where('classId').anyOf(classIds).toArray(), db.assessmentChecks.where('studentId').anyOf(ids).toArray(),
+    db.brainBreaks.where('classId').anyOf(classIds).toArray()
   ]);
   // Wellbeing is sensitive: left out of de-identified exports (the ranking below still uses it).
   const kept = o.deidentify ? stripWellbeing(observationsRaw, classTags.filter((t) => ids.includes(t.studentId)), checkinsRaw) : null;
@@ -201,6 +202,14 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
           return [...studentCols(students.find((s) => s.id === c.studentId)!), cls(c.classId), yr(c.classId), formatDate(c.date), taskName(c.assessmentId), a?.dueDate ? formatDate(a.dueDate) : '', scrub(c.checkpoint), c.result === 'on_track' ? 'On track' : 'Behind', (c.reasons ?? []).map((r) => ASSESSMENT_REASONS.find((x) => x.id === r)?.label ?? r).join(', ')];
         })] }]
     : [];
+  // Brain breaks (class reports only; no student data).
+  const brainBreakSheet = (): Sheet[] => {
+    const rows = brainBreaksAll.filter((x) => inRange(x.date)).sort((a, b) => a.at - b.at);
+    return rows.length
+      ? [{ name: 'Brain breaks', rows: [['Class', 'Year level', 'Date', 'Lesson', 'Brain break', 'Type', 'Subject group', 'Helped'],
+          ...rows.map((b) => [cls(b.classId), yr(b.classId), formatDate(b.date), lessonTitle(b.lessonId), b.name, b.type === 'calm' ? 'Calm' : 'Perk up', b.group, b.helped === 'yes' ? 'Yes' : b.helped === 'no' ? 'No' : ''])] }]
+      : [];
+  };
   const coldCallSheet = (): Sheet[] => coldCalls.length
     ? [{ name: 'Cold calls', rows: [[...studentHead, 'Class', 'Year level', 'Date', 'Lesson', 'Result', 'Details'],
         ...[...coldCalls].sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt).map((c) => [...studentCols(students.find((s) => s.id === c.studentId)!), cls(c.classId), yr(c.classId), formatDate(c.date), lessonTitle(c.lessonId), c.result === 'good' ? 'Answered well' : 'Struggled', c.result === 'good' ? '' : coldCallText(c).replace(/^struggled,? ?/, '')])] }]
@@ -264,7 +273,7 @@ export async function buildExport(o: ExportOptions): Promise<ExportResult> {
       const s = students.find((st) => st.id === c.studentId)!;
       chkRows.push([...studentCols(s), cls(c.classId), yr(c.classId), formatDate(c.date), c.status === 'absent' ? 'Not here' : c.status, c.result === 'good' ? 'All good' : c.result === 'issue' ? 'Issue' : '', c.result === 'issue' ? (c.followUp === false ? 'No' : 'Yes') : '', ...(o.includeNotes ? [text(c.note)] : []), c.weight ?? '']);
     }
-    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...issueSheet(), ...homeworkSheet(), ...coldCallSheet(), ...assessmentSheet(), ...lessonsSheet(), ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
+    sheets = [{ name: 'Summary', rows: summary }, { name: 'Observations', rows: obsRows(observations) }, { name: 'Check-ins', rows: chkRows }, ...issueSheet(), ...homeworkSheet(), ...coldCallSheet(), ...assessmentSheet(), ...lessonsSheet(), ...brainBreakSheet(), ...blitzSheet(), ...checkoutSheet(), ...notesSheet(notes), ...icpSheets(), about];
   } else {
     sheets = buildStudentSheets(students[0], {
       o, date, observations, observationsAll, checkins, notes, adjustments, icpChecks, usedCats, categories,

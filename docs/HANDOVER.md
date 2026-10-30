@@ -1,4 +1,4 @@
-# Handover
+﻿# Handover
 
 **Live (main):** rounds 0, 3, 3b and 4, merged 27/10/2026. Previews: https://deltus.github.io/solaristic-pulse/preview/
 
@@ -7,19 +7,15 @@
 
 **Database versions across branches:** round5 = v12, round6 = v13, round7 = v14. Whichever round goes live after a higher version is already live must move its schema change above it (e.g. round 7 live first → round 5/6 changes become v15/v16).
 
-**Still to do, in order:**
-1. **Redo Round 5 (brain breaks), branch `round5`.** Azeem's feedback:
-   - The lists are weak; rewrite them with better activities.
-   - A subject with no brain break of its own gets a random general one, in as few taps as possible.
-   - Subject-specific ones get step-by-step instructions, with the resource as a tap-to-open link.
-   - Merge main into round5 first.
-2. **Finish Round 6 (relief passes), branch `round6`.**
-   - Left: tests with a fake ReliefServer, the brief with click-by-click Supabase steps, docs/SUPABASE.md, a BUILD_STATUS line, a browser check, push.
-   - The Supabase migration hasn't been run yet; Azeem wants to do the Supabase steps after rounds 5 and 6.
-   - Relief teachers must not see Wellbeing; seating wiring is in docs/briefs/round7.md.
-3. **Then Round 7:** test the preview, adjust, merge.
+**Merge order rule (Azeem, 31/10):** rounds go live in database-version order (5, then 6, then 7). If Azeem says "merge" out of order, stop and warn him, or renumber so the merged round has the highest version and test an upgrade from the live version.
 
-**Also on main (added from another device, 31/10):** prompts for round 8 (incidents, follow-ups, Close day, Brain dump) and round 9 (Check for understanding), and docs/BACKLOG.md. round7 doesn't include them yet; merge main into the next branch first.
+**Still to do, in order:**
+1. **Round 5 (brain breaks), branch `round5`: rework pushed 31/10, waiting for Azeem to test.** Main merged in. New 37-break list (Any subject group as the one-tap fallback; numbered steps; site button in the "You'll need" box). Brief: docs/briefs/round5.md (Adjustments section). 148 tests pass. Preview checked: Maths class → Subject break → Any subject break. Still v12.
+2. **Round 6 (relief passes), branch `round6`: finished and pushed 31/10, waiting for Azeem to test.** Round 5 merged in. Option A (server pass, key in link). 169 tests pass (two-device tests with a fake server in tests/relief-server.test.ts). Brief has click-by-click Supabase steps and a two-phone test for after merge. Supabase script 20261027000000_relief_passes.sql not yet run (Azeem does it after merge). Relief teachers must not see Wellbeing; seating wiring is in docs/briefs/round7.md.
+3. **Then Round 7:** test the preview, adjust, merge.
+4. **Then rounds 8 and 9** (docs/prompts/round8-incidents.md, round9-cfu.md). main has an extra Round 9 addition: merge main in again before starting Round 9.
+
+**Also on main (added from another device, 31/10):** prompts for round 8 (incidents, follow-ups, Close day, Brain dump) and round 9 (Check for understanding), and docs/BACKLOG.md (parked primary ideas; don't build).
 
 **Small fixes to fold in:** on the previews list page, the "updated" times are local time but labelled UTC (.github/workflows/pages.yml).
 

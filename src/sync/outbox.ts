@@ -26,6 +26,9 @@ export function markRemote(tx: { idbtrans: object }) {
 }
 
 let onRecorded: () => void = () => {};
+let writing: Promise<void> = Promise.resolve();
+/** Resolves once changes made so far are in the outbox (they're written a moment after the change). */
+export const outboxSettled = () => writing;
 export const onOutboxChange = (fn: () => void) => { onRecorded = fn; };
 
 export function outboxMiddleware(db: Dexie): Middleware<DBCore> {
@@ -37,7 +40,7 @@ export function outboxMiddleware(db: Dexie): Middleware<DBCore> {
     if (scheduled) return;
     scheduled = true;
     // Written in its own transaction straight after the change; an aborted change just sends the current row again.
-    setTimeout(async () => {
+    writing = new Promise<void>((done) => setTimeout(async () => {
       scheduled = false;
       const batch = [...pending.values()];
       pending = new Map();
@@ -47,7 +50,8 @@ export function outboxMiddleware(db: Dexie): Middleware<DBCore> {
       } catch (e) {
         console.error('Could not record changes for sync', e);
       }
-    }, 0);
+      done();
+    }, 0));
   };
 
   return {

@@ -219,7 +219,8 @@ export function applyReliefEntry(
   if (typeof row.studentId === 'string' && !ctx.studentIds.has(row.studentId)) return { action: 'skip', reason: 'unknown student' };
   // Never overwrite the class teacher's own records.
   if (ctx.existing && TAGGED.has(e.tbl) && !fromThisPass(ctx.existing)) return { action: 'skip', reason: 'class teacher record' };
-  if (!TAGGED.has(e.tbl) && ctx.parentCheckin && !fromThisPass(ctx.parentCheckin)) return { action: 'skip', reason: 'class teacher record' };
+  // Notes and tags only on a check-in from this pass (not the class teacher's, nor a made-up one).
+  if (!TAGGED.has(e.tbl) && !fromThisPass(ctx.parentCheckin)) return { action: 'skip', reason: 'not on a check-in from this pass' };
   if (e.tbl === 'lessons') { delete row.happy; delete row.planDone; delete row.note; }
   if (TAGGED.has(e.tbl)) row.relief = { passId: pass.id, name: pass.reliefName || pass.reliefEmail || 'Relief teacher' };
   return { action: 'put', tbl: e.tbl, row };

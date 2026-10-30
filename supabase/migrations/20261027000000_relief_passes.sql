@@ -24,7 +24,8 @@ create table if not exists public.relief_passes (
   claimed_device uuid,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
-  constraint relief_passes_dates check (ends_at > starts_at and ends_at - starts_at <= interval '10 days')
+  constraint relief_passes_dates check (ends_at > starts_at and ends_at - starts_at <= interval '10 days'),
+  constraint relief_passes_email check (relief_email is null or relief_email = lower(relief_email))
 );
 
 create index if not exists relief_passes_owner_idx on public.relief_passes (owner_id);
@@ -137,7 +138,7 @@ $$;
 
 /**
  * Relief teacher: send sealed entries back. Only from the device the pass is locked to, only
- * for the record types a relief teacher can make, at most 500 at a time, and only for changes
+ * for the record types a relief teacher can make, at most 500 at a time (each under 200 KB), and only for changes
  * made before the pass ended or was cancelled (unsent entries can still arrive for 2 days after).
  */
 create or replace function public.push_relief_entries(p_id text, p_device uuid, p_rows jsonb)
@@ -162,7 +163,8 @@ begin
   select p_id, p.owner_id, r ->> 'tbl', r ->> 'id', r ->> 'enc', (r ->> 'client_at')::timestamptz
   from jsonb_array_elements(p_rows) r
   where r ->> 'tbl' in ('lessons', 'checkins', 'observations', 'issueTags', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks')
-    and coalesce(r ->> 'id', '') <> '' and coalesce(r ->> 'enc', '') <> ''
+    and coalesce(r ->> 'id', '') <> '' and length(r ->> 'id') <= 200
+    and coalesce(r ->> 'enc', '') <> '' and length(r ->> 'enc') <= 200000
     and (r ->> 'client_at')::timestamptz <= v_until
   on conflict (pass_id, tbl, row_id) do update
     set enc = excluded.enc, client_at = excluded.client_at, received_at = now()

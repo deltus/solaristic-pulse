@@ -7,7 +7,7 @@ import Dexie from 'dexie';
 import { db, getSettings, saveSettings } from '../db';
 import { dbName, storageKey } from '../preview';
 import { encryptJson, fromB64Url, importKey } from '../sync/crypto';
-import { setTracking } from '../sync/outbox';
+import { outboxSettled, setTracking } from '../sync/outbox';
 import { openBundle, RELIEF_TABLES, type ReliefBundle, type UseRefusal } from '../logic/relief';
 import { errorCode, type ReliefServer } from './server';
 
@@ -138,6 +138,7 @@ export const unsentCount = () => db.outbox.count();
  */
 export async function reliefTick(server: ReliefServer, s: ReliefSession, deviceId: string, now = Date.now()): Promise<'active' | 'ended' | 'offline'> {
   let refused = false;
+  await outboxSettled(); // so a change made just now counts as unsent
   try {
     while ((await pushReliefEntries(server, s, deviceId)) > 0 && (await unsentCount()) > 0) { /* keep sending in batches */ }
   } catch (e) {
@@ -160,6 +161,7 @@ export async function reliefTick(server: ReliefServer, s: ReliefSession, deviceI
 
 /** Deletes the relief database and the session on this device. */
 export async function endReliefSession(passId: string) {
+  await outboxSettled();
   setTracking(false);
   db.close();
   await Dexie.delete(reliefDbName(passId));

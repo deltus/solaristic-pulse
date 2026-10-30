@@ -3,7 +3,7 @@
 // and never repeats the break just shown.
 
 import type { BrainBreakLog, Lesson } from '../types';
-import { BRAIN_BREAKS, BREAK_GROUPS, CALM_RULE, SUBJECT_WORDS, type BrainBreak } from '../config/brainBreaks';
+import { BRAIN_BREAKS, BREAK_GROUPS, CALM_RULE, GENERAL_GROUP, SUBJECT_WORDS, type BrainBreak } from '../config/brainBreaks';
 
 export const RECENT_LESSONS = 3;
 
@@ -32,6 +32,14 @@ export function groupForSubject(subject: string | undefined, groups: { id: strin
     if (names.some((n) => (n.includes(' ') ? s.includes(n) : words.includes(n)))) return g.id;
   }
   return undefined;
+}
+
+/**
+ * Where "Subject break" goes: the class's own subject, else a random "Any subject" break, so a
+ * Maths class is one tap from a break. Undefined only if neither has any breaks (all hidden).
+ */
+export function startGroup(subject: string | undefined, groups: { id: string; label: string }[]): string | undefined {
+  return groupForSubject(subject, groups) ?? groups.find((g) => g.id === GENERAL_GROUP)?.id;
 }
 
 /** "Year 9" / "9" / "Yr 9" → 9. */
@@ -97,6 +105,7 @@ export function instructionParts(b: BrainBreak, all: BrainBreak[]) {
     optional: b.resourcesOptional,
     steps: [...b.steps, ...(from?.steps ?? [])].map(splitSay),
     openGame: b.link,
+    openLabel: b.link ? `Open ${b.linkLabel ?? 'game'}` : undefined,
     calmRule: b.type === 'calm' ? CALM_RULE : undefined
   };
 }

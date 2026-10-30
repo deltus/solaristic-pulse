@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { BrainBreakLog, Lesson } from '../src/types';
 import { PulseDB, useDatabase, db } from '../src/db';
 import * as svc from '../src/services';
-import { BRAIN_BREAKS, BREAK_GROUPS, type BrainBreak } from '../src/config/brainBreaks';
-import { availableBreaks, brainBreakText, breaksFor, groupForSubject, instructionParts, pickBreak, recentBreakIds, subjectGroups, yearsInclude } from '../src/logic/brainBreaks';
+import { BRAIN_BREAKS, BREAK_GROUPS, GENERAL_GROUP, type BrainBreak } from '../src/config/brainBreaks';
+import { availableBreaks, brainBreakText, breaksFor, groupForSubject, instructionParts, pickBreak, recentBreakIds, startGroup, subjectGroups, yearsInclude } from '../src/logic/brainBreaks';
 import { planRoll, rollResult } from '../src/logic/coldcall';
 import { studentTimeline } from '../src/logic/timeline';
 import { buildSqlScript } from '../src/sqlExport';
@@ -36,7 +36,7 @@ function vetted() {
 describe('brain break content', () => {
   it('loads every vetted break not marked ❌ (⬜ counts as included), with the steps word for word', () => {
     const list = vetted();
-    expect(list.length).toBe(24);
+    expect(list.length).toBe(37);
     const wanted = list.filter((b) => b.mark !== '❌');
     expect(BRAIN_BREAKS.map((b) => b.name)).toEqual(wanted.map((b) => b.name));
     for (const w of wanted) {
@@ -46,7 +46,16 @@ describe('brain break content', () => {
     expect(list.filter((b) => b.mark === '❌').every((x) => !BRAIN_BREAKS.some((b) => b.name === x.name))).toBe(true);
   });
 
-  it('uses the five groups and two types', () => {
+  it('gives every subject and any-subject break numbered steps with words to say, and a label for every link', () => {
+    for (const b of BRAIN_BREAKS.filter((x) => x.type === 'perk')) {
+      expect(b.steps.length, b.id).toBeGreaterThanOrEqual(3);
+      expect(b.steps.some((st) => st.includes('Say: ')), b.id).toBe(true);
+    }
+    expect(BRAIN_BREAKS.filter((b) => b.link).every((b) => b.linkLabel)).toBe(true);
+    expect(BRAIN_BREAKS.filter((b) => b.group === GENERAL_GROUP).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('uses the six groups and two types', () => {
     const groups = new Set(BREAK_GROUPS.map((g) => g.id));
     expect(BRAIN_BREAKS.every((b) => groups.has(b.group))).toBe(true);
     expect(BRAIN_BREAKS.filter((b) => b.group === 'calm').every((b) => b.type === 'calm')).toBe(true);
@@ -67,15 +76,24 @@ describe('picking a break', () => {
     expect(groupForSubject(undefined, groups)).toBeUndefined();
   });
 
+  it('sends a subject with no breaks of its own straight to an any-subject break', () => {
+    expect(startGroup('Geography', groups)).toBe('geography');
+    expect(startGroup('Year 8 Maths', groups)).toBe(GENERAL_GROUP);
+    expect(startGroup(undefined, groups)).toBe(GENERAL_GROUP);
+    const noGeneral = availableBreaks([], BRAIN_BREAKS.filter((b) => b.group === GENERAL_GROUP).map((b) => b.id));
+    const left = subjectGroups(noGeneral).filter((g) => noGeneral.some((b) => b.group === g.id));
+    expect(startGroup('Maths', left)).toBeUndefined();
+  });
+
   it('filters by year level and falls back to the whole subject when nothing matches', () => {
     expect(yearsInclude('7–10', 8)).toBe(true);
     expect(yearsInclude('8–12', 7)).toBe(false);
     expect(yearsInclude('Any', 3)).toBe(true);
-    const y7 = breaksFor(all, 'geography', 'Year 7').map((b) => b.id);
-    expect(y7).toContain('globle');
-    expect(y7).not.toContain('travle');
-    expect(breaksFor(all, 'civics', 'Year 12').map((b) => b.id)).toEqual(['agree-disagree-line']);
-    expect(breaksFor(all, 'civics', 'Year 5')).toHaveLength(3);
+    const y11 = breaksFor(all, 'geography', 'Year 11').map((b) => b.id);
+    expect(y11).toContain('worldle');
+    expect(y11).not.toContain('globle');
+    expect(breaksFor(all, 'civics', 'Year 12').map((b) => b.id)).toEqual(['agree-disagree-line', 'mini-parliament']);
+    expect(breaksFor(all, 'civics', 'Year 5')).toHaveLength(5);
     expect(breaksFor(all, 'geography', undefined)).toHaveLength(6);
   });
 
@@ -88,16 +106,18 @@ describe('picking a break', () => {
     expect(plan.reel.every((name) => list.some((b) => b.name === name))).toBe(true);
   });
 
-  it('shows "Open game" for breaks with a link, and the calm rule for calm breaks', () => {
+  it('shows a tap-to-open link for breaks with a website, and the calm rule for calm breaks', () => {
     const globle = all.find((b) => b.id === 'globle')!;
     expect(instructionParts(globle, all).openGame).toBe('https://globle-game.com/');
+    expect(instructionParts(globle, all).openLabel).toBe('Open Globle');
+    expect(instructionParts({ ...globle, linkLabel: undefined }, all).openLabel).toBe('Open game');
     expect(instructionParts(all.find((b) => b.id === 'country-chain')!, all).openGame).toBeUndefined();
     const calm = instructionParts(all.find((b) => b.id === 'long-exhale')!, all);
     expect(calm.calmRule).toBe('Joining in is invited, never forced. Eyes closed is optional. No touching.');
     expect(calm.needs).toBe('Nothing needed');
     expect(calm.steps[0].say).toBe('"Feet flat, hands in your lap. Close your eyes, or look down at your desk."');
-    // "Same as TimeGuessr" brings TimeGuessr's steps with it.
-    expect(instructionParts(all.find((b) => b.id === 'whentaken')!, all).steps).toHaveLength(4);
+    // "Same as another break" brings that break's steps with it (used by custom breaks).
+    expect(instructionParts({ ...globle, steps: ['Same as TimeGuessr.'], stepsFrom: 'timeguessr' }, all).steps).toHaveLength(6);
   });
 
   it('Spin again never repeats the break just shown', () => {
@@ -115,7 +135,7 @@ describe('picking a break', () => {
     const recent = recentBreakIds(logs, lessons, 'c');
     expect([...recent].sort()).toEqual(['box-breathing', 'five-finger', 'grounding-54321']);
     const list = breaksFor(all, 'calm');
-    for (const r of [0, 0.3, 0.6, 0.99]) expect(pickBreak(list, recent, undefined, () => r)!.id).toBe('long-exhale');
+    for (const r of [0, 0.3, 0.6, 0.99]) expect(recent.has(pickBreak(list, recent, undefined, () => r)!.id)).toBe(false);
     // All used: any of them (still not the one just shown).
     const every = new Set(list.map((b) => b.id));
     expect(pickBreak(list, every, 'long-exhale', () => 0)!.id).not.toBe('long-exhale');

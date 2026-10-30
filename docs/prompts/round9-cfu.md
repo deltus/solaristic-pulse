@@ -29,6 +29,37 @@ Round 9: Check for understanding. Branch `round9` from the latest main. Read doc
 
 ---
 
+## Absent for the rest of the day (from Thomas, 31/10/2026)
+A student marked absent stays absent in that class for the rest of the day, so the teacher never has to mark them twice.
+
+**What marks a student absent:**
+- "Absent" in Blitz
+- "Absent" in a Check for understanding mode (yes/no grid, exit or entry ticket, cold call skip-as-absent)
+- "Not here" in the daily check-in
+- "Absent" in Homework check
+
+Store it as a daily attendance note (`absentToday`: classId, studentId, date, source), not as a rating.
+
+**Where it applies,** for the rest of that date in that class:
+- **Blitz, the yes/no grid and tickets** pre-fill those students as **Absent** (greyed, with an "Absent" chip). **"All others: Yes" skips them.** That's the moment it should feel like the app just knows.
+- **The daily check-in queue and the cold call roll** leave them out.
+- **Homework check** shows them as Absent.
+
+**What clears it:**
+- the teacher taps the Absent chip in Blitz or a Check for understanding mode ("Here now")
+- the teacher opens that student (Select student, or the student page) and enters anything (a check-in, note or result); show a small "Marked present" toast
+- a new day
+
+Nothing else clears it: other modes don't silently overwrite it.
+
+**Late arrivals:** tapping an Absent chip offers **"Here now"** or **"Arrived late"**. "Arrived late" also saves a minor note on the student.
+
+**Tests:**
+- Absent in Blitz carries to a later yes/no grid and cold call that same day, and "All others: Yes" skips them.
+- Entering a check-in for the student clears it.
+- It resets the next day.
+- Absent in one class doesn't affect a different class.
+
 ## Tests
 - Thumbs check: saves counts only, with no student records.
 - Yes/no grid: tap cycles through Yes, Not yet and unchecked; "All others: Yes" works.

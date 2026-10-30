@@ -11,6 +11,7 @@ import { CloseLessonScreen } from './screens/CloseLesson';
 import { ColdCallScreen } from './screens/ColdCall';
 import { AssessmentCheckScreen } from './screens/Assessment';
 import { TeachingScreen } from './screens/Teaching';
+import { SeatingScreen } from './screens/Seating';
 import { lessonsToClose, lessonName } from '../logic/lessons';
 import { HomeScreen } from './screens/Home';
 import { BlitzScreen } from './screens/Blitz';
@@ -81,7 +82,7 @@ export function App() {
   if (locked && settings.pin) return <LockScreen pin={settings.pin} name={settings.profile.name} onUnlock={() => setLocked(false)} />;
   if (!settings.onboarded) return <Setup />;
 
-  const [page = 'home', id, sub, extra] = route;
+  const [page = 'home', id, sub, extra, more] = route;
   const currentClass = classes?.find((c) => c.id === (page === 'class' && id ? id : settings.currentClassId)) ?? classes?.[0];
   let screen;
   switch (page) {
@@ -100,6 +101,7 @@ export function App() {
         : sub === 'coldcall' ? <ColdCallScreen classId={id} />
         : sub === 'assessment' ? <AssessmentCheckScreen key={extra ?? ''} classId={id} assessmentId={extra} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />
+        : sub === 'seating' ? <SeatingScreen classId={id} tab={extra} focus={more} />
         : <ClassHub classId={id} reminder={reminder} />;
       break;
     case 'blitz': screen = <BlitzScreen classId={id} />; break;

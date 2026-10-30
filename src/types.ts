@@ -13,6 +13,15 @@ export interface SchoolClass {
   createdAt: number;
   /** Overrides the global daily check-in target for this class. */
   dailyTarget?: number;
+  /** Teacher-made balance tags for seating (e.g. "Group A", "EAL"). Sensitive: encrypted when synced, never exported or shown to relief teachers. */
+  balanceTags?: BalanceTag[];
+}
+
+export interface BalanceTag {
+  id: string;
+  name: string;
+  /** "Don't leave anyone alone from this tag" at a table. */
+  noAlone: boolean;
 }
 
 export interface StudentFlag {
@@ -35,6 +44,89 @@ export interface Student {
   createdAt: number;
   /** Last date the "Consistently good lately" question was asked or dismissed. */
   streakAskedAt?: string;
+  /** Seating needs (ids from src/config/seating.ts) and an optional custom one. Sensitive. */
+  seatingNeeds?: string[];
+  seatingNeedNote?: string;
+  /** ICP seating suggestions the teacher dismissed (need ids). */
+  seatingIcpDismissed?: string[];
+  /** "Support right now" for seating (students belong to one class). Sensitive; cleared when archived. */
+  support?: SupportLevel;
+  /** Balance tag ids from the class. Sensitive. */
+  balanceTags?: string[];
+  /** Watch after a new seat ("How are they going at Table 3?"). */
+  seatWatch?: SeatWatch;
+}
+
+export interface SupportLevel {
+  level: 'more' | 'on_track' | 'extension';
+  setAt: string;
+  /** After this date the level counts as unset until reviewed. */
+  reviewBy: string;
+}
+
+export interface SeatWatch {
+  planId: string;
+  table: string;
+  since: string;
+  reason: 'alone' | 'left_out';
+  /** Answers to "How are they going there?", oldest first. */
+  answers: { date: string; lessonId: string; settled: boolean }[];
+  /** Two "Not settled" in a row (or one, then reviewed): "Review seat". */
+  review?: boolean;
+  ended?: boolean;
+}
+
+export type RelationshipType = 'keepApart' | 'worksWell';
+/** Two students who work well together or should be kept apart. A pair's id order doesn't matter. */
+export interface Relationship {
+  id: string;
+  classId: string;
+  studentA: string;
+  studentB: string;
+  type: RelationshipType;
+  /** 1 = not at the same table; 2 = never together (not at the same table or next to each other). Keep apart only. */
+  strength: 1 | 2;
+  source: 'manual' | 'checkin' | 'suggested';
+  confirmed: boolean;
+  /** Unconfirmed, but the teacher ticked "use anyway". */
+  useAnyway?: boolean;
+  /** A "Not now" (until a date) or "Never suggest" decision about suggesting this pair. */
+  muted?: 'never' | string;
+  /** The check-in that recorded this signal (undo removes it). */
+  checkinId?: string;
+  date: string;
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type RoomCellKind = 'desk' | 'empty' | 'teacher' | 'door' | 'window' | 'board';
+export interface RoomCell { k: RoomCellKind; /** Table number for desks (desks with the same number are one table). */ t?: number }
+/** A classroom as a grid. The front of the room is wherever the board is. */
+export interface RoomLayout {
+  rows: number;
+  cols: number;
+  /** rows × cols, row by row. A seat id is the cell's index. */
+  cells: RoomCell[];
+}
+export interface Room extends RoomLayout {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+export interface SeatingPlan {
+  id: string;
+  classId: string;
+  roomId?: string;
+  name: string;
+  /** A copy of the room, so later room edits don't break the plan. */
+  room: RoomLayout;
+  /** Seat id (cell index) → student, and whether the teacher locked it. */
+  seats: Record<string, { studentId: string; locked?: boolean }>;
+  active: boolean;
+  activeFrom?: string;
+  createdAt: number;
 }
 
 export interface Category {
@@ -353,6 +445,8 @@ export interface Settings {
   subHintsShown?: number;
   /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
   devTools?: boolean;
+  /** Seating: "Use support levels in seating plans" (off by default). */
+  seatingSupport?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

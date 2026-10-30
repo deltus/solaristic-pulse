@@ -2,7 +2,7 @@
 
 export const SYNCED_TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'relationships', 'rooms', 'seatingPlans'
 ] as const;
 // Not synced: `evidence` (photos, files, voice memos stay on the device in this version).
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
@@ -10,8 +10,9 @@ export const isSynced = (t: string): t is SyncedTable => (SYNCED_TABLES as reado
 
 /** Identifying or free-text fields: encrypted end to end. Everything else (ratings, dates, areas, weights) stays readable. */
 export const ENCRYPTED: Record<SyncedTable, string[]> = {
-  classes: [],
-  students: ['firstName', 'lastName', 'preferredName', 'externalId', 'flag'],
+  // Seating: balance tags, seating needs, support levels and the seat watch are sensitive.
+  classes: ['balanceTags'],
+  students: ['firstName', 'lastName', 'preferredName', 'externalId', 'flag', 'seatingNeeds', 'seatingNeedNote', 'seatingIcpDismissed', 'support', 'balanceTags', 'seatWatch'],
   checkins: ['note'],
   observations: ['note', 'context'],
   plans: ['entries'],
@@ -30,7 +31,11 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   // The teacher journal is private: its text, tags and standard are encrypted like notes.
   journal: ['text', 'tags', 'aitsl'],
   assessments: ['name', 'checkpoints'],
-  assessmentChecks: []
+  assessmentChecks: [],
+  // Who works well with or is kept apart from whom (and why) is sensitive.
+  relationships: ['type', 'strength', 'note'],
+  rooms: ['name'],
+  seatingPlans: ['name']
 };
 
 type Row = Record<string, unknown>;

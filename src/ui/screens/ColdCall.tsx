@@ -11,6 +11,7 @@ import { useLive, useSettings } from '../hooks';
 import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { NeedLesson } from './Checkin';
+import { tableName } from '../../logic/rooms';
 
 
 export function ColdCallScreen({ classId }: { classId: string }) {
@@ -26,6 +27,8 @@ export function ColdCallScreen({ classId }: { classId: string }) {
   const [rollN, setRollN] = useState(0);
   const [tags, setTags] = useState<string[]>([]);
   const [justCalled, setJustCalled] = useState<{ studentId: string; createdAt: number }[]>([]);
+  /** "Pick from: whole class / a table" (when there's an active seating plan). */
+  const [table, setTable] = useState<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const card = useRef<SwipeControl | null>(null);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
@@ -37,12 +40,16 @@ export function ColdCallScreen({ classId }: { classId: string }) {
   const notHere = new Set(ctx.checkins.filter((c) => lessonOf(c) === lesson.id && c.status === 'absent').map((c) => c.studentId));
   // Calls saved this session count straight away (before the database refresh arrives).
   const calls = [...ctx.coldCalls, ...justCalled.map((j, i) => ({ id: `just-${i}`, lessonId: lesson.id, classId, date: lesson.date, result: 'good' as const, ...j }))];
-  const present = ctx.students.filter((s) => !notHere.has(s.id));
+  const plan = ctx.seatingPlan;
+  const tables = plan ? [...new Set(Object.keys(plan.seats).map((seat) => tableName(plan.room, seat)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })) : [];
+  const atTable = (id: string) => !table || (!!plan && Object.entries(plan.seats).some(([seat, v]) => v.studentId === id && tableName(plan.room, seat) === table));
+  const outside = ctx.students.filter((x) => !atTable(x.id)).map((x) => x.id);
+  const present = ctx.students.filter((s) => !notHere.has(s.id) && atTable(s.id));
   const s = ctx.students.find((x) => x.id === pickedId);
 
   function pick(avoid?: string) {
     timers.current.forEach(clearTimeout);
-    const chosen = pickColdCall(ctx!.students, calls, new Set([...notHere, ...(avoid && present.length > 1 ? [avoid] : [])]), Math.random);
+    const chosen = pickColdCall(ctx!.students, calls, new Set([...notHere, ...outside, ...(avoid && present.length > 1 ? [avoid] : [])]), Math.random);
     if (!chosen) return;
     setTags([]);
     chosenRef.current = chosen.id;
@@ -97,6 +104,13 @@ export function ColdCallScreen({ classId }: { classId: string }) {
         {phase === 'shuffle' && roll
           ? <Roll key={rollN} plan={roll} skip={skipTick} onLanded={landed} />
           : <div class="shuffle-box"><span class="muted">Least recently called first, then random. Not here today: left out.</span></div>}
+        {tables.length > 0 && phase === 'idle' && (
+          <div class="chips pick-from" style="flex-wrap:wrap;margin-bottom:10px">
+            <span class="tiny muted">Pick from:</span>
+            <button class={`chip tiny-chip ${!table ? 'active' : ''}`} aria-pressed={!table} onClick={() => setTable(null)}>Whole class</button>
+            {tables.map((t) => <button key={t} class={`chip tiny-chip ${table === t ? 'active' : ''}`} aria-pressed={table === t} onClick={() => setTable(t)}>{t}</button>)}
+          </div>
+        )}
         <button class="btn primary big block" disabled={phase === 'shuffle' || !present.length} onClick={() => pick()}><Icon name="user" /> {phase === 'shuffle' ? 'Picking…' : 'Pick a student'}</button>
       </div>
     );

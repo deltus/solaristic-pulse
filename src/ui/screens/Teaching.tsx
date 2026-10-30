@@ -3,7 +3,7 @@
 // are at least 5 closed lessons in the last four weeks. Never part of reports or shared exports.
 
 import { db } from '../../db';
-import { MIN_CLOSED_LESSONS, reflectedLessons, reflectionInsights, WINDOW_DAYS } from '../../logic/reflection';
+import { MIN_CLOSED_LESSONS, reflectedLessons, reflectionInsights, seatingPlanInsights, WINDOW_DAYS } from '../../logic/reflection';
 import { lessonName } from '../../logic/lessons';
 import { lessonOf } from '../../logic/checkin';
 import { formatShort, today } from '../../lib/dates';
@@ -17,14 +17,14 @@ const PLAN = { yes: 'got through the plan', partly: 'partly through the plan', n
 export function TeachingScreen() {
   const date = today();
   const data = useLive(async () => {
-    const [lessons, classes, observations, homework, checkins] = await Promise.all([
-      db.lessons.toArray(), db.classes.toArray(), db.observations.filter((o) => o.categoryId === 'focus').toArray(), db.homework.toArray(), db.checkins.toArray()
+    const [lessons, classes, observations, homework, checkins, plans] = await Promise.all([
+      db.lessons.toArray(), db.classes.toArray(), db.observations.filter((o) => o.categoryId === 'focus' || o.categoryId === 'behaviour').toArray(), db.homework.toArray(), db.checkins.toArray(), db.seatingPlans.toArray()
     ]);
-    return { lessons, classes, observations, homework, checkinLesson: new Map(checkins.map((c) => [c.id, lessonOf(c)])) };
+    return { lessons, classes, observations, homework, plans, checkinLesson: new Map(checkins.map((c) => [c.id, lessonOf(c)])) };
   }, [date]);
   if (!data) return null;
   const done = reflectedLessons(data.lessons, date);
-  const insights = reflectionInsights({ ...data, today: date });
+  const insights = [...reflectionInsights({ ...data, today: date }), ...seatingPlanInsights(data)];
   const cls = (id: string) => data.classes.find((c) => c.id === id)?.name ?? 'Class';
 
   return (

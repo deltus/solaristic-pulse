@@ -38,7 +38,7 @@ describe('exports (scenarios 11, 13, 14)', () => {
     const { wb, text, r } = await readBack({ ...base(), categoryIds: await allCats() });
     expect(wb.SheetNames).toEqual(['Summary', 'Observations', 'Check-ins', 'Issue details', 'Homework', 'Cold calls', 'Assessments', 'Lessons', 'Check-outs', 'Teacher notes', 'ICP adjustments', 'ICP check-ins', 'About this report']);
     expect(text).toContain('Bill Harris');
-    expect(r.students).toBe(36);
+    expect(r.students).toBe(60);
     expect(r.observations).toBeGreaterThan(100);
   });
 

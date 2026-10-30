@@ -16,6 +16,11 @@ import { buildAllGood, buildIssue } from './logic/checkin';
 import { pickColdCall, STRUGGLE_TAGS } from './logic/coldcall';
 import { rankByNeed } from './logic/need';
 import { CHECKIN_AREAS, HOMEWORK_REASONS, WELLBEING } from './config/checkin';
+import type { Relationship, Room, SeatingPlan } from './types';
+import { makePlan } from './logic/seating';
+import { roomTemplate } from './logic/rooms';
+import { newSupport, newWatch, plannerRelationships, plannerStudents, seatLabel } from './logic/seatingData';
+import { needByStudent } from './logic/need';
 
 /** Swipe check-ins start this many days ago in the demo; older days use the previous format. */
 const SWIPE_FROM = 12;
@@ -24,12 +29,14 @@ const SWIPE_FROM = 12;
 const INTENTIONS: Record<string, string[]> = {
   English: ['Identify persuasive techniques', 'Plan a persuasive paragraph', 'Use evidence to support a point', 'Edit for sentence variety', 'Analyse a character’s motives', 'Compare two poems'],
   Science: ['Explain how rivers form meanders', 'Describe types of erosion', 'Read a topographic map', 'Plan a fair test', 'Record results in a table', 'Draw conclusions from data'],
-  Mathematics: ['Solve linear equations', 'Graph straight lines', 'Find the gradient', 'Simultaneous equations by substitution', 'Apply Pythagoras’ theorem', 'Interpret scatter plots']
+  Mathematics: ['Solve linear equations', 'Graph straight lines', 'Find the gradient', 'Simultaneous equations by substitution', 'Apply Pythagoras’ theorem', 'Interpret scatter plots'],
+  Humanities: ['Explain why cities grow near rivers', 'Read a population graph', 'Compare two settlements', 'Use a primary source', 'Map land use in a town', 'Write a short explanation']
 };
 const HOMEWORK: Record<string, string[]> = {
   English: ['Finish the persuasive paragraph', 'Read chapter 4'],
   Science: ['Finish the river worksheet', 'Label the erosion diagram'],
-  Mathematics: ['Exercise 3B, questions 1–10', 'Textbook page 112']
+  Mathematics: ['Exercise 3B, questions 1–10', 'Textbook page 112'],
+  Humanities: ['Finish the settlement map', 'Read the source and answer 3 questions']
 };
 
 function rng(seed: number) {
@@ -68,6 +75,17 @@ const CLASSES: { name: string; subject: string; yearLevel: string; days: number[
       ["Jack", "O'Connor", undefined, { behaviour: 0.45 }], ['Emily', 'Clarke'], ['Henry', 'Young', undefined, { homework: 0.4 }],
       ['Charlotte', 'King'], ['William', 'Scott', 'Will'], ['Ella', 'Green'], ['Thomas', 'Baker'], ['Sienna', 'Hall', undefined, { focus: 0.3 }],
       ['Mason', 'Wright'], ['Zoe', 'Lopez'], ['Archie', 'Turner'], ['Maya', 'Hughes']
+    ]
+  },
+  {
+    // Round 7: a fuller class with a seating plan.
+    name: '8B Humanities', subject: 'Humanities', yearLevel: 'Year 8', days: [1, 3, 5], start: '14:40', end: '15:40', room: 'H3',
+    students: [
+      ['Ali', 'Hassan', undefined, { behaviour: 0.3 }], ['Sam', 'Fletcher', undefined, { behaviour: 0.3 }], ['Priya', 'Raman'], ['Mia', 'Costa'],
+      ['Jayden', 'Brooks', undefined, { focus: 0.45 }], ['Hannah', 'Leigh'], ['Ravi', 'Menon'], ['Chloe', 'Dubois'], ['Ben', 'Okafor'], ['Lena', 'Fischer'],
+      ['Tom', 'Gallagher', undefined, { behaviour: 0.2 }], ['Aisha', 'Bello'], ['Dylan', 'Reyes', undefined, { focus: 0.35 }], ['Freya', 'Lindqvist'],
+      ['Marco', 'Bianchi'], ['Sofia', 'Haddad'], ['Nate', 'Kerr', undefined, { behaviour: 0.2 }], ['Jade', 'Wong'], ['Felix', 'Moreau'], ['Tilly', 'Pearce'],
+      ['Arjun', 'Kapoor', undefined, { coping: 0.3 }], ['Rosa', 'Mendes'], ['Callum', 'Frost'], ['Evie', 'Sato']
     ]
   }
 ];
@@ -360,5 +378,75 @@ export async function loadDemoData(): Promise<void> {
     await db.assessmentChecks.bulkAdd(assessmentChecks);
     await db.journal.bulkAdd(journal);
   });
+  await demoSeating(classes[3], students, { checkins, observations, tags, homework, lessons }, today);
   await saveSettings({ currentClassId: classes[0].id });
+}
+
+/** Round 7: relationships, seating needs, support levels, a balance tag, a room and an active plan for 8B. */
+async function demoSeating(cls: SchoolClass, all: Student[], hist: { checkins: Checkin[]; observations: Observation[]; tags: IssueTag[]; homework: HomeworkCheck[]; lessons: Lesson[] }, today: string) {
+  const students = all.filter((s) => s.classId === cls.id);
+  const by = (f: string) => students.find((s) => s.firstName === f)!;
+  const now = Date.now();
+  const rel = (a: string, b: string, type: Relationship['type'], extra: Partial<Relationship> = {}): Relationship => ({
+    id: newId(), classId: cls.id, studentA: by(a).id, studentB: by(b).id, type, strength: 1, source: 'manual', confirmed: true, date: addDays(today, -20), createdAt: now, updatedAt: now, ...extra
+  });
+  const relationships: Relationship[] = [
+    rel('Ali', 'Sam', 'keepApart', { strength: 2, note: 'Ongoing conflict since Term 2.' }),
+    rel('Jayden', 'Dylan', 'keepApart'),
+    rel('Mia', 'Hannah', 'worksWell'), rel('Priya', 'Chloe', 'worksWell'), rel('Ravi', 'Ben', 'worksWell'), rel('Marco', 'Sofia', 'worksWell'),
+    // Two peer-conflict signals from check-ins: shows as a suggestion. One works-well signal: listed under "From check-ins".
+    rel('Tom', 'Nate', 'keepApart', { source: 'checkin', confirmed: false, date: addDays(today, -5) }),
+    rel('Nate', 'Tom', 'keepApart', { source: 'checkin', confirmed: false, date: addDays(today, -12) }),
+    rel('Lena', 'Freya', 'worksWell', { source: 'checkin', confirmed: false, date: addDays(today, -4) })
+  ];
+  const tagEal = { id: newId(), name: 'EAL', noAlone: true };
+  cls.balanceTags = [tagEal, { id: newId(), name: 'New this term', noAlone: false }];
+  by('Priya').seatingNeeds = ['front', 'near_board'];
+  by('Ravi').seatingNeeds = ['near_door'];
+  by('Hannah').seatingNeeds = ['left_handed'];
+  by('Jayden').seatingNeeds = ['near_teacher'];
+  for (const f of ['Marco', 'Sofia', 'Rosa']) by(f).balanceTags = [tagEal.id];
+  by('Callum').balanceTags = [cls.balanceTags[1].id];
+  // Support levels are only used once "Use support levels" is switched on in Settings → Seating.
+  by('Arjun').support = newSupport('more', addDays(today, -14));
+  by('Jade').support = newSupport('extension', addDays(today, -14));
+  by('Chloe').support = newSupport('on_track', addDays(today, -14));
+  by('Felix').support = { level: 'on_track', setAt: addDays(today, -80), reviewBy: addDays(today, -10) };
+  const adjustments: IcpAdjustment[] = [
+    { id: newId(), studentId: by('Priya').id, title: 'Seated near the front', details: 'Vision: needs to see the board clearly.', frequency: 'lesson', startDate: addDays(today, -20), active: true, createdAt: now },
+    { id: newId(), studentId: by('Ravi').id, title: 'Movement breaks', details: 'Short break outside the room when needed.', frequency: 'lesson', startDate: addDays(today, -20), active: true, createdAt: now },
+    { id: newId(), studentId: by('Aisha').id, title: 'Reduced distractions', frequency: 'lesson', startDate: addDays(today, -20), active: true, createdAt: now }
+  ];
+  // Evie: Wellbeing → friendship issues three days ago (being left out never separates students).
+  const lesson = hist.lessons.filter((l) => l.classId === cls.id && !l.historical && l.date <= addDays(today, -2)).sort((a, b) => b.openedAt - a.openedAt)[0];
+  const extra = lesson ? buildIssue({ studentId: by('Evie').id, classId: cls.id, date: lesson.date, lessonId: lesson.id }, { areas: { wellbeing: ['friendship'] }, note: 'Sat alone at lunch; quiet in group work.', followUp: true }) : null;
+
+  const room: Room = { id: newId(), name: 'H3', createdAt: now, ...roomTemplate('fours', 24) };
+  const tagsAll = [...hist.tags, ...(extra?.tags ?? [])];
+  const need = needByStudent(students, hist.checkins, hist.observations, tagsAll, hist.homework, today, hist.lessons);
+  const report = makePlan({
+    room, students: plannerStudents({ students, tags: tagsAll, adjustments, concern: new Map([...need].map(([id, r]) => [id, r.concern])), useSupport: false, today }),
+    relationships: plannerRelationships(relationships), noAloneTags: [{ id: tagEal.id, name: 'EAL' }], options: { useSupport: false, supportTable: false, minimiseChanges: false }, seed: 7
+  });
+  const plan: SeatingPlan = {
+    id: newId(), classId: cls.id, roomId: room.id, name: 'Term 4 plan', room: { rows: room.rows, cols: room.cols, cells: room.cells },
+    seats: Object.fromEntries(Object.entries(report.seats).map(([seat, id]) => [seat, { studentId: id }])), active: true, activeFrom: addDays(today, -13), createdAt: now
+  };
+  const evie = by('Evie');
+  evie.seatWatch = newWatch(plan.id, seatLabel(plan, evie.id) ?? 'Table 1', 'left_out', addDays(today, -1));
+  await db.transaction('rw', [db.classes, db.students, db.relationships, db.rooms, db.seatingPlans, db.icpAdjustments, db.checkins, db.observations, db.issueTags], async () => {
+    await db.classes.put(cls);
+    await db.students.bulkPut(students);
+    await db.relationships.bulkAdd(relationships);
+    await db.rooms.add(room);
+    await db.seatingPlans.add(plan);
+    await db.icpAdjustments.bulkAdd(adjustments);
+    if (extra) {
+      await db.observations.where('checkinId').equals(extra.checkin.id).delete();
+      await db.issueTags.where('checkinId').equals(extra.checkin.id).delete();
+      await db.checkins.put(extra.checkin);
+      await db.observations.bulkPut(extra.observations);
+      await db.issueTags.bulkPut(extra.tags);
+    }
+  });
 }

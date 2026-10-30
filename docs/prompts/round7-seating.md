@@ -97,7 +97,7 @@ Fields:
 2. **Step 1: Room.** Pick a template or saved room, and adjust the grid.
 3. **Step 2: Check.**
    - **Summary:** "28 students · 4 seating needs · 6 keep-apart · 3 work-well · 2 suggestions to review".
-   - **Toggles:** Mixed ability / Similar ability, and Minimise changes.
+   - **Toggles:** Mixed tables / Support table near teacher (only when support levels are switched on), and Minimise changes.
    - **Button:** "Make a plan".
 4. **Step 3: Plan.**
    - **The room drawn with names.** Tap a student to see their reasons. Drag or tap-tap to swap two students; the app warns if a swap breaks a rule ("Ali and Sam are now neighbours, keep apart").

@@ -16,6 +16,7 @@ import type { ReminderState } from '../reminders';
 import { ReminderPrompt } from '../ReminderPrompt';
 import { lessonOf } from '../../logic/checkin';
 import { activeAssessments, assessmentSummary, dueText } from '../../logic/assessments';
+import { reviewSeatItems } from './Seating';
 
 export function TodayScreen({ reminder }: { reminder: ReminderState }) {
   const settings = useSettings();
@@ -131,6 +132,9 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
         {assess.length > 0 && <a class="hub-btn" href={`#/class/${classId}/assessment${assess.length === 1 ? `/${assess[0].id}` : ''}`}><Icon name="reports" /><b>Assessment check</b><span>{assess.length === 1 ? `${assess[0].name}${dueText(assess[0], today()) ? ` · ${dueText(assess[0], today()).toLowerCase()}` : ''}` : `${assess.length} tasks`}</span></a>}
         <a class="hub-btn" href={`#/icp/class/${classId}`}><Icon name="icp" /><b>ICP {icpDue > 0 && <span class="count-badge" aria-label={`${icpDue} due today`}>{icpDue}</span>}</b><span>{icpDue ? `${icpDue} check${icpDue === 1 ? '' : 's'} due today` : 'Nothing due today'}</span></a>
       </div>
+      {reviewSeatItems(ctx.students).map(({ s, table }) => (
+        <a key={s.id} class="notice review-seat" href={`#/class/${classId}/seating/plan/${s.id}`}><b>Review seat:</b> {displayName(s)} isn't settled at {table} yet. <Icon name="chevron" /></a>
+      ))}
       {assess.map((a) => <div key={a.id} class="card flat cc-summary"><span class="eyebrow">Assessment</span><div class="small">{assessmentSummary(a, ctx.students, ctx.assessmentChecks).text}</div></div>)}
       {ctx.students.length > 0 && (
         <div class="card flat cc-summary">

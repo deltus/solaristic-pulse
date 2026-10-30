@@ -130,7 +130,7 @@ export function PageHead({ eyebrow, title, children, back }: { eyebrow?: string;
 }
 
 /* ---------- Toast ---------- */
-export interface ToastAction { label: string; run: () => void; seconds?: number }
+export interface ToastAction { label: string; run: () => void; seconds?: number; /** A second, smaller link (e.g. "Worked well with…"). */ extra?: { label: string; run: () => void } }
 let pushToast: (msg: string, action?: ToastAction) => void = () => {};
 /** Short message at the bottom of the screen; with an action (e.g. Undo) it stays a little longer. */
 export function toast(msg: string, action?: ToastAction) {
@@ -151,6 +151,7 @@ export function ToastHost() {
   return (
     <div key={t.n} class={`toast ${t.action ? 'with-action' : ''}`} role="status">
       <span>{t.msg}</span>
+      {t.action?.extra && <button class="toast-btn toast-extra" onClick={() => { setT(null); t.action!.extra!.run(); }}>{t.action.extra.label}</button>}
       {t.action && <button class="toast-btn" onClick={() => { setT(null); t.action!.run(); }}>{t.action.label}</button>}
     </div>
   );

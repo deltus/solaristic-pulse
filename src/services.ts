@@ -4,7 +4,7 @@ import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from 
 import { CHECKIN_AREAS } from './config/checkin';
 import type {
   ColdCall, ColdCallResult, Happy, Lesson, PlanDone, HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
-  Assessment, AssessmentCheck, AssessmentResult, JournalEntry, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
+  Assessment, AssessmentCheck, AssessmentResult, BalanceTag, JournalEntry, Relationship, RelationshipType, Room, SeatWatch, SeatingPlan, SupportLevel, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
 import { dueQuestions } from './logic/schedule';
@@ -19,6 +19,9 @@ import { REMIND_LATER_MIN, lessonName, openLessonFor } from './logic/lessons';
 import { docxBlob, filterJournal, journalDocumentXml } from './logic/journal';
 import { saveFile } from './files';
 import { formatDate } from './lib/dates';
+import { SIGNALS } from './config/seating';
+import { answerWatch, leftOutMuteId, newSupport, newWatch, pairKey, seatLabel, type PairSuggestion } from './logic/seatingData';
+import { printableHtml, shortNames } from './logic/seatingPrint';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -41,7 +44,9 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks, db.relationships, db.seatingPlans], async () => {
+    await db.relationships.where('classId').equals(id).delete();
+    await db.seatingPlans.where('classId').equals(id).delete();
     await db.journal.where('classId').equals(id).delete();
     await db.assessmentChecks.where('classId').equals(id).delete();
     await db.assessments.where('classId').equals(id).delete();
@@ -72,11 +77,14 @@ export async function addStudent(classId: string, data: Partial<Student>): Promi
 }
 
 export async function updateStudent(id: string, patch: Partial<Student>) {
-  await db.students.update(id, patch);
+  // Archiving deletes the student's support level (it's only for current seating).
+  await db.students.update(id, patch.archived ? { ...patch, support: undefined, seatWatch: undefined } : patch);
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks, db.relationships], async () => {
+    await db.relationships.where('studentA').equals(id).delete();
+    await db.relationships.where('studentB').equals(id).delete();
     await db.assessmentChecks.where('studentId').equals(id).delete();
     await db.coldCalls.where('studentId').equals(id).delete();
     await db.issueTags.where('studentId').equals(id).delete();
@@ -316,7 +324,8 @@ export async function markStatus(studentId: string, classId: string, date: strin
 
 /** Removes a check-in (e.g. undo absent/skip) so the student returns to the queue. */
 export async function undoCheckin(checkinId: string) {
-  await db.transaction('rw', db.checkins, db.observations, db.issueTags, db.evidence, async () => {
+  await db.transaction('rw', db.checkins, db.observations, db.issueTags, db.evidence, db.relationships, async () => {
+    await db.relationships.where('checkinId').equals(checkinId).delete();
     await db.evidence.where('checkinId').equals(checkinId).delete();
     await db.observations.where('checkinId').equals(checkinId).delete();
     await db.issueTags.where('checkinId').equals(checkinId).delete();
@@ -371,7 +380,7 @@ export async function loadLessonContext(classId: string) {
   if (!cls) return null;
   const students = (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived);
   const ids = students.map((s) => s.id);
-  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks] = await Promise.all([
+  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, plans] = await Promise.all([
     db.checkins.where('classId').equals(classId).toArray(),
     db.observations.where('classId').equals(classId).toArray(),
     db.issueTags.where('classId').equals(classId).toArray(),
@@ -382,10 +391,13 @@ export async function loadLessonContext(classId: string) {
     db.lessons.where('classId').equals(classId).toArray(),
     db.coldCalls.where('classId').equals(classId).toArray(),
     db.assessments.where('classId').equals(classId).toArray(),
-    db.assessmentChecks.where('classId').equals(classId).toArray()
+    db.assessmentChecks.where('classId').equals(classId).toArray(),
+    db.seatingPlans.where('classId').equals(classId).toArray()
   ]);
   const lesson = openLessonFor(lessons, classId);
-  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson };
+  /** The class's active seating plan, if there is one. */
+  const seatingPlan = plans.find((p) => p.active);
+  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson, seatingPlan };
 }
 export type LessonContext = NonNullable<Awaited<ReturnType<typeof loadLessonContext>>>;
 
@@ -808,4 +820,147 @@ export async function deleteAssessment(id: string) {
     await db.assessmentChecks.where('assessmentId').equals(id).delete();
     await db.assessments.delete(id);
   });
+}
+
+/* ---------------- Seating plans (round 7) ---------------- */
+
+/** Everything the seating screens need for one class. */
+export async function loadSeating(classId: string) {
+  const ctx = await loadLessonContext(classId);
+  if (!ctx) return null;
+  const [relationships, rooms, plans] = await Promise.all([
+    db.relationships.where('classId').equals(classId).toArray(),
+    db.rooms.toArray(),
+    db.seatingPlans.where('classId').equals(classId).toArray()
+  ]);
+  return { ...ctx, relationships, rooms: rooms.sort((a, b) => a.name.localeCompare(b.name)), plans: plans.sort((a, b) => b.createdAt - a.createdAt) };
+}
+export type SeatingContext = NonNullable<Awaited<ReturnType<typeof loadSeating>>>;
+
+export async function addRelationship(
+  classId: string, a: string, b: string, type: RelationshipType,
+  opts: { strength?: 1 | 2; source?: Relationship['source']; confirmed?: boolean; note?: string; checkinId?: string; date?: string } = {}
+): Promise<Relationship> {
+  const now = Date.now();
+  const r: Relationship = {
+    id: newId(), classId, studentA: a, studentB: b, type, strength: type === 'keepApart' ? opts.strength ?? 1 : 1,
+    source: opts.source ?? 'manual', confirmed: opts.confirmed ?? true, date: opts.date ?? todayISO(), createdAt: now, updatedAt: now,
+    ...(clean(opts.note) ? { note: clean(opts.note) } : {}), ...(opts.checkinId ? { checkinId: opts.checkinId } : {})
+  };
+  await db.relationships.add(r);
+  return r;
+}
+export const updateRelationship = (id: string, patch: Partial<Relationship>) => db.relationships.update(id, { ...patch, updatedAt: Date.now() });
+
+/** Removes a relationship and every other confirmed row for the same pair and kind. */
+export async function deleteRelationship(r: Relationship) {
+  const k = pairKey(r.studentA, r.studentB);
+  const same = (await db.relationships.where('classId').equals(r.classId).toArray()).filter((x) => x.type === r.type && pairKey(x.studentA, x.studentB) === k && (x.confirmed || x.useAnyway));
+  await db.relationships.bulkDelete(same.map((x) => x.id));
+}
+
+/** Unconfirmed check-in signals ("With who?" on Peer interactions, "Worked well with…" after All good). */
+export async function logRelationshipSignals(t: CheckinTarget, ids: string[], type: RelationshipType) {
+  const checkinId = swipeCheckinId(t.lessonId, t.studentId);
+  await db.relationships.where('checkinId').equals(checkinId).filter((r) => r.type === type).delete();
+  for (const other of ids) {
+    if (other === t.studentId) continue;
+    await addRelationship(t.classId, t.studentId, other, type, { source: 'checkin', confirmed: false, checkinId, date: t.date });
+  }
+}
+
+/** "Yes" on a suggestion: a confirmed relationship. */
+export const confirmSuggestion = (classId: string, s: PairSuggestion) => addRelationship(classId, s.a, s.b, s.type, { source: 'suggested', confirmed: true });
+
+/** "Not now" (2 weeks) or "Never suggest" for a pair. */
+export async function muteSuggestion(classId: string, s: Pick<PairSuggestion, 'a' | 'b' | 'type'>, mode: 'notNow' | 'never') {
+  const r = await addRelationship(classId, s.a, s.b, s.type, { source: 'suggested', confirmed: false });
+  await db.relationships.update(r.id, { muted: mode === 'never' ? 'never' : addDays(todayISO(), SIGNALS.notNowDays) });
+}
+
+/** "Not now" on "Seat Mia with someone they work well with?". */
+export async function muteLeftOut(classId: string, studentId: string) {
+  const now = Date.now();
+  await db.relationships.put({
+    id: leftOutMuteId(studentId), classId, studentA: studentId, studentB: studentId, type: 'worksWell', strength: 1, source: 'suggested', confirmed: false,
+    muted: addDays(todayISO(), SIGNALS.notNowDays), date: todayISO(), createdAt: now, updatedAt: now
+  });
+}
+
+export async function setSeatingNeeds(studentId: string, needs: string[], note?: string) {
+  await db.students.update(studentId, { seatingNeeds: needs.length ? needs : undefined, seatingNeedNote: clean(note) || undefined });
+}
+export async function dismissIcpNeed(studentId: string, need: string) {
+  const s = await db.students.get(studentId);
+  if (s) await db.students.update(studentId, { seatingIcpDismissed: [...new Set([...(s.seatingIcpDismissed ?? []), need])] });
+}
+/** Support right now: set (reviewed in 10 weeks), confirm ("Still accurate?" → Yes) or clear. */
+export async function setSupport(studentId: string, level: SupportLevel['level'] | null) {
+  await db.students.update(studentId, { support: level ? newSupport(level, todayISO()) : undefined });
+}
+export async function setStudentBalanceTags(studentId: string, tagIds: string[]) {
+  await db.students.update(studentId, { balanceTags: tagIds.length ? tagIds : undefined });
+}
+export async function saveBalanceTags(classId: string, tags: BalanceTag[]) {
+  await db.classes.update(classId, { balanceTags: tags.length ? tags : undefined });
+  // Remove deleted tags from students.
+  const ids = new Set(tags.map((t) => t.id));
+  await db.students.where('classId').equals(classId).modify((s) => {
+    if (!s.balanceTags) return;
+    s.balanceTags = s.balanceTags.filter((t) => ids.has(t));
+    if (!s.balanceTags.length) delete s.balanceTags;
+  });
+}
+
+export async function saveRoom(r: Omit<Room, 'id' | 'createdAt'> & { id?: string }): Promise<Room> {
+  const room: Room = { ...r, id: r.id ?? newId(), name: clean(r.name) || 'Room', createdAt: Date.now() };
+  await db.rooms.put(room);
+  return room;
+}
+export const deleteRoom = (id: string) => db.rooms.delete(id);
+
+/**
+ * Save as the class's active plan (older plans are kept). Students in `watch` (placed with an "alone"
+ * warning the teacher wants to keep an eye on, or flagged as left out) get the seat watch; earlier
+ * watches end because the seats changed.
+ */
+export async function saveSeatingPlan(
+  p: Pick<SeatingPlan, 'classId' | 'room' | 'seats'> & { roomId?: string; name?: string },
+  watch: { studentId: string; reason: SeatWatch['reason'] }[] = []
+): Promise<SeatingPlan> {
+  const date = todayISO();
+  const plan: SeatingPlan = {
+    id: newId(), classId: p.classId, ...(p.roomId ? { roomId: p.roomId } : {}), name: clean(p.name) || `Plan from ${formatDate(date)}`,
+    room: p.room, seats: p.seats, active: true, activeFrom: date, createdAt: Date.now()
+  };
+  await db.transaction('rw', db.seatingPlans, db.students, async () => {
+    await db.seatingPlans.where('classId').equals(p.classId).modify({ active: false });
+    await db.seatingPlans.add(plan);
+    await db.students.where('classId').equals(p.classId).modify((s) => { if (s.seatWatch && !s.seatWatch.ended) s.seatWatch = { ...s.seatWatch, ended: true }; });
+    for (const w of watch) {
+      const table = seatLabel(plan, w.studentId);
+      if (table) await db.students.update(w.studentId, { seatWatch: newWatch(plan.id, table, w.reason, date) });
+    }
+  });
+  return plan;
+}
+/** Locks on the active plan, without starting a new one. */
+export const updateSeatingPlan = (id: string, patch: Partial<SeatingPlan>) => db.seatingPlans.update(id, patch);
+
+/** "New seat at Table 3. How are they going there?" */
+export async function answerSeatWatch(studentId: string, settled: boolean, t: Pick<CheckinTarget, 'date' | 'lessonId'>) {
+  const s = await db.students.get(studentId);
+  if (!s?.seatWatch) return;
+  await db.students.update(studentId, { seatWatch: answerWatch(s.seatWatch, settled, t.date, t.lessonId) });
+}
+export async function clearSeatReview(studentId: string) {
+  const s = await db.students.get(studentId);
+  if (s?.seatWatch) await db.students.update(studentId, { seatWatch: { ...s.seatWatch, review: false } });
+}
+export const flagForPlanning = (studentId: string, table: string) => setFlag(studentId, `Not settling at ${table}: review in lesson planning`);
+
+/** The printable plan (names only) as an HTML file the teacher can open and print. */
+export async function exportSeatingPlan(plan: SeatingPlan, students: Student[], className: string) {
+  const html = printableHtml(plan, shortNames(students), className, `From ${formatDate(plan.activeFrom ?? todayISO())}`);
+  return saveFile(new Blob([html], { type: 'text/html' }), `${className} – seating plan ${plan.activeFrom ?? todayISO()}.html`);
 }

@@ -5,7 +5,8 @@ import { db, getSettings, saveSettings } from '../../db';
 import { icpDueStatus } from '../../logic/icp';
 import { formatShort, today, weekday } from '../../lib/dates';
 import { go, useLive, useTick } from '../hooks';
-import { Empty, Icon } from '../components';
+import { displayName, Empty, Icon } from '../components';
+import { watchRaise } from '../../logic/seatingData';
 import type { ReminderState } from '../reminders';
 
 async function loadHome(date: string) {
@@ -60,6 +61,9 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
       <span class="eyebrow">{formatShort(date)}</span>
       <h1 class="home-title">{first ? `Hi ${first}` : 'Your classes'}</h1>
       <p class="muted small" style="margin:4px 0 16px">{todays.length ? 'Tap a class to open it.' : 'No lessons on your timetable today. Pick any class.'}</p>
+      {students.filter((s) => !s.archived && watchRaise(s.seatWatch)).map((s) => (
+        <a key={s.id} class="notice review-seat" href={`#/class/${s.classId}/seating/plan/${s.id}`}>{displayName(s)} isn't settling at {s.seatWatch!.table}. Review the seating plan? <Icon name="chevron" /></a>
+      ))}
       {todays.length > 0 && <><div class="section" style="margin-top:6px"><h3 class="grow">Today</h3></div><div class="class-grid">{todays.map(card)}</div></>}
       {others.length > 0 && <><div class="section"><h3 class="grow">{todays.length ? 'Other classes' : 'Classes'}</h3></div><div class="class-grid">{others.map(card)}</div></>}
     </div>

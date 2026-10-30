@@ -16,7 +16,8 @@ import { evidenceDue } from '../../logic/evidence';
 import { hasFeature } from '../../features';
 import { today } from '../../lib/dates';
 import { go, useLive, useSettings } from '../hooks';
-import { displayName, Empty, Icon, initials, Switch, toast } from '../components';
+import { displayName, Empty, Icon, initials, Sheet, Switch, toast } from '../components';
+import { seatLabel, watchActive, watchBoosted } from '../../logic/seatingData';
 import { SwipeCard, haptic, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { EvidencePrompt, EvidenceSheet } from '../Evidence';
 
@@ -37,8 +38,10 @@ interface IssueDraft {
   note: string;
   subNotes: Record<string, string>;
   follow: boolean;
+  /** Behaviour → Peer interactions: "With who?" (saved as unconfirmed keep-apart signals). */
+  withWho: string[];
 }
-const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, follow: true };
+const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, follow: true, withWho: [] };
 
 export function CheckinScreen({ classId, studentId }: { classId: string; studentId?: string }) {
   const date = today();
@@ -56,6 +59,9 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   // ICP adjustments for the ICP step, fixed when the step opens (answering one marks it done for today).
   const [icpList, setIcpList] = useState<IcpAdjustment[]>([]);
   const [streakDone, setStreakDone] = useState<Set<string>>(new Set());
+  /** "Worked well with…" picker after All good. */
+  const [workedWell, setWorkedWell] = useState<string | null>(null);
+  const [watchAnswered, setWatchAnswered] = useState<Record<string, boolean>>({});
   const card = useRef<SwipeControl | null>(null);
 
   // Saved this session (before the database refresh arrives) plus everything already in the database.
@@ -65,7 +71,8 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const thisLesson = (ctx?.checkins ?? []).filter((c) => lessonOf(c) === lessonId);
   const loggedHere = new Set([...thisLesson.map((c) => c.studentId), ...justLogged]);
   const checkedHere = new Set([...thisLesson.filter((c) => c.status === 'complete' || c.status === 'partial').map((c) => c.studentId), ...justChecked]);
-  const ranked: NeedRow[] = ctx ? rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere }) : [];
+  const seatWatch = new Set((ctx?.students ?? []).filter((x) => watchBoosted(x.seatWatch, ctx!.lessons)).map((x) => x.id));
+  const ranked: NeedRow[] = ctx ? rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere, seatWatch }) : [];
   // Skipped students go to the end, in the order they were skipped.
   const queue = [...ranked.filter((r) => !skipped.includes(r.studentId)), ...skipped.map((id) => ranked.find((r) => r.studentId === id)).filter((r): r is NeedRow => !!r)];
   const single = !!studentId;
@@ -97,9 +104,9 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
     if (!single) setMilestone(milestoneAfter(count, target, { extra: settings?.extraEncouragement !== false, everyoneSeen }));
   };
   /** Undo for 5 seconds after any save: removes what was saved and brings the student back. */
-  function offerUndo(label: string, studentId: string, run: () => Promise<unknown>) {
+  function offerUndo(label: string, studentId: string, run: () => Promise<unknown>, extra?: { label: string; run: () => void }) {
     toast(label, {
-      label: 'Undo', seconds: UNDO_SECONDS, run: async () => {
+      label: 'Undo', seconds: UNDO_SECONDS, extra, run: async () => {
         await run();
         const drop = (j: Set<string>) => { const n = new Set(j); n.delete(studentId); return n; };
         setJustLogged(drop); setJustChecked(drop); setMilestone(null); reset(); setActiveId(studentId);
@@ -120,12 +127,13 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   async function allGood(id: string) {
     const r = await svc.logAllGood(targetOf(id));
     markLogged(id, true);
-    offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
+    offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id), { label: 'Worked well with…', run: () => setWorkedWell(id) });
     afterSave(id);
   }
   async function saveIssue(id: string) {
     const d = draft;
     const r = await svc.logIssue(targetOf(id), { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: d.follow });
+    if (d.picked.behaviour?.includes('peer_interactions') && d.withWho.length) await svc.logRelationshipSignals(targetOf(id), d.withWho, 'keepApart');
     markLogged(id, true);
     offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
     afterSave(id);
@@ -141,7 +149,10 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const header = (
     <div class="row between">
       <a class="link-btn back-btn" href={back}><Icon name="back" /> {cls.name}</a>
-      {!single && <span class="tiny muted mono">{queue.length} to go</span>}
+      <span class="row" style="gap:12px">
+        <a class="link-btn" href={`#/class/${classId}/seating`}>Seats</a>
+        {!single && <span class="tiny muted mono">{queue.length} to go</span>}
+      </span>
     </div>
   );
   const progress = !single && (
@@ -199,6 +210,9 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const askStreak = step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
   const already = sChk.find((c) => lessonOf(c) === lessonId);
   const wellbeing = wellbeingRecent(sObs, date);
+  const seat = seatLabel(ctx.seatingPlan, s.id);
+  const watch = watchActive(s.seatWatch) && !s.seatWatch!.answers.some((a) => a.lessonId === lessonId) ? s.seatWatch! : null;
+  const answered = watchAnswered[s.id];
   const good = { side: sideOf('good'), btn: <button class="btn big good-btn" onClick={() => card.current?.fling('good')}><Icon name="check" /> All good</button> };
   const issue = { side: sideOf('issue'), btn: <button class="btn big issue-btn" onClick={() => card.current?.fling('issue')}><Icon name="alert" /> Issue</button> };
 
@@ -215,6 +229,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
               <div class="grow">
                 <h1 class="card-name">{displayName(s)} {s.flag && <Icon name="flag" class="flag" />}{hasIcp && <span class="icp-mark" title="Has ICP adjustments">ICP</span>}</h1>
                 {row && <div class="tiny muted">{needWords(row)}</div>}
+                {seat && <div class="tiny muted">Seat: {seat}</div>}
               </div>
             </div>
             {already && <p class="tiny muted" style="margin:8px 0 0">Already logged this lesson ({already.status === 'absent' ? 'not here' : already.result === 'issue' ? 'issue' : 'all good'}). Logging again replaces it.</p>}
@@ -231,6 +246,21 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
               })}
             </div>
             {wellbeing > 0 && <p class="tiny muted wellbeing-note">Wellbeing flagged {wellbeing}× recently</p>}
+            {(watch || answered !== undefined) && (
+              <div class="watch-box pop-in">
+                {answered === undefined ? (
+                  <>
+                    <b class="small">New seat at {watch!.table}. How are they going there?</b>
+                    <div class="chips" style="margin-top:8px">
+                      <button class="chip small" onClick={async () => { await svc.answerSeatWatch(s.id, true, targetOf(s.id)); setWatchAnswered({ ...watchAnswered, [s.id]: true }); }}>Settled</button>
+                      <button class="chip small" onClick={async () => { await svc.answerSeatWatch(s.id, false, targetOf(s.id)); setWatchAnswered({ ...watchAnswered, [s.id]: false }); }}>Not settled</button>
+                    </div>
+                  </>
+                ) : answered ? <span class="small">Settled at {s.seatWatch?.table ?? 'their seat'}.</span> : (
+                  <span class="small">Saved. "Review seat" is now on the class page and the seating plan. <button class="link-btn" onClick={async () => { await svc.flagForPlanning(s.id, s.seatWatch?.table ?? 'their seat'); toast('Flagged for lesson planning'); }}>Flag for lesson planning</button></span>
+                )}
+              </div>
+            )}
             {fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
             {askStreak && (
               <div class="streak-box pop-in">
@@ -266,7 +296,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       )}
 
       {step === 'issue' && (
-        <IssueStep s={s} draft={draft} setDraft={setDraft}
+        <IssueStep s={s} classmates={byName(students.filter((x) => x.id !== s.id))} draft={draft} setDraft={setDraft}
           evidence={hasFeature('evidence') ? { on: withEvidence, count: evidenceCount, toggle: (v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }, open: () => setEvidenceOpen(true) } : null}
           onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'back' || o === 'cancel') reset(); }} />
       )}
@@ -276,6 +306,12 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       )}
 
       {step === 'icp' && <IcpStep s={s} due={icpList} ctx={ctx} date={date} onDone={moveOn} />}
+      {workedWell && (
+        <PeoplePicker title={`${displayName(students.find((x) => x.id === workedWell)!)} worked well with…`} people={students.filter((x) => x.id !== workedWell)}
+          hint="Saved as a suggestion for seating plans. You confirm it on Seating → Relationships."
+          onClose={() => setWorkedWell(null)}
+          onSave={async (ids) => { await svc.logRelationshipSignals(targetOf(workedWell), ids, 'worksWell'); setWorkedWell(null); toast('Saved for seating'); }} />
+      )}
 
     </div>
   );
@@ -318,8 +354,8 @@ function HoldChip({ label, on, hasNote, onTap, onHold }: { label: string; on: bo
  * tick box, minor items under Behaviour, and an optional note, evidence and "follow up next time".
  * Swipe right (towards "good") saves straight away; with nothing ticked it goes back. Swipe left cancels.
  */
-function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
-  s: Student; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
+function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome }: {
+  s: Student; classmates: Student[]; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
   evidence: { on: boolean; count: number; toggle: (v: boolean) => void; open: () => void } | null;
   onOutcome: (o: IssueOutcome) => void;
 }) {
@@ -410,6 +446,17 @@ function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
                   <span class="area-name">{a.name}<span class="area-q">{a.question}</span></span>{on && <Icon name="check" />}
                 </button>
                 {on && subChips(a)}
+                {a.id === 'behaviour' && picked.behaviour?.includes('peer_interactions') && (
+                  <div class="with-who pop-in">
+                    <span class="tiny muted">With who? (optional)</span>
+                    <div class="chips" style="flex-wrap:wrap">
+                      {classmates.map((x) => {
+                        const sel = draft.withWho.includes(x.id);
+                        return <button key={x.id} class={`chip tiny-chip ${sel ? 'active' : ''}`} aria-pressed={sel} onClick={() => setDraft((d) => ({ ...d, withWho: sel ? d.withWho.filter((y) => y !== x.id) : [...d.withWho, x.id] }))}>{displayName(x)}</button>;
+                      })}
+                    </div>
+                  </div>
+                )}
                 {!!a.minor?.length && (
                   <div class="minor-row">
                     <span class="tiny muted">Minor:</span>
@@ -480,6 +527,22 @@ function IcpStep({ s, due, ctx, date, onDone }: { s: Student; due: IcpAdjustment
       <button class="btn primary block" style="margin-top:14px" onClick={onDone}>{allAnswered ? 'Next student' : 'Skip ICP for now'} <Icon name="arrow" /></button>
       {evFor && <EvidenceSheet adj={evFor.adj} reason={evFor.reason} onClose={() => { setAsked(new Set([...asked, evFor.adj.id])); setEvFor(null); }} />}
     </div>
+  );
+}
+
+const byName = (xs: Student[]) => [...xs].sort((a, b) => displayName(a).localeCompare(displayName(b)));
+
+/** Pick one or more classmates (e.g. "Worked well with…"). */
+export function PeoplePicker({ title, people, hint, onClose, onSave }: { title: string; people: Student[]; hint?: string; onClose: () => void; onSave: (ids: string[]) => void }) {
+  const [sel, setSel] = useState<string[]>([]);
+  return (
+    <Sheet title={title} onClose={onClose}>
+      {hint && <p class="tiny muted" style="margin-top:0">{hint}</p>}
+      <div class="chips" style="flex-wrap:wrap">
+        {byName(people).map((x) => <button key={x.id} class={`chip ${sel.includes(x.id) ? 'active' : ''}`} aria-pressed={sel.includes(x.id)} onClick={() => setSel(sel.includes(x.id) ? sel.filter((y) => y !== x.id) : [...sel, x.id])}>{displayName(x)}</button>)}
+      </div>
+      <div class="actions"><button class="btn" onClick={onClose}>Cancel</button><button class="btn primary" disabled={!sel.length} onClick={() => onSave(sel)}>Save</button></div>
+    </Sheet>
   );
 }
 

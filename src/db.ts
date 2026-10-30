@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Assessment, AssessmentCheck, Category, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
+  Assessment, AssessmentCheck, Category, Relationship, Room, SeatingPlan, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -30,6 +30,9 @@ export class PulseDB extends Dexie {
   journal!: Table<JournalEntry, string>;
   assessments!: Table<Assessment, string>;
   assessmentChecks!: Table<AssessmentCheck, string>;
+  relationships!: Table<Relationship, string>;
+  rooms!: Table<Room, string>;
+  seatingPlans!: Table<SeatingPlan, string>;
   /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
   evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
@@ -92,6 +95,9 @@ export class PulseDB extends Dexie {
     });
     // v11: teacher journal, and assessments with their checks (round 4).
     this.version(11).stores({ journal: 'id, classId, date, lessonId', assessments: 'id, classId', assessmentChecks: 'id, assessmentId, studentId, classId, date' });
+    // v14: seating plans (round 7). Numbered above round 5 (v12) and round 6 (v13) so the branches don't clash;
+    // whichever round merges into main later must still use a version above the one live phones already have.
+    this.version(14).stores({ relationships: 'id, classId, studentA, studentB, checkinId', rooms: 'id', seatingPlans: 'id, classId' });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -102,7 +108,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'relationships', 'rooms', 'seatingPlans', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 

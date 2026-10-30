@@ -11,6 +11,15 @@ import { displayName, Icon } from '../components';
 import { MultiTrendLine, TrendLine } from '../TrendLine';
 import { classColdCallRate, successSeries, weeksAgo } from '../../logic/classStats';
 import { NeedBadge } from './Students';
+import type { SeatingPlan } from '../../types';
+
+/** Where each seating plan starts on a chart whose points begin on these dates (fractional index). */
+export function planMarkers(points: string[], plans: SeatingPlan[]): { at: number; label: string }[] {
+  return plans.filter((p) => p.activeFrom).flatMap((p) => {
+    const i = points.findIndex((d) => d >= p.activeFrom!);
+    return i > 0 ? [{ at: i - 0.5, label: formatShort(p.activeFrom!) }] : [];
+  });
+}
 
 async function load(classId: string) {
   const students = await db.students.where('classId').equals(classId).toArray();
@@ -23,16 +32,19 @@ async function load(classId: string) {
   ]);
   const lessons = await db.lessons.where('classId').equals(classId).toArray();
   const coldCalls = await db.coldCalls.where('classId').equals(classId).toArray();
-  return { students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons, coldCalls };
+  const seatingPlans = await db.seatingPlans.where('classId').equals(classId).toArray();
+  return { seatingPlans, students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons, coldCalls };
 }
 
 export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: () => void }) {
   const date = today();
   const d = useLive(() => load(classId), [classId, date]);
   if (!d || !d.students.length) return null;
-  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons, coldCalls } = d;
+  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons, coldCalls, seatingPlans } = d;
   const success = successSeries({ observations: observations.filter((o) => o.classId === classId), checkins: checkins.filter((c) => c.classId === classId), lessons, today: date });
   const cc = classColdCallRate(coldCalls, date);
+  // A thin line where each seating plan became active.
+  const planMarks = planMarkers(success.points, seatingPlans);
   const latest = (v: (number | null)[]) => { const x = [...v].reverse().find((y) => y !== null); return x === undefined || x === null ? null : Math.round(x * 100); };
 
   const wk = weekStart(date);
@@ -57,10 +69,12 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
         <a class="btn primary" href={`#/class/${classId}`}><Icon name="today" /> Open class</a>
         <button class="btn" onClick={onBlitz}><Icon name="bolt" /> Blitz</button>
       </div>
+      <a class="btn block seating-btn" href={`#/class/${classId}/seating`}><Icon name="students" /> Seating plan</a>
 
       <div class="card">
         <span class="eyebrow">Check-in success rate · % meeting expectations per {success.unit}</span>
-        <MultiTrendLine series={success.series} labels={success.labels} />
+        <MultiTrendLine series={success.series} labels={success.labels} markers={planMarks} />
+        {planMarks.length > 0 && <p class="tiny muted" style="margin:4px 0 0">Dashed line: new seating plan ({planMarks.map((m) => m.label).join(', ')}).</p>}
         <div class="success-latest">
           {success.series.map((s) => { const v = latest(s.values); return <span key={s.id}><i style={{ background: s.colour }} />{s.label}: <b>{v === null ? '–' : `${v}%`}</b></span>; })}
         </div>

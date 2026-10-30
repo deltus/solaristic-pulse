@@ -6,7 +6,7 @@ import { useState } from 'preact/hooks';
 import * as svc from '../../services';
 import { db } from '../../db';
 import type { BrainBreak } from '../../config/brainBreaks';
-import { availableBreaks, breaksFor, groupForSubject, instructionParts, pickBreak, recentBreakIds, subjectGroups } from '../../logic/brainBreaks';
+import { availableBreaks, breaksFor, groupForSubject, instructionParts, startGroup, pickBreak, recentBreakIds, subjectGroups } from '../../logic/brainBreaks';
 import { planRoll, type RollPlan } from '../../logic/coldcall';
 import { go, useLive, useSettings } from '../hooks';
 import { Icon, toast } from '../components';
@@ -61,7 +61,7 @@ export function BrainBreakScreen({ classId }: { classId: string }) {
     setPhase('roll');
   }
   function subjectBreak() {
-    const g = groupForSubject(ctx!.cls.subject, groups);
+    const g = startGroup(ctx!.cls.subject, groups);
     if (g) spin(g); else setPhase('subject');
   }
   async function done() {
@@ -89,7 +89,7 @@ export function BrainBreakScreen({ classId }: { classId: string }) {
         {header}
         <h1 style="margin:10px 0 14px">Brain break</h1>
         <div class="bb-pick">
-          <button class="hub-btn primary" onClick={subjectBreak}><Icon name="bolt" /><b>Subject break</b><span>A quick game for {ctx.cls.subject || 'your subject'}</span></button>
+          <button class="hub-btn primary" onClick={subjectBreak}><Icon name="bolt" /><b>Subject break</b><span>{groupForSubject(ctx.cls.subject, groups) ? `A quick game for ${ctx.cls.subject}` : 'A quick game that works in any class'}</span></button>
           <button class="hub-btn" onClick={() => spin('calm')}><Icon name="clock" /><b>Calm break</b><span>Breathing and grounding to settle the room</span></button>
         </div>
       </div>
@@ -165,16 +165,16 @@ export function BreakInstructions({ b, all, onHide }: { b: BrainBreak; all: Brai
       <div class="bb-resources">
         <b>{p.needs}</b>
         {p.optional && <span class="muted"> (optional: {p.optional})</span>}
+        {p.openGame && (
+          <>
+            <button class="btn primary big block" style="margin-top:10px" onClick={() => openLink(p.openGame!)}>🔗 {p.openLabel}</button>
+            {b.linkNote && <p class="tiny muted" style="margin:6px 0 0">{b.linkNote}</p>}
+          </>
+        )}
       </div>
       <ol class="bb-steps">
         {p.steps.map(({ before, say }, i) => <li key={i}>{before}{say && <span class="bb-say">Say: {say}</span>}</li>)}
       </ol>
-      {p.openGame && (
-        <>
-          <button class="btn primary big block" onClick={() => openLink(p.openGame!)}><Icon name="arrow" /> Open game</button>
-          {b.linkNote && <p class="tiny muted" style="margin:6px 0 0">{b.linkNote}</p>}
-        </>
-      )}
       {b.notes && <p class="small" style="margin:12px 0 0"><b>Note:</b> {b.notes}</p>}
       {b.seatedVersion && <p class="small" style="margin:8px 0 0"><b>Seated version:</b> {b.seatedVersion}</p>}
       {p.calmRule && <p class="small bb-calm-rule">{p.calmRule}</p>}

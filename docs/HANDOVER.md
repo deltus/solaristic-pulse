@@ -10,11 +10,7 @@
 **Merge order rule (Azeem, 31/10):** rounds go live in database-version order (5, then 6, then 7). If Azeem says "merge" out of order, stop and warn him, or renumber so the merged round has the highest version and test an upgrade from the live version.
 
 **Still to do, in order:**
-1. **Redo Round 5 (brain breaks), branch `round5`.** Azeem's feedback:
-   - The lists are weak; rewrite them with better activities.
-   - A subject with no brain break of its own gets a random general one, in as few taps as possible.
-   - Subject-specific ones get step-by-step instructions, with the resource as a tap-to-open link.
-   - Merge main into round5 first.
+1. **Round 5 (brain breaks), branch `round5`: rework pushed 31/10, waiting for Azeem to test.** Main merged in. New 37-break list (Any subject group as the one-tap fallback; numbered steps; site button in the "You'll need" box). Brief: docs/briefs/round5.md (Adjustments section). 148 tests pass. Preview checked: Maths class → Subject break → Any subject break. Still v12.
 2. **Finish Round 6 (relief passes), branch `round6`.**
    - Left: tests with a fake ReliefServer, the brief with click-by-click Supabase steps, docs/SUPABASE.md, a BUILD_STATUS line, a browser check, push.
    - The Supabase migration hasn't been run yet; Azeem wants to do the Supabase steps after rounds 5 and 6.

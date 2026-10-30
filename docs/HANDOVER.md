@@ -11,10 +11,7 @@
 
 **Still to do, in order:**
 1. **Round 5 (brain breaks), branch `round5`: rework pushed 31/10, waiting for Azeem to test.** Main merged in. New 37-break list (Any subject group as the one-tap fallback; numbered steps; site button in the "You'll need" box). Brief: docs/briefs/round5.md (Adjustments section). 148 tests pass. Preview checked: Maths class → Subject break → Any subject break. Still v12.
-2. **Finish Round 6 (relief passes), branch `round6`.**
-   - Left: tests with a fake ReliefServer, the brief with click-by-click Supabase steps, docs/SUPABASE.md, a BUILD_STATUS line, a browser check, push.
-   - The Supabase migration hasn't been run yet; Azeem wants to do the Supabase steps after rounds 5 and 6.
-   - Relief teachers must not see Wellbeing; seating wiring is in docs/briefs/round7.md.
+2. **Round 6 (relief passes), branch `round6`: finished and pushed 31/10, waiting for Azeem to test.** Round 5 merged in. Option A (server pass, key in link). 169 tests pass (two-device tests with a fake server in tests/relief-server.test.ts). Brief has click-by-click Supabase steps and a two-phone test for after merge. Supabase script 20261027000000_relief_passes.sql not yet run (Azeem does it after merge). Relief teachers must not see Wellbeing; seating wiring is in docs/briefs/round7.md.
 3. **Then Round 7:** test the preview, adjust, merge.
 4. **Then rounds 8 and 9** (docs/prompts/round8-incidents.md, round9-cfu.md). main has an extra Round 9 addition: merge main in again before starting Round 9.
 

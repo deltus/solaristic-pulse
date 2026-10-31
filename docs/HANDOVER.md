@@ -2,7 +2,7 @@
 
 **Live (main):** rounds 0, 3, 3b and 4, merged 27/10/2026. Previews: https://deltus.github.io/solaristic-pulse/preview/
 
-**Current branch: `round7` (seating plan assistant), pushed (preview: https://deltus.github.io/solaristic-pulse/preview/round7/), not merged.** Azeem wants the Supabase work done after rounds 5 and 6 roll out. Branched from main. Brief: docs/briefs/round7.md (includes a checklist for wiring relief passes when round 6 merges). 160 tests pass; build passes.
+**Current branch: `round7` (seating, with rounds 5 and 6 merged in), pushed (preview: https://deltus.github.io/solaristic-pulse/preview/round7/), not merged.** Azeem wants the Supabase work done after rounds 5 and 6 roll out. Branched from main. Brief: docs/briefs/round7.md (includes a checklist for wiring relief passes when round 6 merges). 160 tests pass; build passes.
 - New: src/config/seating.ts, src/logic/rooms.ts, src/logic/seating.ts (planner), src/logic/seatingData.ts (suggestions, support, seat watch), src/logic/seatingPrint.ts (projector/print, names only), src/ui/screens/Seating.tsx. DB v14 (relationships, rooms, seatingPlans), synced with sensitive fields encrypted (src/sync/fields.ts). Demo class 8B Humanities.
 
 **Database versions across branches:** round5 = v12, round6 = v13, round7 = v14. Whichever round goes live after a higher version is already live must move its schema change above it (e.g. round 7 live first → round 5/6 changes become v15/v16).
@@ -12,7 +12,7 @@
 **Still to do, in order:**
 1. **Round 5 (brain breaks), branch `round5`: rework pushed 31/10, waiting for Azeem to test.** Main merged in. New 37-break list (Any subject group as the one-tap fallback; numbered steps; site button in the "You'll need" box). Brief: docs/briefs/round5.md (Adjustments section). 148 tests pass. Preview checked: Maths class → Subject break → Any subject break. Still v12.
 2. **Round 6 (relief passes), branch `round6`: finished and pushed 31/10, waiting for Azeem to test.** Round 5 merged in. Option A (server pass, key in link). 169 tests pass (two-device tests with a fake server in tests/relief-server.test.ts). Brief has click-by-click Supabase steps and a two-phone test for after merge. Supabase script 20261027000000_relief_passes.sql not yet run (Azeem does it after merge). Relief teachers must not see Wellbeing; seating wiring is in docs/briefs/round7.md.
-3. **Then Round 7:** test the preview, adjust, merge.
+3. **Round 7 (seating), branch `round7`: rounds 5 and 6 merged in, relief wiring done and pushed 31/10, waiting for Azeem to test.** DB v14, no Supabase script. 196 tests pass. Brief: docs/briefs/round7.md (Adjustments). Not done: "What they'll see" doesn't show the seating plan.
 4. **Then rounds 8 and 9** (docs/prompts/round8-incidents.md, round9-cfu.md). main has an extra Round 9 addition: merge main in again before starting Round 9.
 
 **Also on main (added from another device, 31/10):** prompts for round 8 (incidents, follow-ups, Close day, Brain dump) and round 9 (Check for understanding), and docs/BACKLOG.md (parked primary ideas; don't build).

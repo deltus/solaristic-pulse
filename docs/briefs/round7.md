@@ -3,7 +3,7 @@
 ## Preview link
 https://deltus.github.io/solaristic-pulse/preview/round7/
 
-Branched from main (rounds 0, 3, 3b and 4), not from round 5 or 6, so it doesn't wait for brain breaks or relief passes.
+Branched from main; on 31/10 rounds 5 and 6 (and the latest main) were merged in, so this preview has brain breaks, relief passes and seating together.
 
 ## What changed
 - **Seating plan** under Manage class (new button), plus a "Seats" link at the top of Daily check-in.
@@ -74,7 +74,7 @@ Branched from main (rounds 0, 3, 3b and 4), not from round 5 or 6, so it doesn't
 - **No Supabase change is needed:** all tables sync through the existing `sync_rows`, and the new sensitive fields are encrypted on the device.
 - **Not tested on a real phone.** Drag-to-swap isn't built; tap-tap swap is.
 
-## Wiring needed when round 6 (relief passes) merges
+## Wiring for relief passes (done 31/10, see Adjustments)
 A checklist for that merge. Relief teachers see the active plan with **names only**: no reasons, needs, levels, tags or relationships.
 1. **`ReliefBundle`** (src/relief/server.ts / owner.ts): add `seating?: { room: RoomLayout; seats: Record<string, string> }` built from the class's active plan. Seat id → student id only: drop `locked`, the plan name and anything else.
 2. **`seedReliefDatabase`** (src/relief/device.ts): if `b.seating` is present, put one `seatingPlans` row (active, no name) in the relief database. Add `db.seatingPlans` to that transaction. The card then shows "Seat: Table 3" and cold call can pick by table.
@@ -85,3 +85,25 @@ A checklist for that merge. Relief teachers see the active plan with **names onl
    - The seat watch question won't show, since `seatWatch` isn't sent.
 5. **Database version:** round 6 uses v13 and this round uses v14. Whichever is merged second must have a version above whatever is live (see above).
 6. **Test:** a relief bundle built from the 8B demo contains student names and seat ids, and none of these words: needs, support levels, tag names, relationship notes, "keep apart", "works well".
+
+## Adjustments (31/10/2026: rounds 5 and 6 merged in, relief wired)
+**What changed**
+- **Merged Round 5 (brain breaks) and Round 6 (relief passes)** into this branch. Twelve files had both rounds adding things in the same place, and I kept both everywhere. The database now upgrades 11 → 12 → 13 → 14 in order.
+- **Relief teachers get the seating plan, names only.** The pass carries the room and who sits where, with no plan name, locks, seating needs, support levels, balance tags, relationships or reasons.
+- **The relief phone stores that plan**, so its check-in card shows "Seat: Table 3" and cold call can pick by table.
+- **"Seats" on a relief phone** opens the names-only projector view, not the planning screens. It only shows when there's a plan.
+- **In relief mode, "With who?" and "Worked well with…" are hidden.** Those answers can't travel back to you. The "New seat, how are they going?" question can't appear either, because seat watches aren't sent.
+- New tests check the relief data for the 8B demo has names and seats, but none of the private seating words. They also check the relief phone stores the plan and a class with no plan sends no seating. 196 tests pass.
+
+**How to test (preview)**
+1. Open the link → **Load demo data** → tap **Today** in the menu: **Relief entries to review** is there (Round 6).
+2. Open **8B Humanities** → **Open lesson** → **Skip**: seven buttons including **Brain break** (Round 5). Manage class has **Seating plan** and a **Relief** tab.
+3. Seating plan → **Projector view**: names only.
+4. Relief → **Relief pass** → **Prepare pass** → **What they'll see**: the class list as before.
+
+A relief phone's Seats screen can only be tried on the live app with two phones (see the two-phone test in docs/briefs/round6.md, then tap **Daily check-in** → **Seats**).
+
+**Not done / unsure**
+- **"What they'll see" doesn't show the seating plan yet**, only the class list. The relief phone itself does show it.
+- If you change the seating plan while a pass is running, the relief phone gets the new plan when the pass data refreshes (every 15 minutes) and the relief teacher reopens the pass. It isn't instant.
+- **Merge order:** 5 (v12), then 6 (v13), then 7 (v14). This branch already contains 5 and 6, so merging it first would put all three live at once. I'll warn you if you say "merge" out of order.

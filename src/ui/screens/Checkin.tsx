@@ -2,6 +2,8 @@
 // Right (by default) = All good, left = Issue, up = Skip. Also used for "Select student"
 // (one student, same card). A daily target per lesson ("3 of 5 today") with clear stopping points.
 
+import { PreviousButton, usePrevious } from '../Previous';
+import { contentHint, contentSignals } from '../../logic/cfu';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IcpAdjustment, IcpOutcome, Student } from '../../types';
 import * as svc from '../../services';
@@ -16,9 +18,13 @@ import { evidenceDue } from '../../logic/evidence';
 import { hasFeature } from '../../features';
 import { today } from '../../lib/dates';
 import { go, useLive, useSettings } from '../hooks';
-import { displayName, Empty, Icon, initials, Switch, toast } from '../components';
+import { displayName, Empty, Icon, initials, Sheet, Switch, toast } from '../components';
+import { seatLabel, watchActive, watchBoosted } from '../../logic/seatingData';
+import { urgentIds } from '../../logic/incidents';
 import { SwipeCard, haptic, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
+import { isRelief, reliefBundle, reliefOrder } from '../../relief/device';
 import { EvidencePrompt, EvidenceSheet } from '../Evidence';
+import { startIncident } from '../Incident';
 
 type Step = 'card' | 'issue' | 'icp';
 
@@ -36,9 +42,12 @@ interface IssueDraft {
   noteOn: boolean;
   note: string;
   subNotes: Record<string, string>;
-  follow: boolean;
+  /** "Follow up urgently": a task due at the end of today, and top of tomorrow's queue. (A normal follow-up next lesson is automatic.) */
+  urgent: boolean;
+  /** Behaviour → Peer interactions: "With who?" (saved as unconfirmed keep-apart signals). */
+  withWho: string[];
 }
-const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, follow: true };
+const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, urgent: false, withWho: [] };
 
 export function CheckinScreen({ classId, studentId }: { classId: string; studentId?: string }) {
   const date = today();
@@ -56,7 +65,11 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   // ICP adjustments for the ICP step, fixed when the step opens (answering one marks it done for today).
   const [icpList, setIcpList] = useState<IcpAdjustment[]>([]);
   const [streakDone, setStreakDone] = useState<Set<string>>(new Set());
+  /** "Worked well with…" picker after All good. */
+  const [workedWell, setWorkedWell] = useState<string | null>(null);
+  const [watchAnswered, setWatchAnswered] = useState<Record<string, boolean>>({});
   const card = useRef<SwipeControl | null>(null);
+  const prev = usePrevious();
 
   // Saved this session (before the database refresh arrives) plus everything already in the database.
   const [justLogged, setJustLogged] = useState<Set<string>>(new Set());
@@ -65,7 +78,11 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const thisLesson = (ctx?.checkins ?? []).filter((c) => lessonOf(c) === lessonId);
   const loggedHere = new Set([...thisLesson.map((c) => c.studentId), ...justLogged]);
   const checkedHere = new Set([...thisLesson.filter((c) => c.status === 'complete' || c.status === 'partial').map((c) => c.studentId), ...justChecked]);
-  const ranked: NeedRow[] = ctx ? rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere }) : [];
+  const seatWatch = new Set((ctx?.students ?? []).filter((x) => watchBoosted(x.seatWatch, ctx!.lessons)).map((x) => x.id));
+  // Relief teachers get the class teacher's order (without the reasons).
+  const urgent = ctx ? urgentIds(ctx.followUps, ctx.checkins, date) : new Set<string>();
+  const ranked: NeedRow[] = ctx ? reliefOrder(rankByNeed({ ...ctx, lessonId, today: date, excludeIds: new Set([...loggedHere, ...(studentId ? [] : ctx.absentNow)]), seatWatch, urgent })) : [];
+  const relief = isRelief();
   // Skipped students go to the end, in the order they were skipped.
   const queue = [...ranked.filter((r) => !skipped.includes(r.studentId)), ...skipped.map((id) => ranked.find((r) => r.studentId === id)).filter((r): r is NeedRow => !!r)];
   const single = !!studentId;
@@ -97,15 +114,24 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
     if (!single) setMilestone(milestoneAfter(count, target, { extra: settings?.extraEncouragement !== false, everyoneSeen }));
   };
   /** Undo for 5 seconds after any save: removes what was saved and brings the student back. */
-  function offerUndo(label: string, studentId: string, run: () => Promise<unknown>) {
+  // "Previous" keeps the same undo for the rest of this visit.
+  function offerUndo(label: string, studentId: string, run: () => Promise<unknown>, extra?: { label: string; run: () => void }) {
+    if (!single) prev.push(studentId, run);
     toast(label, {
-      label: 'Undo', seconds: UNDO_SECONDS, run: async () => {
+      label: 'Undo', seconds: UNDO_SECONDS, extra, run: async () => {
+        prev.drop(studentId);
         await run();
-        const drop = (j: Set<string>) => { const n = new Set(j); n.delete(studentId); return n; };
-        setJustLogged(drop); setJustChecked(drop); setMilestone(null); reset(); setActiveId(studentId);
+        bringBack(studentId);
       }
     });
   }
+  /** After an undo (toast or Previous): the student's card again, as if they hadn't been answered. */
+  function bringBack(studentId: string) {
+    const drop = (j: Set<string>) => { const n = new Set(j); n.delete(studentId); return n; };
+    setJustLogged(drop); setJustChecked(drop); setMilestone(null); reset(); setActiveId(studentId);
+    setSkipped((k) => k.filter((x) => x !== studentId));
+  }
+  const previous = !single && <PreviousButton prev={prev} name={(id) => displayName(students.find((x) => x.id === id)!)} onBack={bringBack} />;
   function icpDue(id: string) {
     return ctx!.adjustments.filter((a) => a.studentId === id && a.active && a.startDate <= date && (!a.endDate || a.endDate >= date))
       .filter((a) => icpDueStatus(a, ctx!.icpChecks, date, true).due);
@@ -120,14 +146,21 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   async function allGood(id: string) {
     const r = await svc.logAllGood(targetOf(id));
     markLogged(id, true);
-    offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
+    offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id), relief ? undefined : { label: 'Worked well with…', run: () => setWorkedWell(id) });
     afterSave(id);
   }
-  async function saveIssue(id: string) {
+  async function saveIssue(id: string, then?: 'incident') {
     const d = draft;
-    const r = await svc.logIssue(targetOf(id), { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: d.follow });
+    const t = targetOf(id);
+    const r = await svc.logIssue(t, { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: true });
+    if (!relief && d.picked.behaviour?.includes('peer_interactions') && d.withWho.length) await svc.logRelationshipSignals(t, d.withWho, 'keepApart');
+    const urgent = d.urgent && r.checkin.result === 'issue' && !relief ? await svc.addUrgentFollowUp(t) : null;
     markLogged(id, true);
-    offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
+    if (then === 'incident') {
+      startIncident(classId, id, { areas: d.picked, note: d.noteOn ? d.note : undefined, checkinId: r.checkin.id, others: d.withWho });
+      return;
+    }
+    offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, async () => { await svc.undoCheckin(r.checkin.id); if (urgent) await svc.deleteFollowUp(urgent.id); });
     afterSave(id);
   }
   function onCard(a: SwipeAction) {
@@ -141,7 +174,11 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const header = (
     <div class="row between">
       <a class="link-btn back-btn" href={back}><Icon name="back" /> {cls.name}</a>
-      {!single && <span class="tiny muted mono">{queue.length} to go</span>}
+      <span class="row" style="gap:12px">
+        {/* Relief teachers get the names-only projector view, and only when there's a plan. */}
+        {relief ? ctx.seatingPlan && <a class="link-btn" href={`#/class/${classId}/seats`}>Seats</a> : <a class="link-btn" href={`#/class/${classId}/seating`}>Seats</a>}
+        {!single && <span class="tiny muted mono">{queue.length} to go</span>}
+      </span>
     </div>
   );
   const progress = !single && (
@@ -160,6 +197,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
           <h2>That's the whole class. All done for this lesson</h2>
           <p class="muted small">{cls.name} · {checkedHere.size} checked in</p>
           <a class="btn primary" href={back} style="margin-top:10px">Back to {cls.name}</a>
+          <div style="margin-top:10px">{previous}</div>
         </div>
       </div>
     );
@@ -186,6 +224,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
             <button class="btn primary block" onClick={() => setMilestone(null)}>Next student <Icon name="arrow" /></button>
           </div>
         )}
+        <div style="margin-top:10px">{previous}</div>
       </div>
     );
   }
@@ -194,11 +233,15 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const sChk = ctx.checkins.filter((c) => c.studentId === s.id);
   const sObs = ctx.observations.filter((o) => o.studentId === s.id);
   const sTags = ctx.tags.filter((t) => t.studentId === s.id);
-  const hasIcp = ctx.adjustments.some((a) => a.studentId === s.id && a.active);
+  const reliefInfo = relief ? reliefBundle()?.students.find((x) => x.id === s.id) : undefined;
+  const hasIcp = relief ? !!reliefInfo?.icp : ctx.adjustments.some((a) => a.studentId === s.id && a.active);
   const fu = openFollow(sChk, sObs, sTags, lessonId);
-  const askStreak = step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
+  const askStreak = !relief && step === 'card' && !streakDone.has(s.id) && streakDue(s, sChk, sObs, sTags, date);
   const already = sChk.find((c) => lessonOf(c) === lessonId);
   const wellbeing = wellbeingRecent(sObs, date);
+  const seat = seatLabel(ctx.seatingPlan, s.id);
+  const watch = watchActive(s.seatWatch) && !s.seatWatch!.answers.some((a) => a.lessonId === lessonId) ? s.seatWatch! : null;
+  const answered = watchAnswered[s.id];
   const good = { side: sideOf('good'), btn: <button class="btn big good-btn" onClick={() => card.current?.fling('good')}><Icon name="check" /> All good</button> };
   const issue = { side: sideOf('issue'), btn: <button class="btn big issue-btn" onClick={() => card.current?.fling('issue')}><Icon name="alert" /> Issue</button> };
 
@@ -214,11 +257,13 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
               <span class="avatar big">{initials(s)}</span>
               <div class="grow">
                 <h1 class="card-name">{displayName(s)} {s.flag && <Icon name="flag" class="flag" />}{hasIcp && <span class="icp-mark" title="Has ICP adjustments">ICP</span>}</h1>
-                {row && <div class="tiny muted">{needWords(row)}</div>}
+                {row && !relief && <div class="tiny muted">{needWords(row)}</div>}
+                {seat && <div class="tiny muted">Seat: {seat}</div>}
+                {reliefInfo?.icp && (reliefInfo.adjustments ? reliefInfo.adjustments.map((a, i) => <div key={i} class="tiny">{a.title}{a.details ? `: ${a.details}` : ''}</div>) : <div class="tiny muted">ICP: ask the school for details</div>)}
               </div>
             </div>
             {already && <p class="tiny muted" style="margin:8px 0 0">Already logged this lesson ({already.status === 'absent' ? 'not here' : already.result === 'issue' ? 'issue' : 'all good'}). Logging again replaces it.</p>}
-            <div class="area-rows">
+            {!relief && <div class="area-rows">
               {CHECKIN_AREAS.map((a) => {
                 const av = areaAverage(sObs, a.id);
                 return (
@@ -229,9 +274,24 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
                   </div>
                 );
               })}
-            </div>
-            {wellbeing > 0 && <p class="tiny muted wellbeing-note">Wellbeing flagged {wellbeing}× recently</p>}
-            {fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
+            </div>}
+            {!relief && wellbeing > 0 && <p class="tiny muted wellbeing-note">Wellbeing flagged {wellbeing}× recently</p>}
+            {!relief && (watch || answered !== undefined) && (
+              <div class="watch-box pop-in">
+                {answered === undefined ? (
+                  <>
+                    <b class="small">New seat at {watch!.table}. How are they going there?</b>
+                    <div class="chips" style="margin-top:8px">
+                      <button class="chip small" onClick={async () => { await svc.answerSeatWatch(s.id, true, targetOf(s.id)); setWatchAnswered({ ...watchAnswered, [s.id]: true }); }}>Settled</button>
+                      <button class="chip small" onClick={async () => { await svc.answerSeatWatch(s.id, false, targetOf(s.id)); setWatchAnswered({ ...watchAnswered, [s.id]: false }); }}>Not settled</button>
+                    </div>
+                  </>
+                ) : answered ? <span class="small">Settled at {s.seatWatch?.table ?? 'their seat'}.</span> : (
+                  <span class="small">Saved. "Review seat" is now on the class page and the seating plan. <button class="link-btn" onClick={async () => { await svc.flagForPlanning(s.id, s.seatWatch?.table ?? 'their seat'); toast('Flagged for lesson planning'); }}>Flag for lesson planning</button></span>
+                )}
+              </div>
+            )}
+            {!relief && fu && <div class="follow-box"><b>{followLead(fu, date)}:</b> {fu.text}. <b>Again?</b></div>}
             {askStreak && (
               <div class="streak-box pop-in">
                 <b class="small">Consistently good lately. Exceeding in any area?</b>
@@ -248,10 +308,11 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
             <button class="link-btn" onClick={async () => {
               const id = await svc.markNotHere(targetOf(s.id));
               markLogged(s.id, false);
-              offerUndo(`Not here · ${displayName(s)}`, s.id, () => svc.undoCheckin(id));
+              offerUndo(`Not here · ${displayName(s)}`, s.id, () => svc.undoNotHere(targetOf(s.id), id));
               moveOn();
             }}>Not here</button>
           </div>
+          {previous}
           <p class="hold-hint">Swipe {good.side} for all good, {issue.side} for an issue, up to skip</p>
           {!single && queue.length > 1 && (
             <div class="up-next">
@@ -266,8 +327,10 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       )}
 
       {step === 'issue' && (
-        <IssueStep s={s} draft={draft} setDraft={setDraft}
+        <IssueStep s={s} classmates={byName(students.filter((x) => x.id !== s.id))} draft={draft} setDraft={setDraft}
+          contentHint={contentHint(contentSignals(s.id, ctx.cfuResults, ctx.coldCalls, date))}
           evidence={hasFeature('evidence') ? { on: withEvidence, count: evidenceCount, toggle: (v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }, open: () => setEvidenceOpen(true) } : null}
+          onIncident={() => (Object.keys(draft.picked).length || Object.keys(draft.minor).some((k) => draft.minor[k].length) ? saveIssue(s.id, 'incident') : startIncident(classId, s.id, { areas: {} }))}
           onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'back' || o === 'cancel') reset(); }} />
       )}
       {evidenceOpen && (
@@ -276,6 +339,12 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       )}
 
       {step === 'icp' && <IcpStep s={s} due={icpList} ctx={ctx} date={date} onDone={moveOn} />}
+      {workedWell && (
+        <PeoplePicker title={`${displayName(students.find((x) => x.id === workedWell)!)} worked well with…`} people={students.filter((x) => x.id !== workedWell)}
+          hint="Saved as a suggestion for seating plans. You confirm it on Seating → Relationships."
+          onClose={() => setWorkedWell(null)}
+          onSave={async (ids) => { await svc.logRelationshipSignals(targetOf(workedWell), ids, 'worksWell'); setWorkedWell(null); toast('Saved for seating'); }} />
+      )}
 
     </div>
   );
@@ -318,10 +387,13 @@ function HoldChip({ label, on, hasNote, onTap, onHold }: { label: string; on: bo
  * tick box, minor items under Behaviour, and an optional note, evidence and "follow up next time".
  * Swipe right (towards "good") saves straight away; with nothing ticked it goes back. Swipe left cancels.
  */
-function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
-  s: Student; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
+function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome, onIncident, contentHint: suggestContent }: {
+  /** Coping → Content suggested from recent "not yet" answers and struggled cold calls (round 9). */
+  contentHint?: string | null;
+  s: Student; classmates: Student[]; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
   evidence: { on: boolean; count: number; toggle: (v: boolean) => void; open: () => void } | null;
   onOutcome: (o: IssueOutcome) => void;
+  onIncident: () => void;
 }) {
   const settings = useSettings();
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -375,6 +447,7 @@ function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
               <HoldChip label={x.label} on={picked[a.id]?.includes(x.id) ?? false} hasNote={!!draft.subNotes[key]}
                 onTap={() => toggleSub(a, x.id)} onHold={() => { toggleSub(a, x.id, true); setNoteFor(key); }} />
               {showHints && x.hint && <span class="sub-hint tiny muted">{x.hint}</span>}
+              {suggestContent && a.id === 'coping' && x.id === 'content' && <span class="sub-hint tiny suggested">{suggestContent}</span>}
             </span>
           );
         })}
@@ -410,6 +483,17 @@ function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
                   <span class="area-name">{a.name}<span class="area-q">{a.question}</span></span>{on && <Icon name="check" />}
                 </button>
                 {on && subChips(a)}
+                {a.id === 'behaviour' && picked.behaviour?.includes('peer_interactions') && !isRelief() && (
+                  <div class="with-who pop-in">
+                    <span class="tiny muted">With who? (optional)</span>
+                    <div class="chips" style="flex-wrap:wrap">
+                      {classmates.map((x) => {
+                        const sel = draft.withWho.includes(x.id);
+                        return <button key={x.id} class={`chip tiny-chip ${sel ? 'active' : ''}`} aria-pressed={sel} onClick={() => setDraft((d) => ({ ...d, withWho: sel ? d.withWho.filter((y) => y !== x.id) : [...d.withWho, x.id] }))}>{displayName(x)}</button>;
+                      })}
+                    </div>
+                  </div>
+                )}
                 {!!a.minor?.length && (
                   <div class="minor-row">
                     <span class="tiny muted">Minor:</span>
@@ -439,7 +523,8 @@ function IssueStep({ s, draft, setDraft, evidence, onOutcome }: {
               {evidence.on && <button class="btn small" onClick={evidence.open}><Icon name="camera" /> {evidence.count ? `${evidence.count} added · add more` : 'Add evidence'}</button>}
             </div>
           )}
-          <label class="check-row"><input type="checkbox" checked={draft.follow} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, follow: v })); }} /> Follow up next time</label>
+          {!isRelief() && <label class="check-row"><input type="checkbox" checked={draft.urgent} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, urgent: v })); }} /> Follow up urgently <span class="tiny muted">(a task due today, top of tomorrow's queue)</span></label>}
+          <button class="btn small danger serious-btn" onClick={onIncident}><Icon name="alert" /> Serious incident</button>
         </div>
         <p class="hold-hint">Swipe {sideOf('good')} to save · {sideOf('issue')} to cancel. Nothing is saved if you cancel.</p>
       </SwipeCard>
@@ -483,6 +568,22 @@ function IcpStep({ s, due, ctx, date, onDone }: { s: Student; due: IcpAdjustment
   );
 }
 
+const byName = (xs: Student[]) => [...xs].sort((a, b) => displayName(a).localeCompare(displayName(b)));
+
+/** Pick one or more classmates (e.g. "Worked well with…"). */
+export function PeoplePicker({ title, people, hint, onClose, onSave }: { title: string; people: Student[]; hint?: string; onClose: () => void; onSave: (ids: string[]) => void }) {
+  const [sel, setSel] = useState<string[]>([]);
+  return (
+    <Sheet title={title} onClose={onClose}>
+      {hint && <p class="tiny muted" style="margin-top:0">{hint}</p>}
+      <div class="chips" style="flex-wrap:wrap">
+        {byName(people).map((x) => <button key={x.id} class={`chip ${sel.includes(x.id) ? 'active' : ''}`} aria-pressed={sel.includes(x.id)} onClick={() => setSel(sel.includes(x.id) ? sel.filter((y) => y !== x.id) : [...sel, x.id])}>{displayName(x)}</button>)}
+      </div>
+      <div class="actions"><button class="btn" onClick={onClose}>Cancel</button><button class="btn primary" disabled={!sel.length} onClick={() => onSave(sel)}>Save</button></div>
+    </Sheet>
+  );
+}
+
 /** Shown when a class screen is opened without an open lesson. */
 export function NeedLesson({ classId, name }: { classId: string; name: string }) {
   return (
@@ -517,6 +618,7 @@ export function SelectStudentScreen({ classId }: { classId: string }) {
           {list.map((s) => (
             <a key={s.id} class="mini-row" href={`#/class/${classId}/student/${s.id}`}>
               <span class="grow">{displayName(s)}</span>
+              {ctx.absentNow.has(s.id) && <span class="chip small absent-chip">Absent</span>}
               {logged.has(s.id) ? <span class="ok"><Icon name="check" /></span> : <Icon name="chevron" />}
             </a>
           ))}

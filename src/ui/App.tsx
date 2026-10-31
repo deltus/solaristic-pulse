@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useRoute, useSettings, useLive, useTick } from './hooks';
-import { Icon, Sheet, ToastHost } from './components';
+import { Icon, Sheet, ToastHost, toastMarkedPresent } from './components';
+import { MARKED_PRESENT_EVENT } from '../services';
+import { TicketPresent, TicketScreen, WholeClassScreen } from './screens/Cfu';
 import { LockScreen } from './Lock';
 import { Setup } from './Setup';
 import { Tour } from './Tour';
@@ -10,7 +12,9 @@ import { HomeworkScreen } from './screens/Homework';
 import { CloseLessonScreen } from './screens/CloseLesson';
 import { ColdCallScreen } from './screens/ColdCall';
 import { AssessmentCheckScreen } from './screens/Assessment';
+import { BrainBreakScreen } from './screens/BrainBreak';
 import { TeachingScreen } from './screens/Teaching';
+import { SeatingScreen } from './screens/Seating';
 import { lessonsToClose, lessonName } from '../logic/lessons';
 import { HomeScreen } from './screens/Home';
 import { BlitzScreen } from './screens/Blitz';
@@ -21,6 +25,9 @@ import { IcpScreen } from './screens/Icp';
 import { ReportsScreen } from './screens/Reports';
 import { SettingsScreen } from './screens/Settings';
 import { useReminders, type ReminderState } from './reminders';
+import { IncidentForm, IncidentView } from './Incident';
+import { CloseDayScreen } from './CloseDay';
+import { BrainDumpScreen } from './BrainDump';
 import { db, saveSettings } from '../db';
 import { FileSavedHost } from './Files';
 import { openFile } from '../files';
@@ -70,6 +77,11 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', on);
   }, [settings]);
   useEffect(() => setDrawer(false), [route.join('/')]);
+  // Entering something for a student marked absent today clears it: say so.
+  useEffect(() => {
+    window.addEventListener(MARKED_PRESENT_EVENT, toastMarkedPresent);
+    return () => window.removeEventListener(MARKED_PRESENT_EVENT, toastMarkedPresent);
+  }, []);
 
   const icpDue = useLive(async () => {
     const adjs = await db.icpAdjustments.filter((a) => a.active).count();
@@ -81,7 +93,7 @@ export function App() {
   if (locked && settings.pin) return <LockScreen pin={settings.pin} name={settings.profile.name} onUnlock={() => setLocked(false)} />;
   if (!settings.onboarded) return <Setup />;
 
-  const [page = 'home', id, sub, extra] = route;
+  const [page = 'home', id, sub, extra, more, rest, last] = route;
   const currentClass = classes?.find((c) => c.id === (page === 'class' && id ? id : settings.currentClassId)) ?? classes?.[0];
   let screen;
   switch (page) {
@@ -97,13 +109,23 @@ export function App() {
         : sub === 'student' && extra ? <CheckinScreen key={extra} classId={id} studentId={extra} />
         : sub === 'homework' ? <HomeworkScreen key={extra ?? ''} classId={id} anyway={extra === 'anyway'} />
         : sub === 'close' ? <CloseLessonScreen classId={id} />
-        : sub === 'coldcall' ? <ColdCallScreen classId={id} />
+        : sub === 'coldcall' ? <ColdCallScreen key="roll" classId={id} />
+        : sub === 'cfu' && (extra === 'whole' || extra === 'yesno' || extra === 'thumbs') ? <WholeClassScreen classId={id} />
+        : sub === 'cfu' && extra === 'select' ? <ColdCallScreen key="select" classId={id} manual />
+        : sub === 'cfu' && extra === 'ticket' ? <TicketScreen key={`${more ?? ''}/${rest ?? ''}`} classId={id} fromClose={more === 'close' || rest === 'close'} resumeId={more && more !== 'close' ? more : undefined} />
+        : sub === 'cfu' && extra === 'present' && more ? <TicketPresent classId={id} checkId={more} seconds={Number(rest) || 0} fromClose={last === 'close'} />
         : sub === 'assessment' ? <AssessmentCheckScreen key={extra ?? ''} classId={id} assessmentId={extra} />
+        : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />
+        : sub === 'seating' ? <SeatingScreen classId={id} tab={extra} focus={more} />
+        : sub === 'incident' && extra ? <IncidentForm key={extra} classId={id} studentId={extra} />
         : <ClassHub classId={id} reminder={reminder} />;
       break;
     case 'blitz': screen = <BlitzScreen classId={id} />; break;
     case 'teaching': screen = <TeachingScreen />; break;
+    case 'incident': screen = id ? <IncidentView id={id} /> : <HomeScreen reminder={reminder} />; break;
+    case 'closeday': screen = <CloseDayScreen key={id ?? ''} date={id} />; break;
+    case 'braindump': screen = <BrainDumpScreen key={id ?? ''} classId={id} />; break;
     case 'checkout': screen = id ? <CheckoutScreen classId={id} timetableId={sub} /> : <HomeScreen reminder={reminder} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }
@@ -114,10 +136,12 @@ export function App() {
     <div class="shell">
       <div ref={shadeRef} class={`drawer-shade ${drawer ? 'open' : ''}`} onClick={() => setDrawer(false)} />
       <nav ref={drawerRef} class={`drawer ${drawer ? 'open' : ''}`} aria-label="Main" data-tour="drawer">
-        <div class="drawer-head">
+        {/* Your name opens your profile. */}
+        <a class="drawer-head" href="#/settings/profile" aria-label="Your profile" onClick={() => setDrawer(false)}>
           <span class="topbar-mark"><img src="icons/mark.png" alt="" /></span>
-          <div><b>Solaristic Radar</b><span>{settings.profile.name}</span></div>
-        </div>
+          <div class="grow"><b>Solaristic Radar</b><span>{settings.profile.name}</span></div>
+          <Icon name="chevron" />
+        </a>
         {NAV.map((n) => (
           <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${(page === n.path && !(page === 'settings' && (id === 'invite' || id === 'account'))) || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
             <Icon name={n.icon} /><span>{n.label}</span>

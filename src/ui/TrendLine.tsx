@@ -34,8 +34,10 @@ export function TrendLine({ values, dots, labels, height = 64 }: {
 }
 
 /** Several trend lines on one chart (0–1, up is good), with a legend. */
-export function MultiTrendLine({ series, labels, height = 96 }: {
+export function MultiTrendLine({ series, labels, height = 96, markers }: {
   series: { id: string; label: string; colour: string; values: (number | null)[] }[]; labels?: [string, string]; height?: number;
+  /** Thin vertical lines (e.g. a new seating plan), at a point index (fractions sit between points). */
+  markers?: { at: number; label: string }[];
 }) {
   const W = 300, H = height, pad = 6;
   const n = Math.max(0, ...series.map((s) => s.values.length));
@@ -57,6 +59,7 @@ export function MultiTrendLine({ series, labels, height = 96 }: {
         <line x1="0" x2={W} y1={y(1)} y2={y(1)} class="tl-grid" />
         <line x1="0" x2={W} y1={y(0.5)} y2={y(0.5)} class="tl-grid dashed" />
         <line x1="0" x2={W} y1={y(0)} y2={y(0)} class="tl-grid" />
+        {markers?.map((m) => <line key={m.label} x1={x(m.at)} x2={x(m.at)} y1={0} y2={H} class="tl-mark" vector-effect="non-scaling-stroke"><title>New seating plan {m.label}</title></line>)}
         {series.map((s) => <path key={s.id} d={path(s.values)} class="tl-line" style={{ stroke: s.colour }} vector-effect="non-scaling-stroke" />)}
         {series.flatMap((s) => s.values.map((v, i) => (v === null ? null : <circle key={`${s.id}${i}`} cx={x(i)} cy={y(v)} r="2.4" style={{ fill: s.colour }} vector-effect="non-scaling-stroke" />)))}
       </svg>

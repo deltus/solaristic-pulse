@@ -1,8 +1,9 @@
 // "Today": the class page for the current class (switches automatically when a timetabled
 // lesson starts). Opens with "Open lesson?"; then six equal buttons (Daily check-in, Homework
-// check, Cold call, Blitz, Select student, ICP) and Close lesson.
+// check, Check for understanding, Blitz, Select student, ICP) and Close lesson.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { ClassFollowUps } from '../Incident';
 import { db, saveSettings } from '../../db';
 import * as svc from '../../services';
 import { formatShort, nowMs, today } from '../../lib/dates';
@@ -16,6 +17,8 @@ import type { ReminderState } from '../reminders';
 import { ReminderPrompt } from '../ReminderPrompt';
 import { lessonOf } from '../../logic/checkin';
 import { activeAssessments, assessmentSummary, dueText } from '../../logic/assessments';
+import { reviewSeatItems } from './Seating';
+import { CfuMenu } from './Cfu';
 
 export function TodayScreen({ reminder }: { reminder: ReminderState }) {
   const settings = useSettings();
@@ -49,6 +52,7 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
   const [askIntention, setAskIntention] = useState(false);
   const [intention, setIntention] = useState('');
   const [editing, setEditing] = useState(false);
+  const [cfuMenu, setCfuMenu] = useState(false);
   useTick(60_000);
   useEffect(() => { if (ctx?.cls && settings && settings.currentClassId !== classId) saveSettings({ currentClassId: classId }); }, [classId, !!ctx?.cls]);
   if (!ctx || !settings || !classes) return ctx === null ? <p class="muted">Class not found. <a href="#/home">Your classes</a></p> : null;
@@ -125,12 +129,18 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
         {hw.mode === 'set'
           ? <a class="hub-btn" href={`#/class/${classId}/homework`}><Icon name="reports" /><b>Homework check</b><span>{hw.previous?.homeworkText || 'Homework from last lesson'}</span></a>
           : <button class="hub-btn greyed" onClick={() => setAskAnyway(true)}><Icon name="reports" /><b>Homework check</b><span>No homework set last lesson</span></button>}
-        <a class="hub-btn" href={`#/class/${classId}/coldcall`}><Icon name="user" /><b>Cold call</b><span>Pick a student fairly</span></a>
+        <button class="hub-btn" onClick={() => setCfuMenu(true)}><Icon name="user" /><b>Check for understanding</b><span>Whole class, cold call, select, tickets</span></button>
         <a class="hub-btn" href={`#/classes/${classId}/blitz`}><Icon name="bolt" /><b>Blitz</b><span>One question, whole class</span></a>
         <a class="hub-btn" href={`#/class/${classId}/select`}><Icon name="search" /><b>Select student</b><span>Log one student now</span></a>
         {assess.length > 0 && <a class="hub-btn" href={`#/class/${classId}/assessment${assess.length === 1 ? `/${assess[0].id}` : ''}`}><Icon name="reports" /><b>Assessment check</b><span>{assess.length === 1 ? `${assess[0].name}${dueText(assess[0], today()) ? ` · ${dueText(assess[0], today()).toLowerCase()}` : ''}` : `${assess.length} tasks`}</span></a>}
         <a class="hub-btn" href={`#/icp/class/${classId}`}><Icon name="icp" /><b>ICP {icpDue > 0 && <span class="count-badge" aria-label={`${icpDue} due today`}>{icpDue}</span>}</b><span>{icpDue ? `${icpDue} check${icpDue === 1 ? '' : 's'} due today` : 'Nothing due today'}</span></a>
       </div>
+      <a class="hub-btn wide bb-btn" href={`#/class/${classId}/brainbreak`}><Icon name="bolt" /><b>Brain break</b><span>A quick subject game or a calm reset</span></a>
+      <a class="btn small" style="margin:8px 0" href={`#/braindump/${classId}`}><Icon name="edit" /> Brain dump</a>
+      <ClassFollowUps classId={classId} tasks={ctx.followUps} students={ctx.students} />
+      {reviewSeatItems(ctx.students).map(({ s, table }) => (
+        <a key={s.id} class="notice review-seat" href={`#/class/${classId}/seating/plan/${s.id}`}><b>Review seat:</b> {displayName(s)} isn't settled at {table} yet. <Icon name="chevron" /></a>
+      ))}
       {assess.map((a) => <div key={a.id} class="card flat cc-summary"><span class="eyebrow">Assessment</span><div class="small">{assessmentSummary(a, ctx.students, ctx.assessmentChecks).text}</div></div>)}
       {ctx.students.length > 0 && (
         <div class="card flat cc-summary">
@@ -141,6 +151,7 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
           </div>
         </div>
       )}
+      {cfuMenu && <CfuMenu classId={classId} onClose={() => setCfuMenu(false)} />}
       {askAnyway && (
         <Sheet title="Check anyway?" onClose={() => setAskAnyway(false)}>
           <p class="small">No homework was set last lesson. You can still check who did any homework, for example if it was set some other way.</p>

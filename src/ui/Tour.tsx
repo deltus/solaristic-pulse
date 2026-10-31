@@ -8,7 +8,7 @@ const steps = (first: string): Step[] => [
   { title: `Welcome${first ? `, ${first}` : ''}`, text: 'A one-minute tour of where everything is. Skip whenever you like.' },
   { target: '[data-tour=menu]', title: 'Menu', text: 'Tap here, or swipe in from the left edge, to open the menu.' },
   { target: '[data-tour=class]', title: 'Your class', text: 'Tap to switch class. During a timetabled lesson Radar switches for you.' },
-  { target: '[data-tour=hub]', title: 'Your class page', text: 'Open a lesson to start. Daily check-in shows the whole class as a queue, most need first. Swipe right for all good, left for an issue, up to skip. Cold call, Blitz and Select student are here too; close the lesson at the end.' },
+  { target: '[data-tour=hub]', title: 'Your class page', text: 'Open a lesson to start. Daily check-in shows the whole class as a queue, most need first. Swipe right for all good, left for an issue, up to skip. Check for understanding (cold call, thumbs, yes/no, exit tickets), Blitz and Select student are here too; close the lesson at the end.' },
   { target: '[data-tour=nav-classes]', drawer: true, title: 'Classes', text: 'Add classes (type names or import a file), import all classes at once and set your timetable.' },
   { target: '[data-tour=nav-students]', drawer: true, title: 'Students', text: "Profiles, trends and where each student sits in the check-in queue." },
   { target: '[data-tour=nav-blitz]', drawer: true, title: 'Blitz', text: 'Mark a whole class Yes or No on one thing, like homework or uniform, in under a minute.' },

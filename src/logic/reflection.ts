@@ -3,8 +3,8 @@
 // Wording rules: every insight is an observation or a question, never a judgement, and at
 // least one positive pattern is shown whenever one exists.
 
-import type { HomeworkCheck, Lesson, Observation, SchoolClass } from '../types';
-import { daysBetween } from '../lib/dates';
+import type { HomeworkCheck, Lesson, Observation, SchoolClass, SeatingPlan } from '../types';
+import { daysBetween, formatShort } from '../lib/dates';
 
 export const MIN_CLOSED_LESSONS = 5;
 export const WINDOW_DAYS = 28;
@@ -86,4 +86,39 @@ export function reflectionInsights(input: {
   // A positive pattern first (if there is one), then the rest.
   const firstPositive = out.findIndex((i) => i.tone === 'positive');
   return firstPositive > 0 ? [out[firstPositive], ...out.filter((_, i) => i !== firstPositive)] : out;
+}
+
+/** Lessons needed on each side of a new seating plan before comparing them. */
+export const SEATING_MIN_LESSONS = 5;
+
+/**
+ * "Since the new seating plan on 3 Nov, 8B's focus went from 74% to 83%, and Behaviour concerns
+ * dropped from 9 to 4." Compares up to 10 closed lessons before and after the class's latest plan.
+ * An observation, not proof.
+ */
+export function seatingPlanInsights(input: {
+  plans: Pick<SeatingPlan, 'classId' | 'activeFrom' | 'createdAt'>[]; lessons: Lesson[]; classes: SchoolClass[]; observations: Observation[]; checkinLesson: Map<string, string>;
+}): Insight[] {
+  const out: Insight[] = [];
+  for (const cls of input.classes) {
+    const plan = input.plans.filter((p) => p.classId === cls.id && p.activeFrom).sort((a, b) => b.createdAt - a.createdAt)[0];
+    if (!plan) continue;
+    const closed = input.lessons.filter((l) => l.classId === cls.id && l.status === 'closed').sort((a, b) => a.openedAt - b.openedAt);
+    const before = closed.filter((l) => l.date < plan.activeFrom!).slice(-10), after = closed.filter((l) => l.date >= plan.activeFrom!).slice(0, 10);
+    if (before.length < SEATING_MIN_LESSONS || after.length < SEATING_MIN_LESSONS) continue;
+    const focus = (ls: Lesson[]) => { const v = ls.filter((l) => l.attentionPct !== undefined); return v.length ? Math.round(v.reduce((a, l) => a + l.attentionPct!, 0) / v.length) : null; };
+    const behaviour = (ls: Lesson[]) => {
+      const ids = new Set(ls.map((l) => l.id));
+      return input.observations.filter((o) => o.categoryId === 'behaviour' && (o.level ?? 0) >= 1 && !o.blitz && ids.has(o.lessonId ?? input.checkinLesson.get(o.checkinId) ?? '')).length;
+    };
+    const f0 = focus(before), f1 = focus(after), b0 = behaviour(before), b1 = behaviour(after);
+    const parts: string[] = [];
+    if (f0 !== null && f1 !== null) parts.push(`${cls.name}'s focus went from ${f0}% to ${f1}%`);
+    parts.push(`Behaviour concerns ${b1 < b0 ? 'dropped' : b1 > b0 ? 'rose' : 'stayed'} ${b1 === b0 ? `at ${b0}` : `from ${b0} to ${b1}`}`);
+    out.push({
+      tone: 'observation',
+      text: `Since the new seating plan on ${formatShort(plan.activeFrom!)}, ${parts.join(', and ')} (${before.length} lessons before, ${after.length} after). An observation, not proof that the seats caused it.`
+    });
+  }
+  return out;
 }

@@ -13,6 +13,17 @@ export interface SchoolClass {
   createdAt: number;
   /** Overrides the global daily check-in target for this class. */
   dailyTarget?: number;
+  /** Teacher-made balance tags for seating (e.g. "Group A", "EAL"). Sensitive: encrypted when synced, never exported or shown to relief teachers. */
+  balanceTags?: BalanceTag[];
+  /** Exit and entry ticket questions saved to reuse in this class (round 9). Encrypted when synced. */
+  savedQuestions?: string[];
+}
+
+export interface BalanceTag {
+  id: string;
+  name: string;
+  /** "Don't leave anyone alone from this tag" at a table. */
+  noAlone: boolean;
 }
 
 export interface StudentFlag {
@@ -35,6 +46,89 @@ export interface Student {
   createdAt: number;
   /** Last date the "Consistently good lately" question was asked or dismissed. */
   streakAskedAt?: string;
+  /** Seating needs (ids from src/config/seating.ts) and an optional custom one. Sensitive. */
+  seatingNeeds?: string[];
+  seatingNeedNote?: string;
+  /** ICP seating suggestions the teacher dismissed (need ids). */
+  seatingIcpDismissed?: string[];
+  /** "Support right now" for seating (students belong to one class). Sensitive; cleared when archived. */
+  support?: SupportLevel;
+  /** Balance tag ids from the class. Sensitive. */
+  balanceTags?: string[];
+  /** Watch after a new seat ("How are they going at Table 3?"). */
+  seatWatch?: SeatWatch;
+}
+
+export interface SupportLevel {
+  level: 'more' | 'on_track' | 'extension';
+  setAt: string;
+  /** After this date the level counts as unset until reviewed. */
+  reviewBy: string;
+}
+
+export interface SeatWatch {
+  planId: string;
+  table: string;
+  since: string;
+  reason: 'alone' | 'left_out';
+  /** Answers to "How are they going there?", oldest first. */
+  answers: { date: string; lessonId: string; settled: boolean }[];
+  /** Two "Not settled" in a row (or one, then reviewed): "Review seat". */
+  review?: boolean;
+  ended?: boolean;
+}
+
+export type RelationshipType = 'keepApart' | 'worksWell';
+/** Two students who work well together or should be kept apart. A pair's id order doesn't matter. */
+export interface Relationship {
+  id: string;
+  classId: string;
+  studentA: string;
+  studentB: string;
+  type: RelationshipType;
+  /** 1 = not at the same table; 2 = never together (not at the same table or next to each other). Keep apart only. */
+  strength: 1 | 2;
+  source: 'manual' | 'checkin' | 'suggested';
+  confirmed: boolean;
+  /** Unconfirmed, but the teacher ticked "use anyway". */
+  useAnyway?: boolean;
+  /** A "Not now" (until a date) or "Never suggest" decision about suggesting this pair. */
+  muted?: 'never' | string;
+  /** The check-in that recorded this signal (undo removes it). */
+  checkinId?: string;
+  date: string;
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type RoomCellKind = 'desk' | 'empty' | 'teacher' | 'door' | 'window' | 'board';
+export interface RoomCell { k: RoomCellKind; /** Table number for desks (desks with the same number are one table). */ t?: number }
+/** A classroom as a grid. The front of the room is wherever the board is. */
+export interface RoomLayout {
+  rows: number;
+  cols: number;
+  /** rows × cols, row by row. A seat id is the cell's index. */
+  cells: RoomCell[];
+}
+export interface Room extends RoomLayout {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+export interface SeatingPlan {
+  id: string;
+  classId: string;
+  roomId?: string;
+  name: string;
+  /** A copy of the room, so later room edits don't break the plan. */
+  room: RoomLayout;
+  /** Seat id (cell index) → student, and whether the teacher locked it. */
+  seats: Record<string, { studentId: string; locked?: boolean }>;
+  active: boolean;
+  activeFrom?: string;
+  createdAt: number;
 }
 
 export interface Category {
@@ -79,6 +173,8 @@ export type CheckinStatus = 'complete' | 'partial' | 'absent' | 'skipped';
 export type CheckinSource = 'daily' | 'extra' | 'manual';
 
 export interface Checkin {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   studentId: string;
   classId: string;
@@ -124,6 +220,8 @@ export type PlanDone = 'yes' | 'partly' | 'no';
 
 /** One lesson of one class, from Open lesson to Close lesson. */
 export interface Lesson {
+  /** Opened by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   classId: string;
   /** Date the lesson was opened (YYYY-MM-DD). */
@@ -150,18 +248,24 @@ export interface Lesson {
 
 export type ColdCallResult = 'good' | 'struggled';
 export interface ColdCall {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string;
   lessonId: string;
   classId: string;
   studentId: string;
   date: string;
   result: ColdCallResult;
+  /** Picked by the teacher ("Select a student"), not by the roll. Still counts in the fairness ranking. */
+  manual?: boolean;
   tags?: string[];
   createdAt: number;
 }
 
 /** Homework check: Done / Not done for one student in one lesson. Not a daily check-in. */
 export interface HomeworkCheck {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string; // `${lessonId}|${studentId}`
   lessonId: string;
   /** The lesson the homework was set in (the previous lesson of this class). */
@@ -222,6 +326,8 @@ export interface StudentNote {
   studentId: string;
   date: string;
   text: string;
+  /** e.g. ['positive'] (from Brain dump). */
+  tags?: string[];
   createdAt: number;
 }
 
@@ -351,8 +457,14 @@ export interface Settings {
   /** One-time tips already shown (e.g. 'hold-note'), and how many issue screens have shown sub-option hints. */
   tipsSeen?: string[];
   subHintsShown?: number;
+  /** Brain breaks hidden from the roll (Settings → Brain breaks). */
+  hiddenBreaks?: string[];
   /** Show the "+1 day" test-clock button (developer tool). Default on during testing. */
   devTools?: boolean;
+  /** Seating: "Use support levels in seating plans" (off by default). */
+  seatingSupport?: boolean;
+  /** Check for understanding: the mode used last (listed first in the menu). */
+  lastCfuMode?: 'whole' | 'coldcall' | 'select' | 'ticket' | 'thumbs' | 'yesno';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -406,6 +518,8 @@ export type AssessmentResult = 'on_track' | 'behind';
 
 /** One student's result in one Assessment check (one per lesson per task). */
 export interface AssessmentCheck {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
   id: string; // `${assessmentId}|${lessonId}|${studentId}`
   assessmentId: string;
   classId: string;
@@ -415,5 +529,194 @@ export interface AssessmentCheck {
   result: AssessmentResult;
   reasons?: string[];
   checkpoint?: string;
+  createdAt: number;
+}
+
+/** One brain break used in a lesson. No student data. */
+export interface BrainBreakLog {
+  /** Entered by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
+  id: string;
+  classId: string;
+  lessonId: string;
+  date: string;
+  breakId: string;
+  /** Kept so history still reads if the break is later hidden or deleted. */
+  name: string;
+  type: 'calm' | 'perk';
+  group: string;
+  at: number;
+  /** "Did it help?" (optional). */
+  helped?: 'yes' | 'no';
+}
+
+/** A relief (CRT) teacher's access to one class for up to 5 school days. */
+export interface ReliefPass {
+  id: string;
+  classId: string;
+  /** First and last day (local dates). It stops working at the end of `to`. */
+  from: string;
+  to: string;
+  reliefName?: string;
+  /** If set, only this email can use the pass. */
+  reliefEmail?: string;
+  /** Off by default: the relief teacher only sees an ICP marker. */
+  shareIcp: boolean;
+  plan?: string;
+  createdAt: number;
+  createdBy?: string;
+  cancelledAt?: number;
+  /** The one device the pass is locked to once it's opened (set by the server). */
+  claimedDevice?: string;
+  /** The pass key (only in the pass link and in the class teacher's own encrypted sync). */
+  key?: string;
+  /** When the sealed class data was last sent to the server. */
+  sentAt?: number;
+  /** Every time the pass was used (set by the server). */
+  uses?: { at: number; device: string; email?: string }[];
+}
+
+/** Marks a record entered by a relief teacher, for the class teacher to review. */
+export interface ReliefTag {
+  passId: string;
+  name: string;
+  /** Set when the class teacher accepts it (otherwise accepted automatically after 7 days). */
+  reviewed?: boolean;
+}
+
+/* ---------- Round 8: serious incidents, follow-up tasks, Close day, Brain dump ---------- */
+
+/** One line of context compiled for an incident report; the teacher ticks which go in. */
+export interface IncidentContextItem {
+  id: string;
+  kind: 'issue' | 'wellbeing' | 'note' | 'followup' | 'icp' | 'icpTitles' | 'homework' | 'assessment' | 'seat';
+  date?: string;
+  text: string;
+  include: boolean;
+}
+
+/** A serious incident: the teacher's working copy (the school's own system is the official record). */
+export interface Incident {
+  /** Lodged by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
+  id: string;
+  studentId: string;
+  classId: string;
+  lessonId?: string;
+  /** The lesson's learning intention at the time. */
+  intention?: string;
+  date: string;
+  /** "HH:MM", local time. */
+  time: string;
+  /** Issue areas → ticked sub-options, as on the issue screen. */
+  areas: Record<string, string[]>;
+  what: string;
+  where: string;
+  /** Other students involved (ids). */
+  others: string[];
+  witnesses?: string;
+  /** Action chip ids (see src/config/incidents.ts). */
+  actions: string[];
+  actionNote?: string;
+  /** Snapshot of the context at the time, with the teacher's ticks. */
+  context: IncidentContextItem[];
+  /** Marked "lodged" in the school's own system. */
+  lodgedAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export type FollowUpKind = 'urgent' | 'lodge' | 'home' | 'staff' | 'custom';
+export type FollowUpStatus = 'todo' | 'done' | 'notNeeded';
+
+/** A follow-up task with a due time and a reminder. */
+export interface FollowUp {
+  id: string;
+  kind: FollowUpKind;
+  title: string;
+  studentId?: string;
+  classId?: string;
+  incidentId?: string;
+  /** What it's about (Brain dump text, for drafts without an incident). */
+  about?: string;
+  /** "Inform school staff": which role. */
+  role?: string;
+  /** Has an email draft (home or staff). */
+  draft?: 'home' | 'staff';
+  dueAt: number;
+  status: FollowUpStatus;
+  doneAt?: number;
+  note?: string;
+  createdAt: number;
+}
+
+/** "Close day": one per date. */
+export interface DayClose {
+  id: string; // the date
+  date: string;
+  reflection?: 'good' | 'ok' | 'tough';
+  note?: string;
+  counts: Record<string, number>;
+  closedAt: number;
+}
+
+/** A Brain dump's original text, kept for a while then deleted (BRAIN_DUMP_KEEP_DAYS). */
+export interface BrainDump {
+  id: string;
+  date: string;
+  classId?: string;
+  text: string;
+  createdAt: number;
+  sortedAt?: number;
+  deleteAfter: number;
+}
+
+/* ---------------- Check for understanding (round 9) ---------------- */
+
+/** yesno = Whole class. */
+export type CfuKind = 'yesno' | 'exit' | 'entry';
+
+/** One check for understanding run in a lesson. */
+export interface CfuCheck {
+  id: string;
+  lessonId: string;
+  classId: string;
+  date: string;
+  kind: CfuKind;
+  /** Exit or entry ticket questions (up to 3). */
+  questions?: string[];
+  /** Before 1 Nov 2026 tickets had one question. */
+  question?: string;
+  /** Entry tickets: the previous lesson the question is about. */
+  aboutLessonId?: string;
+  createdAt: number;
+}
+
+/** got = Yes / Got it; notyet = Not yet; partly = Partly (Sort of on Whole class); absent = not in class. */
+export type CfuResultValue = 'got' | 'partly' | 'notyet' | 'absent';
+
+/** One student's answer in a Whole class check or an exit/entry ticket. */
+export interface CfuResult {
+  id: string; // `${checkId}|${studentId}`
+  checkId: string;
+  lessonId: string;
+  classId: string;
+  studentId: string;
+  date: string;
+  kind: CfuKind;
+  result: CfuResultValue;
+  /** Ticket "Not yet" chips: misconception, incomplete. */
+  tags?: string[];
+  createdAt: number;
+}
+
+/** "Absent for the rest of the day": a daily attendance note for one class (not a rating). */
+export type AbsentSource = 'blitz' | 'cfu' | 'coldcall' | 'checkin' | 'homework';
+export interface AbsentToday {
+  id: string; // `${date}|${classId}|${studentId}`
+  classId: string;
+  studentId: string;
+  date: string;
+  source: AbsentSource;
   createdAt: number;
 }

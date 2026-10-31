@@ -4,7 +4,7 @@ import { db, newId, getSettings, CORE_CATEGORIES, CORE_QUESTIONS, TABLES } from 
 import { CHECKIN_AREAS } from './config/checkin';
 import type {
   ColdCall, ColdCallResult, Happy, Lesson, PlanDone, HomeworkCheck, Category, Checkin, CheckinSource, CheckinStatus, Checkout, DayPlan, EvidenceItem, EvidenceKind, FollowUpOutcome, IcpAdjustment, IcpOutcome,
-  Assessment, AssessmentCheck, AssessmentResult, JournalEntry, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
+  Assessment, AssessmentCheck, AssessmentResult, BalanceTag, BrainBreakLog, ReliefPass, JournalEntry, Relationship, RelationshipType, Room, SeatWatch, SeatingPlan, SupportLevel, Observation, Question, ResponseOption, SchoolClass, Student, TimetableEntry
 } from './types';
 import { computePriority, rankStudents, ADJUST_MIN, ADJUST_MAX } from './logic/priority';
 import { dueQuestions } from './logic/schedule';
@@ -17,8 +17,19 @@ import { buildAllGood, buildIssue, checkinIdFor as swipeCheckinId, type CheckinT
 import { addDays, nowMs } from './lib/dates';
 import { REMIND_LATER_MIN, lessonName, openLessonFor } from './logic/lessons';
 import { docxBlob, filterJournal, journalDocumentXml } from './logic/journal';
+import type { BrainBreak } from './config/brainBreaks';
+import { buildReliefBundle, makeReliefPass, newPassKey, passProblem, type PassInput, type ReliefBundle, type ReliefEntry } from './logic/relief';
 import { saveFile } from './files';
 import { formatDate } from './lib/dates';
+import { SIGNALS } from './config/seating';
+import { answerWatch, leftOutMuteId, newSupport, newWatch, pairKey, seatLabel, type PairSuggestion } from './logic/seatingData';
+import { printableHtml, shortNames } from './logic/seatingPrint';
+import type { BrainDump, DayClose, FollowUp, FollowUpKind, Incident } from './types';
+import { at as atTime, dueFrom, endOfDay, incidentContext, moveToTomorrow } from './logic/incidents';
+import { absentId, absentIds, addSavedQuestion, tidyQuestions } from './logic/cfu';
+import type { AbsentSource, CfuCheck, CfuResult, CfuResultValue } from './types';
+import { BRAIN_DUMP_KEEP_DAYS, END_OF_DAY, INCIDENT_TASKS, type DueChip } from './config/incidents';
+import { roomUsers } from './logic/rooms';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -41,7 +52,16 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks, db.brainBreaks, db.reliefPasses, db.relationships, db.seatingPlans, db.incidents, db.followUps, db.cfuChecks, db.cfuResults, db.absences], async () => {
+    await db.cfuChecks.where('classId').equals(id).delete();
+    await db.cfuResults.where('classId').equals(id).delete();
+    await db.absences.where('classId').equals(id).delete();
+    await db.incidents.where('classId').equals(id).delete();
+    await db.followUps.where('classId').equals(id).delete();
+    await db.reliefPasses.where('classId').equals(id).delete();
+    await db.brainBreaks.where('classId').equals(id).delete();
+    await db.relationships.where('classId').equals(id).delete();
+    await db.seatingPlans.where('classId').equals(id).delete();
     await db.journal.where('classId').equals(id).delete();
     await db.assessmentChecks.where('classId').equals(id).delete();
     await db.assessments.where('classId').equals(id).delete();
@@ -72,11 +92,19 @@ export async function addStudent(classId: string, data: Partial<Student>): Promi
 }
 
 export async function updateStudent(id: string, patch: Partial<Student>) {
-  await db.students.update(id, patch);
+  // Archiving deletes the student's support level (it's only for current seating).
+  await db.students.update(id, patch.archived ? { ...patch, support: undefined, seatWatch: undefined } : patch);
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks, db.relationships, db.incidents, db.followUps, db.cfuResults, db.absences], async () => {
+    await db.cfuResults.where('studentId').equals(id).delete();
+    await db.absences.where('studentId').equals(id).delete();
+    // Deleting a student deletes their incidents and follow-up tasks too.
+    await db.incidents.where('studentId').equals(id).delete();
+    await db.followUps.where('studentId').equals(id).delete();
+    await db.relationships.where('studentA').equals(id).delete();
+    await db.relationships.where('studentB').equals(id).delete();
     await db.assessmentChecks.where('studentId').equals(id).delete();
     await db.coldCalls.where('studentId').equals(id).delete();
     await db.issueTags.where('studentId').equals(id).delete();
@@ -316,7 +344,8 @@ export async function markStatus(studentId: string, classId: string, date: strin
 
 /** Removes a check-in (e.g. undo absent/skip) so the student returns to the queue. */
 export async function undoCheckin(checkinId: string) {
-  await db.transaction('rw', db.checkins, db.observations, db.issueTags, db.evidence, async () => {
+  await db.transaction('rw', db.checkins, db.observations, db.issueTags, db.evidence, db.relationships, async () => {
+    await db.relationships.where('checkinId').equals(checkinId).delete();
     await db.evidence.where('checkinId').equals(checkinId).delete();
     await db.observations.where('checkinId').equals(checkinId).delete();
     await db.issueTags.where('checkinId').equals(checkinId).delete();
@@ -338,8 +367,8 @@ async function saveRecords(r: SavedRecords): Promise<SavedRecords> {
   return r;
 }
 
-export const logAllGood = (t: CheckinTarget) => saveRecords(buildAllGood(t));
-export const logIssue = (t: CheckinTarget, input: IssueInput) => saveRecords(buildIssue(t, input));
+export const logAllGood = async (t: CheckinTarget) => { await presentOnEntry(t.studentId, t.date); return saveRecords(buildAllGood(t)); };
+export const logIssue = async (t: CheckinTarget, input: IssueInput) => { await presentOnEntry(t.studentId, t.date); return saveRecords(buildIssue(t, input)); };
 
 /** "Not here": absent for this lesson, no ratings. */
 export async function markNotHere(t: CheckinTarget) {
@@ -349,7 +378,14 @@ export async function markNotHere(t: CheckinTarget) {
     await db.issueTags.where('checkinId').equals(id).delete();
     await db.checkins.put({ id, studentId: t.studentId, classId: t.classId, date: t.date, lessonId: t.lessonId, createdAt: Date.now(), status: 'absent', source: 'daily' });
   });
+  await markAbsent(t.classId, t.studentId, t.date, 'checkin');
   return id;
+}
+
+/** Undo "Not here": removes the check-in and the rest-of-day absence. */
+export async function undoNotHere(t: Pick<CheckinTarget, 'classId' | 'studentId' | 'date'>, checkinId: string) {
+  await undoCheckin(checkinId);
+  await db.absences.delete(absentId(t.date, t.classId, t.studentId));
 }
 
 /** Positive streak answer: "exceeding" in an area (or null = "No, at level"). Not asked again for 2 weeks. */
@@ -371,7 +407,7 @@ export async function loadLessonContext(classId: string) {
   if (!cls) return null;
   const students = (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived);
   const ids = students.map((s) => s.id);
-  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks] = await Promise.all([
+  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, plans, followUps] = await Promise.all([
     db.checkins.where('classId').equals(classId).toArray(),
     db.observations.where('classId').equals(classId).toArray(),
     db.issueTags.where('classId').equals(classId).toArray(),
@@ -382,10 +418,21 @@ export async function loadLessonContext(classId: string) {
     db.lessons.where('classId').equals(classId).toArray(),
     db.coldCalls.where('classId').equals(classId).toArray(),
     db.assessments.where('classId').equals(classId).toArray(),
-    db.assessmentChecks.where('classId').equals(classId).toArray()
+    db.assessmentChecks.where('classId').equals(classId).toArray(),
+    db.seatingPlans.where('classId').equals(classId).toArray(),
+    db.followUps.where('classId').equals(classId).toArray()
   ]);
+  const [cfuChecks, cfuResults, absences] = await Promise.all([
+    db.cfuChecks.where('classId').equals(classId).toArray(),
+    db.cfuResults.where('classId').equals(classId).toArray(),
+    db.absences.where('classId').equals(classId).toArray()
+  ]);
+  /** Absent for the rest of today in this class. */
+  const absentNow = absentIds(absences, classId, todayISO());
   const lesson = openLessonFor(lessons, classId);
-  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson };
+  /** The class's active seating plan, if there is one. */
+  const seatingPlan = plans.find((p) => p.active);
+  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson, seatingPlan, followUps, cfuChecks, cfuResults, absentNow };
 }
 export type LessonContext = NonNullable<Awaited<ReturnType<typeof loadLessonContext>>>;
 
@@ -435,9 +482,11 @@ export async function finishLessonLater(lessonId: string, a: CloseAnswers, minut
 /* ---------------- Cold call ---------------- */
 
 /** Saves a cold call. "Wasn't listening" also records an Attention concern for that lesson. */
-export async function logColdCall(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, studentId: string, result: ColdCallResult, tags: string[] = []): Promise<ColdCall> {
+/** `manual`: picked by the teacher (Select a student), not the roll. */
+export async function logColdCall(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, studentId: string, result: ColdCallResult, tags: string[] = [], manual = false): Promise<ColdCall> {
   const now = Date.now();
-  const c: ColdCall = { id: newId(), lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, result, ...(result === 'struggled' && tags.length ? { tags } : {}), createdAt: now };
+  await presentOnEntry(studentId, lesson.date);
+  const c: ColdCall = { id: newId(), lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, result, ...(result === 'struggled' && tags.length ? { tags } : {}), ...(manual ? { manual } : {}), createdAt: now };
   await db.transaction('rw', db.coldCalls, db.observations, async () => {
     await db.coldCalls.add(c);
     if (result === 'struggled' && tags.includes('not_listening')) {
@@ -460,6 +509,7 @@ export async function undoColdCall(id: string) {
 /* ---------------- Homework check ---------------- */
 
 export async function saveHomeworkCheck(t: CheckinTarget, done: boolean, reason?: string, forLessonId?: string) {
+  await presentOnEntry(t.studentId, t.date);
   const row: HomeworkCheck = { id: `${t.lessonId}|${t.studentId}`, lessonId: t.lessonId, ...(forLessonId ? { forLessonId } : {}), classId: t.classId, studentId: t.studentId, date: t.date, done, ...(reason ? { reason } : {}), createdAt: Date.now() };
   await db.homework.put(row);
   return row;
@@ -473,6 +523,7 @@ export async function undoHomeworkCheck(id: string) {
 
 export async function addNote(studentId: string, text: string) {
   if (!text.trim()) return;
+  await presentOnEntry(studentId, todayISO());
   await db.notes.add({ id: newId(), studentId, date: todayISO(), text: text.trim(), createdAt: Date.now() });
 }
 
@@ -749,6 +800,7 @@ export async function saveBlitz(classId: string, date: string, topicId: string, 
       response: m === 'yes' ? 'Yes' : m === 'no' ? 'No' : 'Absent', level: m === 'absent' ? null : m === 'no' ? 1 : 0
     })));
   });
+  for (const [studentId, m] of Object.entries(marks)) if (m === 'absent') await markAbsent(classId, studentId, date, 'blitz');
 }
 
 /* ---------------- Teacher journal (private) ---------------- */
@@ -792,6 +844,7 @@ export async function saveAssessment(a: Partial<Assessment> & { classId: string;
 
 /** One student's result for a task in this lesson (saving again in the same lesson replaces it). */
 export async function saveAssessmentCheck(t: CheckinTarget, assessmentId: string, result: AssessmentResult, reasons: string[] = [], checkpoint?: string): Promise<AssessmentCheck> {
+  await presentOnEntry(t.studentId, t.date);
   const row: AssessmentCheck = {
     id: `${assessmentId}|${t.lessonId}|${t.studentId}`, assessmentId, classId: t.classId, studentId: t.studentId, lessonId: t.lessonId, date: t.date,
     result, ...(reasons.length ? { reasons } : {}), ...(checkpoint ? { checkpoint } : {}), createdAt: t.now ?? Date.now()
@@ -808,4 +861,509 @@ export async function deleteAssessment(id: string) {
     await db.assessmentChecks.where('assessmentId').equals(id).delete();
     await db.assessments.delete(id);
   });
+}
+
+/* ---------------- Brain breaks (no student data) ---------------- */
+
+export async function logBrainBreak(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, b: Pick<BrainBreak, 'id' | 'name' | 'type' | 'group'>, at = Date.now()): Promise<BrainBreakLog> {
+  const row: BrainBreakLog = { id: newId(), classId: lesson.classId, lessonId: lesson.id, date: lesson.date, breakId: b.id, name: b.name, type: b.type, group: b.group, at };
+  await db.brainBreaks.add(row);
+  return row;
+}
+
+export const setBreakHelped = (id: string, helped: 'yes' | 'no') => db.brainBreaks.update(id, { helped });
+
+export async function saveCustomBreak(b: Omit<BrainBreak, 'id' | 'custom'> & { id?: string }): Promise<BrainBreak> {
+  const full: BrainBreak = { ...b, id: b.id ?? `custom-${newId()}`, custom: true, name: b.name.trim(), steps: b.steps.map((s) => s.trim()).filter(Boolean), resources: b.resources.map((r) => r.trim()).filter(Boolean) };
+  await db.customBreaks.put(full);
+  return full;
+}
+
+export const deleteCustomBreak = (id: string) => db.customBreaks.delete(id);
+
+/* ---------------- Relief passes ---------------- */
+
+/** Creates a pass (any class: a future reception/admin role can call this too). Throws a plain-English problem. */
+export async function createReliefPass(p: PassInput): Promise<ReliefPass> {
+  const problem = passProblem(p, todayISO());
+  if (problem) throw new Error(problem);
+  const settings = await getSettings();
+  const pass = { ...makeReliefPass({ ...p, createdBy: p.createdBy ?? (settings.profile.name || undefined) }, newId(), Date.now()), key: newPassKey() };
+  await db.reliefPasses.put(pass);
+  return pass;
+}
+
+/** Stops a pass straight away. */
+export const cancelReliefPass = (id: string) => db.reliefPasses.update(id, { cancelledAt: Date.now() });
+
+/** Exactly what the relief teacher's device would receive for this pass. */
+export async function reliefBundleFor(passId: string): Promise<ReliefBundle> {
+  const pass = await db.reliefPasses.get(passId);
+  if (!pass) throw new Error('Pass not found');
+  const ctx = await loadLessonContext(pass.classId);
+  if (!ctx) throw new Error('Class not found');
+  return buildReliefBundle(pass, { ...ctx, today: todayISO() });
+}
+
+/** Accept relief entries (they stay; the review card stops showing them). */
+export async function acceptReliefEntries(entries: ReliefEntry[]) {
+  for (const e of entries) {
+    const t = TABLE_OF[e.kind];
+    await db.table(t).update(e.id, { relief: { ...e.relief, reviewed: true } });
+  }
+}
+
+/** Remove one relief entry (and, for a check-in, its answers and details). */
+export async function removeReliefEntry(e: ReliefEntry) {
+  if (e.kind === 'checkin') return undoCheckin(e.id);
+  if (e.kind === 'coldcall') return undoColdCall(e.id);
+  if (e.kind === 'homework') return undoHomeworkCheck(e.id);
+  await db.table(TABLE_OF[e.kind]).delete(e.id);
+}
+
+const TABLE_OF: Record<ReliefEntry['kind'], string> = { checkin: 'checkins', homework: 'homework', coldcall: 'coldCalls', brainbreak: 'brainBreaks', assessment: 'assessmentChecks', incident: 'incidents' };
+/* ---------------- Seating plans (round 7) ---------------- */
+
+/** Everything the seating screens need for one class. */
+export async function loadSeating(classId: string) {
+  const ctx = await loadLessonContext(classId);
+  if (!ctx) return null;
+  const [relationships, rooms, plans] = await Promise.all([
+    db.relationships.where('classId').equals(classId).toArray(),
+    db.rooms.toArray(),
+    db.seatingPlans.where('classId').equals(classId).toArray()
+  ]);
+  return { ...ctx, relationships, rooms: rooms.sort((a, b) => a.name.localeCompare(b.name)), plans: plans.sort((a, b) => b.createdAt - a.createdAt) };
+}
+export type SeatingContext = NonNullable<Awaited<ReturnType<typeof loadSeating>>>;
+
+export async function addRelationship(
+  classId: string, a: string, b: string, type: RelationshipType,
+  opts: { strength?: 1 | 2; source?: Relationship['source']; confirmed?: boolean; note?: string; checkinId?: string; date?: string } = {}
+): Promise<Relationship> {
+  const now = Date.now();
+  const r: Relationship = {
+    id: newId(), classId, studentA: a, studentB: b, type, strength: type === 'keepApart' ? opts.strength ?? 1 : 1,
+    source: opts.source ?? 'manual', confirmed: opts.confirmed ?? true, date: opts.date ?? todayISO(), createdAt: now, updatedAt: now,
+    ...(clean(opts.note) ? { note: clean(opts.note) } : {}), ...(opts.checkinId ? { checkinId: opts.checkinId } : {})
+  };
+  await db.relationships.add(r);
+  return r;
+}
+export const updateRelationship = (id: string, patch: Partial<Relationship>) => db.relationships.update(id, { ...patch, updatedAt: Date.now() });
+
+/** Removes a relationship and every other confirmed row for the same pair and kind. */
+export async function deleteRelationship(r: Relationship) {
+  const k = pairKey(r.studentA, r.studentB);
+  const same = (await db.relationships.where('classId').equals(r.classId).toArray()).filter((x) => x.type === r.type && pairKey(x.studentA, x.studentB) === k && (x.confirmed || x.useAnyway));
+  await db.relationships.bulkDelete(same.map((x) => x.id));
+}
+
+/** Unconfirmed check-in signals ("With who?" on Peer interactions, "Worked well with…" after All good). */
+export async function logRelationshipSignals(t: CheckinTarget, ids: string[], type: RelationshipType) {
+  const checkinId = swipeCheckinId(t.lessonId, t.studentId);
+  await db.relationships.where('checkinId').equals(checkinId).filter((r) => r.type === type).delete();
+  for (const other of ids) {
+    if (other === t.studentId) continue;
+    await addRelationship(t.classId, t.studentId, other, type, { source: 'checkin', confirmed: false, checkinId, date: t.date });
+  }
+}
+
+/** "Yes" on a suggestion: a confirmed relationship. */
+export const confirmSuggestion = (classId: string, s: PairSuggestion) => addRelationship(classId, s.a, s.b, s.type, { source: 'suggested', confirmed: true });
+
+/** "Not now" (2 weeks) or "Never suggest" for a pair. */
+export async function muteSuggestion(classId: string, s: Pick<PairSuggestion, 'a' | 'b' | 'type'>, mode: 'notNow' | 'never') {
+  const r = await addRelationship(classId, s.a, s.b, s.type, { source: 'suggested', confirmed: false });
+  await db.relationships.update(r.id, { muted: mode === 'never' ? 'never' : addDays(todayISO(), SIGNALS.notNowDays) });
+}
+
+/** "Not now" on "Seat Mia with someone they work well with?". */
+export async function muteLeftOut(classId: string, studentId: string) {
+  const now = Date.now();
+  await db.relationships.put({
+    id: leftOutMuteId(studentId), classId, studentA: studentId, studentB: studentId, type: 'worksWell', strength: 1, source: 'suggested', confirmed: false,
+    muted: addDays(todayISO(), SIGNALS.notNowDays), date: todayISO(), createdAt: now, updatedAt: now
+  });
+}
+
+export async function setSeatingNeeds(studentId: string, needs: string[], note?: string) {
+  await db.students.update(studentId, { seatingNeeds: needs.length ? needs : undefined, seatingNeedNote: clean(note) || undefined });
+}
+export async function dismissIcpNeed(studentId: string, need: string) {
+  const s = await db.students.get(studentId);
+  if (s) await db.students.update(studentId, { seatingIcpDismissed: [...new Set([...(s.seatingIcpDismissed ?? []), need])] });
+}
+/** Support right now: set (reviewed in 10 weeks), confirm ("Still accurate?" → Yes) or clear. */
+export async function setSupport(studentId: string, level: SupportLevel['level'] | null) {
+  await db.students.update(studentId, { support: level ? newSupport(level, todayISO()) : undefined });
+}
+export async function setStudentBalanceTags(studentId: string, tagIds: string[]) {
+  await db.students.update(studentId, { balanceTags: tagIds.length ? tagIds : undefined });
+}
+export async function saveBalanceTags(classId: string, tags: BalanceTag[]) {
+  await db.classes.update(classId, { balanceTags: tags.length ? tags : undefined });
+  // Remove deleted tags from students.
+  const ids = new Set(tags.map((t) => t.id));
+  await db.students.where('classId').equals(classId).modify((s) => {
+    if (!s.balanceTags) return;
+    s.balanceTags = s.balanceTags.filter((t) => ids.has(t));
+    if (!s.balanceTags.length) delete s.balanceTags;
+  });
+}
+
+/** Saved rooms belong to the teacher, not a class: any class can use them. */
+export async function saveRoom(r: Omit<Room, 'id' | 'createdAt'> & { id?: string }): Promise<Room> {
+  const old = r.id ? await db.rooms.get(r.id) : undefined;
+  const room: Room = { rows: r.rows, cols: r.cols, cells: r.cells, id: r.id ?? newId(), name: clean(r.name) || 'Room', createdAt: old?.createdAt ?? Date.now() };
+  await db.rooms.put(room);
+  return room;
+}
+export const renameRoom = (id: string, name: string) => db.rooms.update(id, { name: clean(name) || 'Room' });
+export async function duplicateRoom(id: string): Promise<Room | undefined> {
+  const r = await db.rooms.get(id);
+  return r ? saveRoom({ rows: r.rows, cols: r.cols, cells: r.cells, name: `${r.name} (copy)` }) : undefined;
+}
+/** Classes whose active plan uses the room. */
+export async function roomInUse(id: string): Promise<string[]> {
+  const [plans, classes] = await Promise.all([db.seatingPlans.toArray(), db.classes.toArray()]);
+  return roomUsers(id, plans, classes);
+}
+/** Deletes a saved room, unless an active plan uses it: then it returns the classes using it. */
+export async function deleteRoom(id: string): Promise<{ ok: true } | { ok: false; usedBy: string[] }> {
+  const usedBy = await roomInUse(id);
+  if (usedBy.length) return { ok: false, usedBy };
+  await db.rooms.delete(id);
+  return { ok: true };
+}
+
+/**
+ * Save as the class's active plan (older plans are kept). Students in `watch` (placed with an "alone"
+ * warning the teacher wants to keep an eye on, or flagged as left out) get the seat watch; earlier
+ * watches end because the seats changed.
+ */
+export async function saveSeatingPlan(
+  p: Pick<SeatingPlan, 'classId' | 'room' | 'seats'> & { roomId?: string; name?: string },
+  watch: { studentId: string; reason: SeatWatch['reason'] }[] = []
+): Promise<SeatingPlan> {
+  const date = todayISO();
+  const plan: SeatingPlan = {
+    id: newId(), classId: p.classId, ...(p.roomId ? { roomId: p.roomId } : {}), name: clean(p.name) || `Plan from ${formatDate(date)}`,
+    room: p.room, seats: p.seats, active: true, activeFrom: date, createdAt: Date.now()
+  };
+  await db.transaction('rw', db.seatingPlans, db.students, async () => {
+    await db.seatingPlans.where('classId').equals(p.classId).modify({ active: false });
+    await db.seatingPlans.add(plan);
+    await db.students.where('classId').equals(p.classId).modify((s) => { if (s.seatWatch && !s.seatWatch.ended) s.seatWatch = { ...s.seatWatch, ended: true }; });
+    for (const w of watch) {
+      const table = seatLabel(plan, w.studentId);
+      if (table) await db.students.update(w.studentId, { seatWatch: newWatch(plan.id, table, w.reason, date) });
+    }
+  });
+  return plan;
+}
+/** Locks on the active plan, without starting a new one. */
+export const updateSeatingPlan = (id: string, patch: Partial<SeatingPlan>) => db.seatingPlans.update(id, patch);
+
+/** "New seat at Table 3. How are they going there?" */
+export async function answerSeatWatch(studentId: string, settled: boolean, t: Pick<CheckinTarget, 'date' | 'lessonId'>) {
+  const s = await db.students.get(studentId);
+  if (!s?.seatWatch) return;
+  await db.students.update(studentId, { seatWatch: answerWatch(s.seatWatch, settled, t.date, t.lessonId) });
+}
+export async function clearSeatReview(studentId: string) {
+  const s = await db.students.get(studentId);
+  if (s?.seatWatch) await db.students.update(studentId, { seatWatch: { ...s.seatWatch, review: false } });
+}
+export const flagForPlanning = (studentId: string, table: string) => setFlag(studentId, `Not settling at ${table}: review in lesson planning`);
+
+/** The printable plan (names only) as an HTML file the teacher can open and print. */
+export async function exportSeatingPlan(plan: SeatingPlan, students: Student[], className: string) {
+  const html = printableHtml(plan, shortNames(students), className, `From ${formatDate(plan.activeFrom ?? todayISO())}`);
+  return saveFile(new Blob([html], { type: 'text/html' }), `${className} – seating plan ${plan.activeFrom ?? todayISO()}.html`);
+}
+
+/* ---------------- Serious incidents and follow-up tasks (round 8) ---------------- */
+
+/** Everything the incident screen needs to pre-fill and compile the context. */
+export async function incidentStart(classId: string, studentId: string, checkinId?: string) {
+  const ctx = await loadLessonContext(classId);
+  const student = await db.students.get(studentId);
+  if (!ctx || !student) return null;
+  const notes = await db.notes.where('studentId').equals(studentId).toArray();
+  const followUps = await db.followUps.where('studentId').equals(studentId).toArray();
+  const date = todayISO();
+  const context = incidentContext({ ...ctx, student, classId, date, notes, followUps, excludeCheckinId: checkinId });
+  return { ctx, student, context };
+}
+
+export type IncidentInput = Omit<Incident, 'id' | 'createdAt' | 'updatedAt'> & { id?: string };
+
+export async function saveIncident(i: IncidentInput): Promise<Incident> {
+  const now = nowMs();
+  const old = i.id ? await db.incidents.get(i.id) : undefined;
+  const full: Incident = {
+    ...i, id: i.id ?? newId(), what: i.what.trim(), where: clean(i.where) || 'Classroom', witnesses: clean(i.witnesses) || undefined,
+    actionNote: clean(i.actionNote) || undefined, createdAt: old?.createdAt ?? now, ...(old ? { updatedAt: now } : {})
+  };
+  await db.incidents.put(full);
+  return full;
+}
+
+export async function markLodged(incidentId: string, lodged = true) {
+  await db.incidents.update(incidentId, { lodgedAt: lodged ? nowMs() : undefined });
+  if (lodged) await db.followUps.where('incidentId').equals(incidentId).filter((f) => f.kind === 'lodge' && f.status === 'todo').modify({ status: 'done', doneAt: nowMs() });
+}
+
+export async function deleteIncident(id: string) {
+  await db.transaction('rw', db.incidents, db.followUps, async () => {
+    await db.followUps.where('incidentId').equals(id).delete();
+    await db.incidents.delete(id);
+  });
+}
+
+export interface TaskInput { kind: FollowUpKind; title: string; due: DueChip | number; studentId?: string; classId?: string; incidentId?: string; about?: string; role?: string; draft?: 'home' | 'staff' }
+
+export async function addFollowUp(t: TaskInput): Promise<FollowUp> {
+  const now = nowMs();
+  const f: FollowUp = {
+    id: newId(), kind: t.kind, title: t.title.trim(), dueAt: typeof t.due === 'number' ? t.due : dueFrom(t.due, now), status: 'todo', createdAt: now,
+    ...(t.studentId ? { studentId: t.studentId } : {}), ...(t.classId ? { classId: t.classId } : {}), ...(t.incidentId ? { incidentId: t.incidentId } : {}),
+    ...(clean(t.about) ? { about: clean(t.about) } : {}), ...(t.role ? { role: t.role } : {}), ...(t.draft ? { draft: t.draft } : {})
+  };
+  await db.followUps.add(f);
+  return f;
+}
+
+/** The tasks offered after an incident (the teacher picks which, and when). */
+export async function addIncidentTasks(i: Incident, picks: { kind: 'lodge' | 'home' | 'staff'; due: DueChip | number; role?: string }[]) {
+  const s = await db.students.get(i.studentId);
+  const who = s ? (s.preferredName || s.firstName) : 'student';
+  const out: FollowUp[] = [];
+  for (const p of picks) {
+    const base = INCIDENT_TASKS.find((t) => t.kind === p.kind)!;
+    const title = p.kind === 'staff' ? `Inform ${p.role ?? 'school staff'} about ${who}` : `${base.title}: ${who}`;
+    out.push(await addFollowUp({ kind: p.kind, title, due: p.due, studentId: i.studentId, classId: i.classId, incidentId: i.id, ...(p.role ? { role: p.role } : {}), ...(p.kind !== 'lodge' ? { draft: p.kind } : {}) }));
+  }
+  return out;
+}
+
+/** "Follow up urgently": a task due at the end of today; the student goes top of tomorrow's queue. */
+export async function addUrgentFollowUp(t: { studentId: string; classId: string; date: string }) {
+  const s = await db.students.get(t.studentId);
+  const due = Math.max(atTime(t.date, END_OF_DAY), nowMs() + 15 * 60_000);
+  return addFollowUp({ kind: 'urgent', title: `Follow up urgently: ${s ? (s.preferredName || s.firstName) : 'student'}`, due, studentId: t.studentId, classId: t.classId });
+}
+
+export async function setFollowUpStatus(id: string, status: FollowUp['status'], note?: string) {
+  await db.followUps.update(id, { status, doneAt: status === 'todo' ? undefined : nowMs(), ...(note !== undefined ? { note: clean(note) || undefined } : {}) });
+}
+export const setFollowUpDue = (id: string, dueAt: number) => db.followUps.update(id, { dueAt });
+export async function moveFollowUpToTomorrow(id: string) {
+  const f = await db.followUps.get(id);
+  if (f) await db.followUps.update(id, { dueAt: moveToTomorrow(f, nowMs()) });
+}
+export const deleteFollowUp = (id: string) => db.followUps.delete(id);
+
+/* ---------------- Close day ---------------- */
+
+/** Everything Close day goes through, across all classes, for one date. */
+export async function loadDay(date: string) {
+  const [classes, students, lessons, checkins, observations, tags, incidents, followUps, close] = await Promise.all([
+    db.classes.toArray(), db.students.toArray(), db.lessons.toArray(), db.checkins.where('date').equals(date).toArray(),
+    db.observations.where('date').equals(date).toArray(), db.issueTags.where('date').equals(date).toArray(),
+    db.incidents.toArray(), db.followUps.toArray(), db.dayCloses.get(date)
+  ]);
+  const end = endOfDay(date);
+  return {
+    classes, students, close,
+    openLessons: lessons.filter((l) => l.status !== 'closed' && l.date <= date),
+    issues: checkins.filter((c) => c.result === 'issue'), observations, tags,
+    incidentsToday: incidents.filter((i) => i.date === date),
+    unlodged: incidents.filter((i) => !i.lodgedAt && i.date <= date),
+    tasksDue: followUps.filter((f) => f.status === 'todo' && f.dueAt <= end && !f.draft),
+    drafts: followUps.filter((f) => f.status === 'todo' && f.draft),
+    urgentToday: followUps.filter((f) => f.kind === 'urgent' && f.createdAt >= atTime(date, '00:00') && f.createdAt <= end)
+  };
+}
+export type DayData = Awaited<ReturnType<typeof loadDay>>;
+
+export async function closeDay(date: string, d: { reflection?: DayClose['reflection']; note?: string; counts: Record<string, number> }): Promise<DayClose> {
+  const row: DayClose = { id: date, date, ...(d.reflection ? { reflection: d.reflection } : {}), ...(clean(d.note) ? { note: clean(d.note) } : {}), counts: d.counts, closedAt: nowMs() };
+  await db.dayCloses.put(row);
+  return row;
+}
+
+/* ---------------- Brain dump ---------------- */
+
+export async function saveBrainDump(text: string, classId?: string, id?: string): Promise<BrainDump> {
+  const now = nowMs();
+  const old = id ? await db.brainDumps.get(id) : undefined;
+  const created = old?.createdAt ?? now;
+  const row: BrainDump = {
+    id: id ?? newId(), date: old?.date ?? todayISO(), ...(classId ? { classId } : {}), text, createdAt: created,
+    deleteAfter: created + BRAIN_DUMP_KEEP_DAYS * 86_400_000, ...(old?.sortedAt ? { sortedAt: old.sortedAt } : {})
+  };
+  await db.brainDumps.put(row);
+  return row;
+}
+export const markDumpSorted = (id: string) => db.brainDumps.update(id, { sortedAt: nowMs() });
+
+/** Deletes Brain dump text older than BRAIN_DUMP_KEEP_DAYS. Run when the app opens. */
+export async function purgeBrainDumps(now = nowMs()): Promise<number> {
+  const old = (await db.brainDumps.filter((d) => d.deleteAfter <= now).primaryKeys()) as string[];
+  await db.brainDumps.bulkDelete(old);
+  return old.length;
+}
+
+export async function addTaggedNote(studentId: string, text: string, tags: string[]) {
+  if (!text.trim()) return;
+  await db.notes.add({ id: newId(), studentId, date: todayISO(), text: text.trim(), ...(tags.length ? { tags } : {}), createdAt: nowMs() });
+}
+
+/**
+ * Brain dump "Wellbeing flag": a Wellbeing check-in with its note. It has its own lesson id, so it
+ * never replaces a check-in from a real lesson, and only the Wellbeing area is recorded.
+ */
+export async function logWellbeingFlag(studentId: string, classId: string, note: string, dumpId: string) {
+  const date = todayISO();
+  const r = buildIssue({ studentId, classId, date, lessonId: `dump|${dumpId}` }, { areas: { wellbeing: [] }, note });
+  r.observations = r.observations.filter((o) => o.categoryId === 'wellbeing');
+  r.checkin = { ...r.checkin, source: 'manual' };
+  return saveRecords(r);
+}
+
+/** Leftovers from a Brain dump become one dated journal entry. */
+export const saveDumpLeftovers = (text: string, classId?: string) => (text.trim() ? saveJournalEntry({ classId: classId ?? '', text, tags: ['Brain dump'] }) : Promise.resolve(null));
+
+export type DumpAction = 'note' | 'followup' | 'home' | 'wellbeing' | 'positive' | 'skip';
+export interface DumpChunkChoice { text: string; studentIds: string[]; action?: DumpAction; due?: DueChip | number }
+
+/**
+ * Turns sorted Brain dump chunks into records: a note, a follow-up, a contact-home task (with an
+ * email draft), a Wellbeing flag or a positive note, for each student in the chunk. Chunks with
+ * no student, skipped ones and ones left without a choice go into one journal entry.
+ */
+export async function applyDumpChunks(dumpId: string, chunks: DumpChunkChoice[], classId?: string) {
+  const counts: Record<DumpAction | 'journal', number> = { note: 0, followup: 0, home: 0, wellbeing: 0, positive: 0, skip: 0, journal: 0 };
+  const leftovers: string[] = [];
+  for (const c of chunks) {
+    const action = c.studentIds.length ? c.action ?? 'skip' : 'skip';
+    if (action === 'skip') { leftovers.push(c.text); counts.skip++; continue; }
+    for (const sid of c.studentIds) {
+      const s = await db.students.get(sid);
+      if (!s) continue;
+      const who = s.preferredName || s.firstName;
+      if (action === 'note') await addNote(sid, c.text);
+      else if (action === 'positive') await addTaggedNote(sid, c.text, ['positive']);
+      else if (action === 'wellbeing') await logWellbeingFlag(sid, s.classId, c.text, dumpId);
+      else if (action === 'followup') await addFollowUp({ kind: 'custom', title: `Follow up: ${who}`, about: c.text, due: c.due ?? 'morning', studentId: sid, classId: s.classId });
+      else if (action === 'home') await addFollowUp({ kind: 'home', title: `Contact home: ${who}`, about: c.text, due: c.due ?? 'eod', studentId: sid, classId: s.classId, draft: 'home' });
+      counts[action]++;
+    }
+  }
+  if (leftovers.length) { await saveDumpLeftovers(leftovers.join('\n'), classId); counts.journal = leftovers.length; }
+  await markDumpSorted(dumpId);
+  return counts;
+}
+
+/* ---------------- Absent for the rest of the day (round 9) ---------------- */
+
+/** Fired (on window) when entering something for a student clears their absence: the app shows "Marked present". */
+export const MARKED_PRESENT_EVENT = 'pulse:marked-present';
+
+/** Marks a student absent in this class for the rest of the date. A daily attendance note, not a rating. */
+export async function markAbsent(classId: string, studentId: string, date: string, source: AbsentSource) {
+  const id = absentId(date, classId, studentId);
+  if (!(await db.absences.get(id))) await db.absences.put({ id, classId, studentId, date, source, createdAt: nowMs() });
+}
+
+/**
+ * "Here now" (the Absent chip): clears today's absence and any "Not here" check-in today in this
+ * class, so the student is back in the check-in queue and the cold call roll.
+ */
+export async function markHereNow(classId: string, studentId: string, date: string) {
+  await db.absences.delete(absentId(date, classId, studentId));
+  const notHere = await db.checkins.where('studentId').equals(studentId).filter((c) => c.classId === classId && c.date === date && c.status === 'absent').primaryKeys();
+  for (const id of notHere) await undoCheckin(id);
+}
+
+/** "Arrived late": Here now, plus a minor note on the student. */
+export async function markArrivedLate(classId: string, studentId: string, date: string) {
+  await markHereNow(classId, studentId, date);
+  await db.notes.add({ id: newId(), studentId, date, text: 'Arrived late', tags: ['late', 'minor'], createdAt: nowMs() });
+}
+
+/** Entering anything for a student (check-in, note, result) clears today's absence in every class. */
+async function presentOnEntry(studentId: string, date: string) {
+  const ids = await db.absences.where('studentId').equals(studentId).filter((a) => a.date === date).primaryKeys();
+  if (!ids.length) return;
+  await db.absences.bulkDelete(ids);
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(MARKED_PRESENT_EVENT, { detail: { studentId } }));
+}
+
+/* ---------------- Check for understanding (round 9) ---------------- */
+
+type LessonRef = Pick<Lesson, 'id' | 'classId' | 'date'>;
+
+/** Whole class: one check and a result for each student (Yes, Sort of, Not yet or Absent). */
+export async function saveWholeClass(lesson: LessonRef, marks: Record<string, Extract<CfuResultValue, 'got' | 'partly' | 'notyet' | 'absent'>>): Promise<CfuCheck> {
+  const check: CfuCheck = { id: newId(), lessonId: lesson.id, classId: lesson.classId, date: lesson.date, kind: 'yesno', createdAt: nowMs() };
+  const results: CfuResult[] = Object.entries(marks).map(([studentId, result], i) => ({
+    id: `${check.id}|${studentId}`, checkId: check.id, lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, kind: 'yesno', result, createdAt: check.createdAt + i
+  }));
+  await db.transaction('rw', db.cfuChecks, db.cfuResults, async () => {
+    await db.cfuChecks.add(check);
+    if (results.length) await db.cfuResults.bulkPut(results);
+  });
+  for (const r of results) if (r.result === 'absent') await markAbsent(lesson.classId, r.studentId, lesson.date, 'cfu');
+  return check;
+}
+
+/** Exit or entry ticket: saved when recording starts, so each swipe can be saved (and undone) on its own. */
+export async function startTicket(lesson: LessonRef, kind: 'exit' | 'entry', questions: string[], aboutLessonId?: string): Promise<CfuCheck> {
+  const c: CfuCheck = { id: newId(), lessonId: lesson.id, classId: lesson.classId, date: lesson.date, kind, questions: tidyQuestions(questions), ...(aboutLessonId ? { aboutLessonId } : {}), createdAt: nowMs() };
+  await db.cfuChecks.add(c);
+  return c;
+}
+
+export async function recordTicket(check: CfuCheck, studentId: string, result: CfuResultValue, tags: string[] = []): Promise<CfuResult> {
+  const r: CfuResult = {
+    id: `${check.id}|${studentId}`, checkId: check.id, lessonId: check.lessonId, classId: check.classId, studentId, date: check.date,
+    kind: check.kind as 'exit' | 'entry', result, ...(result === 'notyet' && tags.length ? { tags } : {}), createdAt: nowMs()
+  };
+  await db.cfuResults.put(r);
+  if (result === 'absent') await markAbsent(check.classId, studentId, check.date, 'cfu');
+  return r;
+}
+
+/** Undo one ticket swipe (an "Absent" swipe also lifts the absence it added). */
+export async function undoTicketResult(r: CfuResult) {
+  await db.cfuResults.delete(r.id);
+  if (r.result === 'absent') {
+    const a = await db.absences.get(absentId(r.date, r.classId, r.studentId));
+    if (a?.source === 'cfu') await db.absences.delete(a.id);
+  }
+}
+
+export const getCfuCheck = async (id: string) => (await db.cfuChecks.get(id)) ?? null;
+
+/** Changing the questions after Show it (before anyone is recorded). */
+export async function updateTicket(checkId: string, kind: 'exit' | 'entry', questions: string[], aboutLessonId?: string) {
+  await db.cfuChecks.update(checkId, { kind, questions: tidyQuestions(questions), aboutLessonId });
+}
+
+/** Saves a ticket question to reuse in this class (newest first). */
+export async function saveClassQuestion(classId: string, question: string) {
+  const c = await db.classes.get(classId);
+  if (c) await db.classes.update(classId, { savedQuestions: addSavedQuestion(c.savedQuestions, question) });
+}
+export async function removeClassQuestion(classId: string, question: string) {
+  const c = await db.classes.get(classId);
+  if (c) await db.classes.update(classId, { savedQuestions: (c.savedQuestions ?? []).filter((q) => q !== question) });
+}
+
+/** A ticket nobody was recorded for is removed when the teacher leaves. */
+export async function dropEmptyTicket(checkId: string) {
+  if (!(await db.cfuResults.where('checkId').equals(checkId).count())) await db.cfuChecks.delete(checkId);
 }

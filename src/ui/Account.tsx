@@ -33,7 +33,7 @@ export function QrCode({ text, size = 220, filename }: { text: string; size?: nu
   );
 }
 
-function CopyLink({ link }: { link: string }) {
+export function CopyLink({ link }: { link: string }) {
   async function copy() {
     try {
       await navigator.clipboard.writeText(link);

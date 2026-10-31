@@ -12,6 +12,7 @@ import { ClassOverview } from './ClassOverview';
 import { ClassSetup } from '../ClassSetup';
 import { JournalList } from '../Journal';
 import { AssessmentsPanel } from './Assessment';
+import { ReliefPanel } from '../Relief';
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Field, Icon, PageHead, Sheet, toast } from '../components';
 
@@ -279,18 +280,19 @@ export function ClassDetail({ id, tab }: { id: string; tab?: string }) {
         <button class="icon-btn" aria-label="Edit class" onClick={() => setSheet('edit')}><Icon name="edit" /></button>
       </PageHead>
       <div class="chips class-tabs" role="tablist">
-        {[['', 'Class'], ['journal', 'Journal'], ['assessments', 'Assessments']].map(([t, label]) => (
+        {[['', 'Class'], ['journal', 'Journal'], ['assessments', 'Assessments'], ['relief', 'Relief']].map(([t, label]) => (
           <a key={t} role="tab" aria-selected={(tab ?? '') === t} class={`chip ${(tab ?? '') === t ? 'active' : ''}`} href={`#/classes/${cls.id}${t ? `/${t}` : ''}`}>{label}</a>
         ))}
       </div>
     </>
   );
-  if (tab === 'journal' || tab === 'assessments') {
+  if (tab === 'journal' || tab === 'assessments' || tab === 'relief') {
     return (
       <div>
         {head}
         {tab === 'journal'
           ? <><p class="small muted" style="margin:0 0 10px">Your private journal for {cls.name}. Never in reports or shared exports.</p><JournalList classId={cls.id} /></>
+          : tab === 'relief' ? <ReliefPanel classId={cls.id} />
           : <AssessmentsPanel classId={cls.id} />}
         {sheet === 'edit' && <ClassForm cls={cls} onClose={() => setSheet(null)} />}
       </div>
@@ -340,6 +342,7 @@ export function ClassDetail({ id, tab }: { id: string; tab?: string }) {
 
       <div class="section"><h2>Manage</h2></div>
       <div class="row wrap">
+        <a class="btn" href={`#/classes/${cls.id}/relief`}><Icon name="user" /> Relief pass</a>
         <button class="btn" onClick={archive}><Icon name="archive" /> {cls.archived ? 'Restore class' : 'Archive class'}</button>
         <button class="btn danger" onClick={remove}><Icon name="trash" /> Delete permanently</button>
       </div>

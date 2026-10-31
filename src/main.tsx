@@ -8,11 +8,34 @@ import { initCloud } from './cloud';
 import { initSync } from './sync/cloudSync';
 import { PREVIEW } from './preview';
 import { PreviewBanner } from './ui/PreviewBanner';
+import { PulseDB, useDatabase } from './db';
+import { readReliefLink } from './logic/relief';
+import { enterReliefMode, loadReliefSession, reliefDbName, saveReliefSession } from './relief/device';
+import { startReliefOwner } from './relief/owner';
+import { purgeBrainDumps } from './services';
+import { ReliefApp } from './ui/ReliefApp';
 
-initSync();
-initCloud();
+// A relief pass link (?relief=…#rk=…): remember it, then take the pass id and key out of the address bar.
+const link = readReliefLink(location.href);
+if (link) {
+  saveReliefSession({ passId: link.passId, key: link.key });
+  history.replaceState(null, '', link.clean);
+}
 
-render(<App />, document.getElementById('app')!);
+const relief = loadReliefSession();
+if (relief) {
+  // Relief mode: the class lives in its own database, and this device's own sync stays off.
+  useDatabase(new PulseDB(reliefDbName(relief.passId)));
+  enterReliefMode(relief);
+  initCloud();
+  render(<ReliefApp session={relief} />, document.getElementById('app')!);
+} else {
+  initSync();
+  initCloud();
+  startReliefOwner();
+  void purgeBrainDumps().catch(() => {});
+  render(<App />, document.getElementById('app')!);
+}
 
 if (PREVIEW) {
   const strip = document.createElement('div');

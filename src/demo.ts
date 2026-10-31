@@ -4,7 +4,7 @@
 
 import { db, newId, getSettings, saveSettings } from './db';
 import type {
-  Assessment, AssessmentCheck, ColdCall, JournalEntry, Lesson, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
+  Assessment, AssessmentCheck, ColdCall, JournalEntry, Lesson, ReliefPass, HomeworkCheck, IssueTag, Checkout, Category, Checkin, IcpAdjustment, IcpCheck, Level, Observation, Question, SchoolClass, Student, StudentNote, TimetableEntry
 } from './types';
 import { rankStudents } from './logic/priority';
 import { openFollowUp, followUpLevel, FOLLOW_UP_OPTIONS } from './logic/followups';
@@ -16,6 +16,12 @@ import { buildAllGood, buildIssue } from './logic/checkin';
 import { pickColdCall, STRUGGLE_TAGS } from './logic/coldcall';
 import { rankByNeed } from './logic/need';
 import { CHECKIN_AREAS, HOMEWORK_REASONS, WELLBEING } from './config/checkin';
+import type { CfuCheck, CfuResult, Relationship, Room, SeatingPlan } from './types';
+import { makePlan } from './logic/seating';
+import { roomTemplate } from './logic/rooms';
+import { newSupport, newWatch, plannerRelationships, plannerStudents, seatLabel } from './logic/seatingData';
+import { needByStudent } from './logic/need';
+import { suggestedQuestion } from './logic/cfu';
 
 /** Swipe check-ins start this many days ago in the demo; older days use the previous format. */
 const SWIPE_FROM = 12;
@@ -24,12 +30,14 @@ const SWIPE_FROM = 12;
 const INTENTIONS: Record<string, string[]> = {
   English: ['Identify persuasive techniques', 'Plan a persuasive paragraph', 'Use evidence to support a point', 'Edit for sentence variety', 'Analyse a character’s motives', 'Compare two poems'],
   Science: ['Explain how rivers form meanders', 'Describe types of erosion', 'Read a topographic map', 'Plan a fair test', 'Record results in a table', 'Draw conclusions from data'],
-  Mathematics: ['Solve linear equations', 'Graph straight lines', 'Find the gradient', 'Simultaneous equations by substitution', 'Apply Pythagoras’ theorem', 'Interpret scatter plots']
+  Mathematics: ['Solve linear equations', 'Graph straight lines', 'Find the gradient', 'Simultaneous equations by substitution', 'Apply Pythagoras’ theorem', 'Interpret scatter plots'],
+  Humanities: ['Explain why cities grow near rivers', 'Read a population graph', 'Compare two settlements', 'Use a primary source', 'Map land use in a town', 'Write a short explanation']
 };
 const HOMEWORK: Record<string, string[]> = {
   English: ['Finish the persuasive paragraph', 'Read chapter 4'],
   Science: ['Finish the river worksheet', 'Label the erosion diagram'],
-  Mathematics: ['Exercise 3B, questions 1–10', 'Textbook page 112']
+  Mathematics: ['Exercise 3B, questions 1–10', 'Textbook page 112'],
+  Humanities: ['Finish the settlement map', 'Read the source and answer 3 questions']
 };
 
 function rng(seed: number) {
@@ -68,6 +76,17 @@ const CLASSES: { name: string; subject: string; yearLevel: string; days: number[
       ["Jack", "O'Connor", undefined, { behaviour: 0.45 }], ['Emily', 'Clarke'], ['Henry', 'Young', undefined, { homework: 0.4 }],
       ['Charlotte', 'King'], ['William', 'Scott', 'Will'], ['Ella', 'Green'], ['Thomas', 'Baker'], ['Sienna', 'Hall', undefined, { focus: 0.3 }],
       ['Mason', 'Wright'], ['Zoe', 'Lopez'], ['Archie', 'Turner'], ['Maya', 'Hughes']
+    ]
+  },
+  {
+    // Round 7: a fuller class with a seating plan.
+    name: '8B Humanities', subject: 'Humanities', yearLevel: 'Year 8', days: [1, 3, 5], start: '14:40', end: '15:40', room: 'H3',
+    students: [
+      ['Ali', 'Hassan', undefined, { behaviour: 0.3 }], ['Sam', 'Fletcher', undefined, { behaviour: 0.3 }], ['Priya', 'Raman'], ['Mia', 'Costa'],
+      ['Jayden', 'Brooks', undefined, { focus: 0.45 }], ['Hannah', 'Leigh'], ['Ravi', 'Menon'], ['Chloe', 'Dubois'], ['Ben', 'Okafor'], ['Lena', 'Fischer'],
+      ['Tom', 'Gallagher', undefined, { behaviour: 0.2 }], ['Aisha', 'Bello'], ['Dylan', 'Reyes', undefined, { focus: 0.35 }], ['Freya', 'Lindqvist'],
+      ['Marco', 'Bianchi'], ['Sofia', 'Haddad'], ['Nate', 'Kerr', undefined, { behaviour: 0.2 }], ['Jade', 'Wong'], ['Felix', 'Moreau'], ['Tilly', 'Pearce'],
+      ['Arjun', 'Kapoor', undefined, { coping: 0.3 }], ['Rosa', 'Mendes'], ['Callum', 'Frost'], ['Evie', 'Sato']
     ]
   }
 ];
@@ -137,6 +156,10 @@ export async function loadDemoData(): Promise<void> {
   const homework: HomeworkCheck[] = [];
   const lessons: Lesson[] = [];
   const coldCalls: ColdCall[] = [];
+  // Round 9: exit tickets on most recent lessons (own random stream, so the rest of the demo is unchanged).
+  const cfuChecks: CfuCheck[] = [];
+  const cfuResults: CfuResult[] = [];
+  const ticketRand = rng(11);
   const swipeRand = rng(99);
   for (let back = 27; back >= 1; back--) {
     const date = addDays(today, -back);
@@ -304,6 +327,18 @@ export async function loadDemoData(): Promise<void> {
     lesson.happy = tough ? (hr < 0.65 ? 'no' : 'mostly') : hr < 0.55 ? 'yes' : hr < 0.9 ? 'mostly' : 'no';
     lesson.planDone = lesson.attentionPct > 70 ? (swipeRand() < 0.8 ? 'yes' : 'partly') : swipeRand() < 0.35 ? 'yes' : 'partly';
     if (tough && lesson.happy === 'no' && swipeRand() < 0.5) lesson.note = 'Ran out of time for the practice questions.';
+    // An exit ticket in most lessons: more "got it" when the teacher got through the plan.
+    if (ticketRand() < 0.65) {
+      const check: CfuCheck = { id: newId(), lessonId, classId, date, kind: 'exit', questions: [suggestedQuestion('exit', lesson)], createdAt: openedAt + 3_300_000 };
+      cfuChecks.push(check);
+      const pGot = lesson.planDone === 'yes' ? 0.8 : 0.58;
+      for (const st of classStudents) {
+        if (absent.has(st.id)) continue;
+        const r = ticketRand() + (profiles.get(st.id)!.coping ?? 0.08);
+        const result = r < pGot ? 'got' : r < pGot + 0.15 ? 'partly' : 'notyet';
+        cfuResults.push({ id: `${check.id}|${st.id}`, checkId: check.id, lessonId, classId, studentId: st.id, date, kind: 'exit', result, ...(result === 'notyet' && ticketRand() < 0.4 ? { tags: ['misconception'] } : {}), createdAt: check.createdAt + 1000 });
+      }
+    }
   }
 
   // Class focus check-outs for most past lessons (own random stream, so the check-in history is unchanged).
@@ -325,6 +360,12 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), studentId: jack.id, date: addDays(today, -10), text: 'Moved to the front table this week.', createdAt: Date.now() }
   );
 
+  // Round 6: yesterday a fictional relief teacher took the first class; their check-ins wait for review.
+  const reliefDay = addDays(today, -1);
+  const reliefPass: ReliefPass = { id: newId(), classId: classes[0].id, from: reliefDay, to: reliefDay, reliefName: 'Sam Relief', shareIcp: false, plan: 'Read chapter 4 and answer the questions.', createdAt: Date.now() - 2 * 86_400_000 };
+  checkins.filter((c) => c.classId === classes[0].id && c.date === reliefDay && c.status === 'complete').slice(0, 3)
+    .forEach((c) => { c.relief = { passId: reliefPass.id, name: 'Sam Relief' }; c.createdAt = Date.now() - 86_400_000; });
+
   await db.transaction('rw', [db.classes, db.students, db.timetable, db.categories, db.questions, db.checkins, db.observations, db.icpAdjustments, db.icpChecks, db.notes, db.plans, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls], async () => {
     await db.lessons.bulkAdd(lessons);
     await db.coldCalls.bulkAdd(coldCalls);
@@ -343,6 +384,8 @@ export async function loadDemoData(): Promise<void> {
     await db.notes.bulkAdd(notes);
     await db.plans.where('id').startsWith(planId(today, '')).delete();
   });
+  await db.cfuChecks.bulkAdd(cfuChecks);
+  await db.cfuResults.bulkAdd(cfuResults);
   // Round 4: an active assessment with a couple of checks in the first class, and journal entries.
   const c0 = classes[0];
   const c0Lessons = lessons.filter((l) => l.classId === c0.id && !l.historical).sort((a, b) => b.openedAt - a.openedAt);
@@ -355,10 +398,81 @@ export async function loadDemoData(): Promise<void> {
     { id: newId(), classId: c0.id, date: addDays(today, -6), lessonId: c0Lessons[2]?.id, text: 'Tried a silent start with the do-now on the board. Much calmer first ten minutes.', tags: ['Behaviour management', 'Lesson design'], aitsl: 4, createdAt: Date.now() },
     { id: newId(), classId: c0.id, date: addDays(today, -2), lessonId: c0Lessons[0]?.id, text: 'Mentor observed. Feedback: more wait time after questions; cold call worked well.', tags: ['Mentor feedback', 'Engagement'], aitsl: 3, createdAt: Date.now() }
   ];
-  await db.transaction('rw', [db.assessments, db.assessmentChecks, db.journal], async () => {
+  await db.transaction('rw', [db.assessments, db.assessmentChecks, db.journal, db.reliefPasses], async () => {
     await db.assessments.add(task);
     await db.assessmentChecks.bulkAdd(assessmentChecks);
     await db.journal.bulkAdd(journal);
+    await db.reliefPasses.add(reliefPass);
   });
+  await demoSeating(classes[3], students, { checkins, observations, tags, homework, lessons }, today);
   await saveSettings({ currentClassId: classes[0].id });
+}
+
+/** Round 7: relationships, seating needs, support levels, a balance tag, a room and an active plan for 8B. */
+async function demoSeating(cls: SchoolClass, all: Student[], hist: { checkins: Checkin[]; observations: Observation[]; tags: IssueTag[]; homework: HomeworkCheck[]; lessons: Lesson[] }, today: string) {
+  const students = all.filter((s) => s.classId === cls.id);
+  const by = (f: string) => students.find((s) => s.firstName === f)!;
+  const now = Date.now();
+  const rel = (a: string, b: string, type: Relationship['type'], extra: Partial<Relationship> = {}): Relationship => ({
+    id: newId(), classId: cls.id, studentA: by(a).id, studentB: by(b).id, type, strength: 1, source: 'manual', confirmed: true, date: addDays(today, -20), createdAt: now, updatedAt: now, ...extra
+  });
+  const relationships: Relationship[] = [
+    rel('Ali', 'Sam', 'keepApart', { strength: 2, note: 'Ongoing conflict since Term 2.' }),
+    rel('Jayden', 'Dylan', 'keepApart'),
+    rel('Mia', 'Hannah', 'worksWell'), rel('Priya', 'Chloe', 'worksWell'), rel('Ravi', 'Ben', 'worksWell'), rel('Marco', 'Sofia', 'worksWell'),
+    // Two peer-conflict signals from check-ins: shows as a suggestion. One works-well signal: listed under "From check-ins".
+    rel('Tom', 'Nate', 'keepApart', { source: 'checkin', confirmed: false, date: addDays(today, -5) }),
+    rel('Nate', 'Tom', 'keepApart', { source: 'checkin', confirmed: false, date: addDays(today, -12) }),
+    rel('Lena', 'Freya', 'worksWell', { source: 'checkin', confirmed: false, date: addDays(today, -4) })
+  ];
+  const tagEal = { id: newId(), name: 'EAL', noAlone: true };
+  cls.balanceTags = [tagEal, { id: newId(), name: 'New this term', noAlone: false }];
+  by('Priya').seatingNeeds = ['front', 'near_board'];
+  by('Ravi').seatingNeeds = ['near_door'];
+  by('Hannah').seatingNeeds = ['left_handed'];
+  by('Jayden').seatingNeeds = ['near_teacher'];
+  for (const f of ['Marco', 'Sofia', 'Rosa']) by(f).balanceTags = [tagEal.id];
+  by('Callum').balanceTags = [cls.balanceTags[1].id];
+  // Support levels are only used once "Use support levels" is switched on in Settings → Seating.
+  by('Arjun').support = newSupport('more', addDays(today, -14));
+  by('Jade').support = newSupport('extension', addDays(today, -14));
+  by('Chloe').support = newSupport('on_track', addDays(today, -14));
+  by('Felix').support = { level: 'on_track', setAt: addDays(today, -80), reviewBy: addDays(today, -10) };
+  const adjustments: IcpAdjustment[] = [
+    { id: newId(), studentId: by('Priya').id, title: 'Seated near the front', details: 'Vision: needs to see the board clearly.', frequency: 'lesson', startDate: addDays(today, -20), active: true, createdAt: now },
+    { id: newId(), studentId: by('Ravi').id, title: 'Movement breaks', details: 'Short break outside the room when needed.', frequency: 'lesson', startDate: addDays(today, -20), active: true, createdAt: now },
+    { id: newId(), studentId: by('Aisha').id, title: 'Reduced distractions', frequency: 'lesson', startDate: addDays(today, -20), active: true, createdAt: now }
+  ];
+  // Evie: Wellbeing → friendship issues three days ago (being left out never separates students).
+  const lesson = hist.lessons.filter((l) => l.classId === cls.id && !l.historical && l.date <= addDays(today, -2)).sort((a, b) => b.openedAt - a.openedAt)[0];
+  const extra = lesson ? buildIssue({ studentId: by('Evie').id, classId: cls.id, date: lesson.date, lessonId: lesson.id }, { areas: { wellbeing: ['friendship'] }, note: 'Sat alone at lunch; quiet in group work.', followUp: true }) : null;
+
+  const room: Room = { id: newId(), name: 'H3', createdAt: now, ...roomTemplate('fours', 24) };
+  const tagsAll = [...hist.tags, ...(extra?.tags ?? [])];
+  const need = needByStudent(students, hist.checkins, hist.observations, tagsAll, hist.homework, today, hist.lessons);
+  const report = makePlan({
+    room, students: plannerStudents({ students, tags: tagsAll, adjustments, concern: new Map([...need].map(([id, r]) => [id, r.concern])), useSupport: false, today }),
+    relationships: plannerRelationships(relationships), noAloneTags: [{ id: tagEal.id, name: 'EAL' }], options: { useSupport: false, supportTable: false, minimiseChanges: false }, seed: 7
+  });
+  const plan: SeatingPlan = {
+    id: newId(), classId: cls.id, roomId: room.id, name: 'Term 4 plan', room: { rows: room.rows, cols: room.cols, cells: room.cells },
+    seats: Object.fromEntries(Object.entries(report.seats).map(([seat, id]) => [seat, { studentId: id }])), active: true, activeFrom: addDays(today, -13), createdAt: now
+  };
+  const evie = by('Evie');
+  evie.seatWatch = newWatch(plan.id, seatLabel(plan, evie.id) ?? 'Table 1', 'left_out', addDays(today, -1));
+  await db.transaction('rw', [db.classes, db.students, db.relationships, db.rooms, db.seatingPlans, db.icpAdjustments, db.checkins, db.observations, db.issueTags], async () => {
+    await db.classes.put(cls);
+    await db.students.bulkPut(students);
+    await db.relationships.bulkAdd(relationships);
+    await db.rooms.add(room);
+    await db.seatingPlans.add(plan);
+    await db.icpAdjustments.bulkAdd(adjustments);
+    if (extra) {
+      await db.observations.where('checkinId').equals(extra.checkin.id).delete();
+      await db.issueTags.where('checkinId').equals(extra.checkin.id).delete();
+      await db.checkins.put(extra.checkin);
+      await db.observations.bulkPut(extra.observations);
+      await db.issueTags.bulkPut(extra.tags);
+    }
+  });
 }

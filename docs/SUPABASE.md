@@ -1,4 +1,4 @@
-# Supabase: accounts, linked devices, invites and live sync
+# Supabase: accounts, linked devices, invites, live sync and relief passes
 
 These are phases 1 and 2 of the cloud plan in the project guide. Teachers can:
 
@@ -58,9 +58,43 @@ Functions: `push_rows` (saves a batch of changes; an older change never overwrit
 
 Browse and edit everything in **Table Editor**. User accounts are under **Authentication → Users**, where you can also delete an account; its devices, invites and profile are removed with it.
 
+## Relief passes (round 6)
+
+A class teacher can give a relief (CRT) teacher one class for up to 5 school days (Manage class → **Relief pass**). The class data for the pass is uploaded **already locked** with a key made just for that pass. The key is only in the pass link, after the `#`, which browsers never send to a server, so Supabase never sees student names. The relief teacher signs in with their own email code. The server checks the dates, the email (if one was set) and the one-device rule, logs each use, and hands over the locked data. Their entries come back locked the same way. The class teacher's phone unlocks them, checks they belong to that class, saves them (normal sync re-locks them with the teacher's own key) and deletes them from the server.
+
+### Turning it on (about 5 minutes, once)
+You need to be signed in to supabase.com, and the two earlier migrations must already have been run (steps 2 and *Live sync* above).
+
+1. On GitHub, open the repo → **supabase** folder → **migrations** → `20261027000000_relief_passes.sql`.
+2. Tap the **Copy raw file** button (two overlapping squares, top right of the file).
+3. Go to [supabase.com/dashboard](https://supabase.com/dashboard) and open the Solaristic Radar project.
+4. In the left menu, click **SQL Editor** (the `>_` icon).
+5. Click **+ New query** (top left), click in the big empty box, and paste (Ctrl+V).
+6. Click the green **Run** button (bottom right), or press Ctrl+Enter.
+7. You should see **"Success. No rows returned"**. (Running it a second time is safe.)
+8. Check it worked: in the left menu, click **Table Editor**. You should see three new tables: `relief_passes`, `relief_uses` and `relief_entries`. Each has a small shield showing row-level security is on.
+9. Check the functions: left menu → **Database** → **Functions**. You should see `claim_relief_pass`, `relief_pass_state` and `push_relief_entries`.
+
+Nothing else changes: the redirect URLs and email templates above already cover pass links.
+
+### Tables
+
+| Table | One row is | Who can see it |
+|---|---|---|
+| `relief_passes` | A pass: class id, dates, relief email (optional), the locked class data, cancelled time, which account and device it's locked to | Only the class teacher who made it (the relief teacher reaches it only through the functions) |
+| `relief_uses` | Each time a pass was opened: who, when, which device | Only the class teacher |
+| `relief_entries` | A locked record a relief teacher entered, waiting for the class teacher's phone | Only the class teacher (who also deletes it) |
+
+Functions (relief teacher, signed in): `claim_relief_pass` (open a pass on this device; refuses with *cancelled*, *not-yet*, *expired*, *wrong-email* or *other-device*), `relief_pass_state` (is it still usable?), `push_relief_entries` (send entries back: only from the locked device, only the record types a relief teacher can make, at most 500 at a time and 200 KB each, and only changes made before the pass ended or was cancelled; late ones are accepted for 2 days).
+
+### Limits to know
+- **A pass with no email** works for whoever signs in with the link first, then only on that device. Anyone holding the link could open it first and lock out the real relief teacher (they'd see the class list, as the relief teacher would). Setting the relief teacher's email avoids this.
+- **The class data is refreshed** every 15 minutes while the pass is running, so the check-in order stays current.
+- **Previews can't be used** to try passes, because they have no sign-in by design. Try them on the live app.
+
 ## Notes and limits
 
 - **Removing a device.** The removed device signs itself out the next time it opens or comes back to the foreground. Until then its session stays valid for up to an hour. For a lost phone, use **Sign out all other devices**, which also stops it renewing.
 - **Magic link versus code.** The link in the email only signs in the browser that requested it. On a different device, or in the Android app, use the code.
-- **Invites do not grant access to anything.** They only show who invited the person and record that they joined. Sharing classes between teachers is a later phase, with end-to-end encryption.
+- **Invites do not grant access to anything.** They only show who invited the person and record that they joined. Sharing classes between teachers is a later phase, with end-to-end encryption; relief passes (above) are the one exception, limited to one class for up to 5 school days.
 - **Free plan.** Free projects pause after a week without activity and have no backups. Move to Pro before any real use.

@@ -127,7 +127,7 @@ describe('backup, restore, deletion (scenario 18)', () => {
       icp: await db.icpChecks.count(), timetable: await db.timetable.count()
     });
     const before = await counts();
-    expect(before.students).toBe(36);
+    expect(before.students).toBe(60);
     expect(before.observations).toBeGreaterThan(100);
     const backup = JSON.parse(JSON.stringify(await svc.createBackup()));
 
@@ -146,10 +146,14 @@ describe('backup, restore, deletion (scenario 18)', () => {
 describe('demo data', () => {
   it('produces follow-ups, flags, ICP history and a custom question', async () => {
     await loadDemoData();
-    expect(await db.classes.count()).toBe(3);
+    expect(await db.classes.count()).toBe(4);
     expect((await db.students.toArray()).some((s) => s.flag)).toBe(true);
     expect(await db.observations.filter((o) => !!o.followUp).count()).toBeGreaterThan(5);
-    expect(await db.icpAdjustments.count()).toBe(4);
+    expect(await db.icpAdjustments.count()).toBe(7);
+    // Round 7: 8B has a room and an active seating plan with everyone seated.
+    const plan = (await db.seatingPlans.toArray()).find((p) => p.active)!;
+    expect(Object.keys(plan.seats)).toHaveLength(24);
+    expect(await db.relationships.count()).toBeGreaterThan(5);
     expect(await db.questions.filter((q) => !q.builtIn).count()).toBe(1);
     expect(await db.checkins.filter((c) => c.status === 'absent').count()).toBeGreaterThan(0);
   });

@@ -1,29 +1,44 @@
-# Handover
+﻿# Handover (31/10/2026)
 
-**Live (main):** rounds 0, 3, 3b and 4, merged 27/10/2026. Previews work (GitHub `round*` rule added): https://deltus.github.io/solaristic-pulse/preview/
+**Live (main):** rounds 0, 3, 3b and 4 (database v11). Previews: https://deltus.github.io/solaristic-pulse/preview/
 
-**Next: redo Round 5 (brain breaks), branch `round5`.** Azeem's feedback on the preview:
-- The brain break lists are weak. Rewrite them (docs/brain-breaks.md and the config in src/config/) with better, classroom-tested activities.
-- If a subject has no brain break of its own, don't ask the teacher to pick from other subjects. Assign a random general one they can run on the spot, in as few taps as possible.
-- Subject-specific breaks: make the instructions explicit (step by step, what the teacher says/does), and put any resource (link, video, printable) right there as a tap-to-open link, so everything is in one place.
-- round5 was built on round4, so it already has everything that's live. Merge main into round5 first (main has 2 small doc commits), then rework it.
+**Nothing from rounds 5–9 is live.** Each branch is built on the one before:
+- `round5`, then
+- `round6` (5 merged in), then
+- `round7` (5 and 6 merged in), then
+- `round8` (from round7, round 7 adjustments merged in 31/10), then
+- `round9` (from round8, same).
 
-**After that: finish Round 6 (relief passes), branch `round6`, option A, in progress.**
-- Done: supabase/migrations/20261027000000_relief_passes.sql (NOT yet run in Supabase), src/relief/server.ts, owner.ts, device.ts, src/ui/ReliefApp.tsx, relief mode in src/main.tsx, Relief tab Send sheet, relief tweaks in Checkin and CloseLesson.
-- Left: tests with a fake ReliefServer, docs/briefs/round6.md (click-by-click Supabase steps), the relief tables in docs/SUPABASE.md, a BUILD_STATUS line, a browser check, push. Relief teachers must not see Wellbeing (from round 3b).
-- Rebase/merge onto the reworked round5 when that's done.
+All are pushed with previews and briefs (docs/briefs/roundN.md).
 
-**After round 6: Round 7 (seating plan assistant), branch `round7`.** Prompt: docs/prompts/round7-seating.md. Agreed with Azeem on 29/10/2026:
-- Relationships (works well / keep apart). Peer interactions in check-ins can record "With who?"; keep-aparts are suggested after 2 incidents and the teacher confirms.
-- Being left out never separates students. It suggests seating them with someone they work well with.
-- No built-in gender field. Teacher-made balance tags (e.g. A/B, EAL, new) with "don't leave anyone alone", stored encrypted.
-- "Nobody sits alone" is a strong preference. It can be broken with a warning, then the student gets a "How are they going at Table 3?" check-in question for 3 lessons; "Not settled" flags a seat review.
-- "Support right now" (needs more support / on track / ready for extension): off by default, per class, reviewed each term, teacher-only, encrypted, never on the projector, print or relief.
+| Branch | What | DB | Supabase script | Tests |
+|---|---|---|---|---|
+| round5 | Brain breaks | v12 | – | 148 |
+| round6 | Relief passes | v13 | 20261027000000_relief_passes.sql | 169 |
+| round7 | Seating (+ adjustments: template tiles, wall setup, named rooms, room re-fit, Present) | v14 | – | 208 |
+| round8 | Incidents, follow-ups, Close day, Brain dump | v15 | 20261031000000_relief_incidents.sql | 226 |
+| round9 | Check for understanding, absent for the rest of the day, Previous button, name → Profile | v16 | – | 245 |
 
-**Then Round 8 (serious incidents, follow-ups, Close day, Brain dump), branch `round8`.** Prompt: docs/prompts/round8-incidents.md.
-**Then Round 9 (Check for understanding), branch `round9`.** Prompt: docs/prompts/round9-cfu.md.
-**Parked (don't build):** the primary version, capability snapshots and the report builder. See docs/BACKLOG.md. Secondary comes first.
+## Plan agreed with Azeem (31/10)
+1. **Done 31/10: Round 7 adjustments** (brief: docs/briefs/round7.md, "Adjustments 2"). Prompt from Cowork: "Merge main into round7, then do docs/prompts/round7-adjustments.md. Show me a 5-line plan first and wait for my OK. Push for a preview when done." (The prompt file is on main, so merge main in first.) Stay on DB v14 unless a new table is unavoidable.
+2. **Done 31/10: Carry round7 up.** HANDOVER.md conflicts kept the newest copy; services.ts imports kept both sides. merge round7 into round8, then round8 into round9. Keep the DB numbers (v14, v15, v16). If HANDOVER.md conflicts, keep the newest one.
+3. **Next: Rework round9** (on the `round9` branch) to the updated docs/prompts/round9-cfu.md (changed on main 31/10, agreed with Thomas):
+   - Thumbs check is replaced by **Whole class**: everyone starts as Yes; tap for Not yet, long-press for Sort of; saved per student, and Not yet is a content signal.
+   - Add **Select a student**: a searchable grid, saved as a cold call with `manual: true`.
+   - Tickets: up to 3 questions, saved questions to reuse per class, shown with round 7's **Present** page (src/ui/Present.tsx: `<Present title body countdown closeHref>`; open it with `openPresent(hash)`).
+   - Each mode gets its own icon and colour.
+   - Keep: cold call, absent for the rest of the day, the Previous button, results feeding signals/timeline/graph/My teaching, and Close lesson's "Run an exit ticket?".
+   - The current round9 code: src/ui/screens/Cfu.tsx, src/logic/cfu.ts, src/config/cfu.ts and tests/round9.test.ts. The yes/no grid is the closest starting point for Whole class.
+4. **Test once** on the round9 preview, which includes everything.
+5. **Merge all together** (Azeem decided this is better than one at a time). Merge round9 into main and add a test that upgrading from v11 to v16 keeps data. Then Azeem runs the two Supabase scripts in order (round 6's, then round 8's), with click-by-click steps. Update BUILD_STATUS.md and this file.
 
-**Small fixes to fold in:** on the previews list page, the "updated" times are local time but labelled UTC (.github/workflows/pages.yml).
+**Merge order rule:** rounds go live in database-version order. If Azeem says "merge" out of order, stop and warn him.
 
-**Unsure / to check on a phone:** swipe fly-off and cold-call roll motion; vibration (Android only); Word journal export opened in Word; Android notifications.
+## Unsure / to check on a phone
+- swipe fly-off and cold-call roll motion
+- vibration (Android only)
+- Word journal export opened in Word
+- Android notifications
+- the seating plan's sideways scroll
+- Present: new window + Full screen on a computer; iPhone can't go truly full screen
+- thumbs long-press and ticket swipes (round 9)

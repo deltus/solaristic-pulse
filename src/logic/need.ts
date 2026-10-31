@@ -10,6 +10,7 @@
 
 import type { AssessmentCheck, Checkin, HomeworkCheck, IssueTag, Lesson, Observation, Student } from '../types';
 import { RANKING } from '../config/checkin';
+import { SEAT_WATCH } from '../config/seating';
 import { daysBetween } from '../lib/dates';
 import { lessonOf, openFollow } from './checkin';
 import { openLessonFor } from './lessons';
@@ -21,6 +22,8 @@ export interface NeedRow {
   /** null = never logged in this class. */
   lessonsSince: number | null;
   reasons: string[];
+  /** Has an urgent follow-up (top of the queue). */
+  urgent?: boolean;
 }
 
 const age = (date: string, today: string) => {
@@ -90,6 +93,10 @@ export interface NeedInput {
   lessonId: string;
   today: string;
   excludeIds?: Set<string>;
+  /** Students on the seat watch (new seat with an "alone" warning, or left out): boosted for a few lessons. */
+  seatWatch?: Set<string>;
+  /** "Follow up urgently" from an earlier day, not seen since: always at the top. */
+  urgent?: Set<string>;
 }
 
 /** Stable "random" tie-breaker: the same within a lesson, different between lessons. */
@@ -108,10 +115,13 @@ export function rankByNeed(input: NeedInput): NeedRow[] {
       const sChk = checkins.filter((c) => c.studentId === s.id);
       const c = recentConcern(s, observations.filter((o) => o.studentId === s.id), homework.filter((h) => h.studentId === s.id), sChk, tags.filter((t) => t.studentId === s.id), today, (input.assessmentChecks ?? []).filter((a) => a.studentId === s.id));
       const since = lessonsSinceSeen(s.id, checkins, order, lessonId);
-      const need = RANKING.concernWeight * Math.min(c.value, RANKING.concernCap) + RANKING.seenWeight * (since ?? RANKING.neverSeenLessons);
-      return { studentId: s.id, need: round1(need), concern: c.value, lessonsSince: since, reasons: c.reasons };
+      const watch = input.seatWatch?.has(s.id) ? SEAT_WATCH.boost : 0;
+      const need = RANKING.concernWeight * Math.min(c.value, RANKING.concernCap) + RANKING.seenWeight * (since ?? RANKING.neverSeenLessons) + watch;
+      const urgent = !!input.urgent?.has(s.id);
+      const reasons = [...(urgent ? ['Urgent follow-up'] : []), ...c.reasons, ...(watch ? ['New seat: check how they are going'] : [])];
+      return { studentId: s.id, need: round1(need), concern: c.value, lessonsSince: since, reasons, ...(urgent ? { urgent } : {}) };
     })
-    .sort((a, b) => b.need - a.need || tieHash(lessonId + a.studentId) - tieHash(lessonId + b.studentId));
+    .sort((a, b) => Number(!!b.urgent) - Number(!!a.urgent) || b.need - a.need || tieHash(lessonId + a.studentId) - tieHash(lessonId + b.studentId));
 }
 
 /**

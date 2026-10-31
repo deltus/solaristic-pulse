@@ -38,5 +38,9 @@ Adjustments per student (title, details, frequency: every lesson / daily / weekl
 ## Reports
 Class or individual; XLSX (all sheets) or CSV (observations); date range, classes, categories, include notes, include ICP; de-identify (stable `Student 001…` pseudonyms, IDs removed, names/teacher/school scrubbed from notes, optional class pseudonyms) with an explicit warning. Download, share sheet, or email draft (mailto; the app never sends email).
 
+## What seating data is used for
+Seating needs, relationships (works well / keep apart), "support right now" levels and teacher-made balance tags are used only to suggest seats: balancing tables and meeting seating needs. They are teacher-only, reviewed each term (support levels count for 10 weeks, then ask "Still accurate?"), and never shared with students. They are encrypted when synced, left out of de-identified exports, and never shown on Present (the board view), printouts or relief passes. Support levels are off by default (Settings → Seating) and deleted when a student is archived. There is no built-in gender or other protected-attribute field; balancing uses only the teacher's own tags. Suggestions (e.g. "Keep apart?") never take effect until the teacher confirms them.
+
 ## Privacy
+Serious incidents: the school's own system (e.g. Compass) is the official record; Radar keeps only the teacher's working copy. Incidents, follow-up tasks, report packs and Brain dump text are encrypted when synced, never in de-identified exports, and deleted with the student.
 Local IndexedDB only; no network calls; not encrypted (stated in-app); privacy notice + policy warning at onboarding; backup/restore (JSON), per-record archive/delete, delete-all. Demo data is fictional.

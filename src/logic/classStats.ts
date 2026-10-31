@@ -3,7 +3,7 @@
 // cold-call success rate.
 
 import type { Checkin, ColdCall, Lesson, Observation } from '../types';
-import { daysBetween, formatShort } from '../lib/dates';
+import { addDays, daysBetween, formatShort } from '../lib/dates';
 import { lessonOf } from './checkin';
 
 export const SUCCESS_AREAS = [
@@ -14,7 +14,7 @@ export const SUCCESS_AREAS = [
 ];
 
 export interface Series { id: string; label: string; colour: string; values: (number | null)[] }
-export interface SuccessChart { unit: 'lesson' | 'week'; labels: [string, string] | undefined; series: Series[] }
+export interface SuccessChart { unit: 'lesson' | 'week'; labels: [string, string] | undefined; series: Series[]; /** First date of each point. */ points: string[] }
 
 const share = (rows: Observation[]) => (rows.length ? rows.filter((o) => o.level === 0).length / rows.length : null);
 
@@ -33,6 +33,7 @@ export function successSeries(input: { observations: Observation[]; checkins: Ch
     return {
       unit: 'lesson',
       labels: used.length ? [formatShort(used[0].date), formatShort(used[used.length - 1].date)] : undefined,
+      points: used.map((l) => l.date),
       series: SUCCESS_AREAS.map((a) => ({ ...a, values: ids.map((id) => share(rows.filter((o) => o.categoryId === a.id && lessonFor(o) === id))) }))
     };
   }
@@ -42,6 +43,7 @@ export function successSeries(input: { observations: Observation[]; checkins: Ch
   return {
     unit: 'week',
     labels: [weeksAgo(weeks - 1), 'this week'],
+    points: Array.from({ length: weeks }, (_, w) => addDays(today, -7 * (weeks - 1 - w) - 6)),
     series: SUCCESS_AREAS.map((a) => ({ ...a, values: Array.from({ length: weeks }, (_, w) => share(rows.filter((o) => o.categoryId === a.id && weekOf(o.date) === w))) }))
   };
 }

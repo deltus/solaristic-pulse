@@ -2,7 +2,7 @@
 
 ## Preview link
 https://deltus.github.io/solaristic-pulse/preview/round8/
-(Branched from round7, so it includes rounds 5, 6 and 7 and the latest main. This push is **Part A**. Close day and Brain dump come in the next push.)
+(Branched from round7, so it includes rounds 5, 6 and 7 and the latest main. Part A came first; Close day and Brain dump are in the Adjustments section below.)
 
 ## What changed (Part A)
 - **Issue screen:**
@@ -41,8 +41,39 @@ https://deltus.github.io/solaristic-pulse/preview/round8/
 Run `supabase/migrations/20261031000000_relief_incidents.sql` the same way as Round 6's: GitHub → supabase → migrations → the file → **Copy raw file** → Supabase → **SQL Editor** → **+ New query** → paste → **Run** → "Success. No rows returned". Nothing else changes, and syncing the new records needs no script.
 
 ## Not done / unsure (Part A)
-- Close day and Brain dump aren't in this push.
 - **Reminders in the browser** only fire while Radar is open, as with lesson reminders. The Android app schedules them properly.
 - Email drafts use `mailto:`. Long drafts may be cut short by some email apps, so **Copy** is there as a backup.
 - "End of day" is 5 pm (`END_OF_DAY` in config). If it's already later, it becomes an hour from now.
 - The home email's name check uses the class list. It also catches surnames and preferred names, but not nicknames the roster doesn't know.
+
+## Adjustments (31/10/2026: Part B Close day and Part C Brain dump)
+**What changed**
+- **Close day** (button on Home): 7 short steps, each skippable:
+  1. Open lessons, with one tap to Close lesson.
+  2. Today's issues, incidents and urgent follow-ups, grouped by class, with "Anything to add?".
+  3. Reports not yet lodged: **Copy report** and **Mark lodged**.
+  4. Today's follow-ups: Done, Not needed or **Tomorrow**.
+  5. Emails still to send.
+  6. Brain dump.
+  7. **How was today?** (Good, OK or Tough), an optional note, and one insight from My teaching if there is one. It ends with "Day closed. Nice work."
+- **When it's offered:** Home shows **Ready to close the day?** from 3 pm, or once the day's last timetabled lesson is closed. The next morning shows **Day not closed** with **Close yesterday**.
+- **Brain dump** (Home, the class page and Close day): a big text box that works with keyboard dictation. **Sort** finds students by first, preferred or last name, on the phone only, with no AI or internet.
+  - If a name fits two students, it asks "Which William?" and shows each one's class.
+  - Started from a class page, it prefers that class.
+  - Only capitalised words count, so "will" or "grace" in a sentence never match.
+- **Each chunk gets one-tap chips:** Note, Follow-up (with a due time), Contact home (a task with an email draft), Wellbeing flag (a Wellbeing record with the note), Positive (a note tagged "positive") or Skip.
+- **Leftovers:** chunks with no student, skipped ones and ones without a choice go into **one journal entry** tagged "Brain dump".
+- **The original text is deleted after 30 days.** That's `BRAIN_DUMP_KEEP_DAYS` in `src/config/incidents.ts`, checked each time the app opens. It's encrypted when synced and never exported.
+- 7 more tests, 214 in total, all passing.
+
+**How to test (Parts B and C)**
+1. Home → **Brain dump**. Type (or dictate) three sentences, each naming a demo student by first name, plus one with no name, such as "Photocopy worksheets." Tap **Sort**.
+2. Choose **Positive** for one, **Wellbeing flag** for one and **Contact home** for one. Save: "Brain dump sorted: 3 records, 1 to the journal".
+3. Try "William forgot his book": it asks **Which William?** (Will Scott, 10A, or Bill Harris, 7B).
+4. Home → **Close day**. Step through it: your open lesson, today's events (the Wellbeing flag shows), the incident from Part A under Reports (**Mark lodged**), follow-ups (**Tomorrow** moves one), and the Contact home draft under Emails. Then choose **Good** → **Close day**.
+5. Tap **+1 day**: Home shows **Day not closed**? No, because you closed it. Do something in a class without closing the day, then tap **+1 day** again: **Day not closed** with **Close yesterday**.
+
+**Not done / unsure**
+- The final count ("N things sorted") covers follow-ups closed today, reports lodged and Brain dump records. It doesn't count lessons you closed from step 1.
+- A Brain dump Wellbeing flag is saved as its own check-in, so it shows in the timeline and Close day. It doesn't replace a real check-in from that lesson.
+- Name matching is simple, with no spelling tolerance: "Aarav" matches, "Arav" doesn't. Nicknames the roster doesn't have aren't found.

@@ -1,44 +1,40 @@
 ﻿# Handover (31/10/2026)
 
-**Live (main):** rounds 0, 3, 3b and 4 (database v11). Previews: https://deltus.github.io/solaristic-pulse/preview/
+**Live (main):** rounds 0 to 9, all merged together on 31/10. Database **v16**. 248 tests pass, including `tests/upgrade-v16.test.ts` (a phone on the old v11 database keeps its data when it upgrades).
+The round branches (`round5` … `round9`) are done; no round is open. Previews: https://deltus.github.io/solaristic-pulse/preview/
 
-**Nothing from rounds 5–9 is live.** Each branch is built on the one before:
-- `round5`, then
-- `round6` (5 merged in), then
-- `round7` (5 and 6 merged in), then
-- `round8` (from round7, round 7 adjustments merged in 31/10), then
-- `round9` (from round8, same).
+## What the last round changed (round 9, brief: docs/briefs/round9.md)
+- **Check for understanding** tile with four modes, each with its own icon and colour:
+  - **Whole class:** everyone starts as Yes; tap for Not yet, hold for Sort of.
+  - **Cold call assistant**.
+  - **Select a student:** saved as a cold call with `manual: true`.
+  - **Entry/exit ticket:** up to 3 questions, saved questions per class (on the class record, encrypted), shown with the Present page and an optional countdown.
+- **Absent for the rest of the day**, **← Previous** on swipe screens, and your name in the menu opens **Profile**.
+- Code: `src/ui/screens/Cfu.tsx`, `src/ui/screens/ColdCall.tsx` (`manual`), `src/logic/cfu.ts`, `src/config/cfu.ts`, `tests/round9.test.ts`.
 
-All are pushed with previews and briefs (docs/briefs/roundN.md).
+## Still to do (Azeem)
+**Run the two Supabase scripts, in this order.** Until then, relief passes (round 6) and relief incidents (round 8) won't work on the live app. Everything else works.
+1. `supabase/migrations/20261027000000_relief_passes.sql` (round 6)
+2. `supabase/migrations/20261031000000_relief_incidents.sql` (round 8)
 
-| Branch | What | DB | Supabase script | Tests |
-|---|---|---|---|---|
-| round5 | Brain breaks | v12 | – | 148 |
-| round6 | Relief passes | v13 | 20261027000000_relief_passes.sql | 169 |
-| round7 | Seating (+ adjustments: template tiles, wall setup, named rooms, room re-fit, Present) | v14 | – | 208 |
-| round8 | Incidents, follow-ups, Close day, Brain dump | v15 | 20261031000000_relief_incidents.sql | 226 |
-| round9 | Check for understanding, absent for the rest of the day, Previous button, name → Profile | v16 | – | 245 |
+For each one:
+1. On GitHub, open the repo → **supabase** → **migrations** → the file.
+2. Tap **Copy raw file** (the two-squares icon, top right).
+3. Go to **supabase.com/dashboard** and open the Solaristic Radar project.
+4. Left menu → **SQL Editor** (the `>_` icon) → **+ New query**.
+5. Click in the empty box and paste (Ctrl+V).
+6. Click the green **Run** button (bottom right).
+7. You should see **"Success. No rows returned"**. Running it twice is safe.
 
-## Plan agreed with Azeem (31/10)
-1. **Done 31/10: Round 7 adjustments** (brief: docs/briefs/round7.md, "Adjustments 2"). Prompt from Cowork: "Merge main into round7, then do docs/prompts/round7-adjustments.md. Show me a 5-line plan first and wait for my OK. Push for a preview when done." (The prompt file is on main, so merge main in first.) Stay on DB v14 unless a new table is unavoidable.
-2. **Done 31/10: Carry round7 up.** HANDOVER.md conflicts kept the newest copy; services.ts imports kept both sides. merge round7 into round8, then round8 into round9. Keep the DB numbers (v14, v15, v16). If HANDOVER.md conflicts, keep the newest one.
-3. **Next: Rework round9** (on the `round9` branch) to the updated docs/prompts/round9-cfu.md (changed on main 31/10, agreed with Thomas):
-   - Thumbs check is replaced by **Whole class**: everyone starts as Yes; tap for Not yet, long-press for Sort of; saved per student, and Not yet is a content signal.
-   - Add **Select a student**: a searchable grid, saved as a cold call with `manual: true`.
-   - Tickets: up to 3 questions, saved questions to reuse per class, shown with round 7's **Present** page (src/ui/Present.tsx: `<Present title body countdown closeHref>`; open it with `openPresent(hash)`).
-   - Each mode gets its own icon and colour.
-   - Keep: cold call, absent for the rest of the day, the Previous button, results feeding signals/timeline/graph/My teaching, and Close lesson's "Run an exit ticket?".
-   - The current round9 code: src/ui/screens/Cfu.tsx, src/logic/cfu.ts, src/config/cfu.ts and tests/round9.test.ts. The yes/no grid is the closest starting point for Whole class.
-4. **Test once** on the round9 preview, which includes everything.
-5. **Merge all together** (Azeem decided this is better than one at a time). Merge round9 into main and add a test that upgrading from v11 to v16 keeps data. Then Azeem runs the two Supabase scripts in order (round 6's, then round 8's), with click-by-click steps. Update BUILD_STATUS.md and this file.
+After the first script, check: **Table Editor** shows `relief_passes`, `relief_uses` and `relief_entries`.
 
-**Merge order rule:** rounds go live in database-version order. If Azeem says "merge" out of order, stop and warn him.
-
-## Unsure / to check on a phone
-- swipe fly-off and cold-call roll motion
-- vibration (Android only)
-- Word journal export opened in Word
-- Android notifications
+## Unsure / to check on a phone (live app)
+- swipe fly-off and cold-call roll motion; vibration (Android only)
+- Word journal export opened in Word; Android notifications
 - the seating plan's sideways scroll
-- Present: new window + Full screen on a computer; iPhone can't go truly full screen
-- thumbs long-press and ticket swipes (round 9)
+- Present: new window + Full screen on a computer (iPhone can't go truly full screen)
+- Whole class press-and-hold, ticket swipes, ticket Present page and countdown
+- relief passes end-to-end with two phones (after the Supabase scripts): docs/briefs/round6.md "How to test with two phones"
+
+## Next prompt
+None written yet in docs/prompts/. The next round should branch from main and use **database v17** or higher (`src/db.ts`).

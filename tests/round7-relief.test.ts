@@ -29,8 +29,8 @@ describe('relief pass with a seating plan', () => {
     expect(plan).toBeDefined();
     // Make sure the class has every kind of private seating data to leave out.
     await svc.setSeatingNeeds(students[0].id, ['near-board'], 'Short-sighted, glasses at home');
-    await svc.setSupport(students[1].id, 'high');
-    await svc.saveBalanceTags(cls.id, [{ id: 'tg1', name: 'Quiet achiever' }]);
+    await svc.setSupport(students[1].id, 'more');
+    await svc.saveBalanceTags(cls.id, [{ id: 'tg1', name: 'Quiet achiever', noAlone: false }]);
     await svc.setStudentBalanceTags(students[2].id, ['tg1']);
     await svc.addRelationship(cls.id, students[3].id, students[4].id, 'keepApart', { note: 'Argued at lunch' });
     await svc.addRelationship(cls.id, students[5].id, students[6].id, 'worksWell');
@@ -46,7 +46,7 @@ describe('relief pass with a seating plan', () => {
     expect(b.students.map((s) => s.firstName)).toContain(students[0].firstName);
 
     const json = JSON.stringify(b);
-    for (const word of ['near-board', 'Short-sighted', 'seatingNeeds', 'support', 'high', 'Quiet achiever', 'balanceTags', 'tg1', 'Argued at lunch', 'keepApart', 'worksWell', 'keep apart', 'works well', 'locked', 'seatWatch', plan.name]) {
+    for (const word of ['near-board', 'Short-sighted', 'seatingNeeds', 'support', '"more"', 'Quiet achiever', 'balanceTags', 'tg1', 'Argued at lunch', 'keepApart', 'worksWell', 'keep apart', 'works well', 'locked', 'seatWatch', plan.name]) {
       expect(json, word).not.toContain(word);
     }
   });

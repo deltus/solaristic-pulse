@@ -12,6 +12,7 @@ import { PulseDB, useDatabase } from './db';
 import { readReliefLink } from './logic/relief';
 import { enterReliefMode, loadReliefSession, reliefDbName, saveReliefSession } from './relief/device';
 import { startReliefOwner } from './relief/owner';
+import { purgeBrainDumps } from './services';
 import { ReliefApp } from './ui/ReliefApp';
 
 // A relief pass link (?relief=…#rk=…): remember it, then take the pass id and key out of the address bar.
@@ -32,6 +33,7 @@ if (relief) {
   initSync();
   initCloud();
   startReliefOwner();
+  void purgeBrainDumps().catch(() => {});
   render(<App />, document.getElementById('app')!);
 }
 

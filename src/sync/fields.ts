@@ -2,7 +2,7 @@
 
 export const SYNCED_TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans', 'incidents', 'followUps', 'dayCloses', 'brainDumps'
 ] as const;
 // Not synced: `evidence` (photos, files, voice memos stay on the device in this version).
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
@@ -18,7 +18,7 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   plans: ['entries'],
   questions: [],
   categories: [],
-  notes: ['text'],
+  notes: ['text', 'tags'],
   icpAdjustments: ['title', 'details', 'evidence'],
   icpChecks: ['note'],
   timetable: ['notes'],
@@ -40,7 +40,12 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   // Who works well with or is kept apart from whom (and why) is sensitive.
   relationships: ['type', 'strength', 'note'],
   rooms: ['name'],
-  seatingPlans: ['name']
+  seatingPlans: ['name'],
+  // Serious incidents, follow-up tasks, the day's reflection and Brain dump text are sensitive.
+  incidents: ['intention', 'time', 'areas', 'what', 'where', 'others', 'witnesses', 'actions', 'actionNote', 'context', 'relief'],
+  followUps: ['title', 'about', 'role', 'note'],
+  dayCloses: ['reflection', 'note', 'counts'],
+  brainDumps: ['text']
 };
 
 type Row = Record<string, unknown>;

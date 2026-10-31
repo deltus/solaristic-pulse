@@ -9,6 +9,7 @@ import { displayName, Empty, Icon } from '../components';
 import { watchRaise } from '../../logic/seatingData';
 import type { ReminderState } from '../reminders';
 import { ReliefReviewCard } from '../Relief';
+import { FollowUpsHome } from '../Incident';
 
 async function loadHome(date: string) {
   const [settings, classes, students, checkins, timetable, adjustments, icpChecks, lessons] = await Promise.all([
@@ -66,6 +67,7 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
         <a key={s.id} class="notice review-seat" href={`#/class/${s.classId}/seating/plan/${s.id}`}>{displayName(s)} isn't settling at {s.seatWatch!.table}. Review the seating plan? <Icon name="chevron" /></a>
       ))}
       <ReliefReviewCard />
+      <FollowUpsHome />
       {todays.length > 0 && <><div class="section" style="margin-top:6px"><h3 class="grow">Today</h3></div><div class="class-grid">{todays.map(card)}</div></>}
       {others.length > 0 && <><div class="section"><h3 class="grow">{todays.length ? 'Other classes' : 'Classes'}</h3></div><div class="class-grid">{others.map(card)}</div></>}
     </div>

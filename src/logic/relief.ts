@@ -7,7 +7,7 @@
 // classes. It is encrypted with a key made for that one pass, which travels only in the pass link
 // after '#' (never sent to a server), the same way the "Add a device" QR code carries a key.
 
-import type { Assessment, AssessmentCheck, BrainBreakLog, Checkin, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, Lesson, Observation, ReliefPass, ReliefTag, SchoolClass, Student, RoomLayout, SeatingPlan } from '../types';
+import type { Assessment, AssessmentCheck, BrainBreakLog, Checkin, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, Lesson, Observation, ReliefPass, ReliefTag, SchoolClass, Student, RoomLayout, SeatingPlan, Incident } from '../types';
 import { addDays, parseISODate, weekday } from '../lib/dates';
 import { rankByNeed } from './need';
 import { openLessonFor } from './lessons';
@@ -197,9 +197,9 @@ export function serverPass(pass: ReliefPass, sealed: string) {
 /* ---------- Relief entries travelling back ---------- */
 
 /** What a relief teacher can create (and what the server accepts). */
-export const RELIEF_TABLES = ['lessons', 'checkins', 'observations', 'issueTags', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks'] as const;
+export const RELIEF_TABLES = ['lessons', 'checkins', 'observations', 'issueTags', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks', 'incidents'] as const;
 /** Records that carry the "Relief: name" tag. */
-const TAGGED = new Set(['lessons', 'checkins', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks']);
+const TAGGED = new Set(['lessons', 'checkins', 'homework', 'coldCalls', 'brainBreaks', 'assessmentChecks', 'incidents']);
 
 export interface SealedEntry { row?: Record<string, unknown>; deleted?: boolean }
 
@@ -228,6 +228,9 @@ export function applyReliefEntry(
   if (row.id !== e.id) return { action: 'skip', reason: 'id mismatch' };
   if (row.classId !== pass.classId) return { action: 'skip', reason: 'another class' };
   if (typeof row.studentId === 'string' && !ctx.studentIds.has(row.studentId)) return { action: 'skip', reason: 'unknown student' };
+  if (Array.isArray(row.others) && row.others.some((x) => typeof x !== 'string' || !ctx.studentIds.has(x))) return { action: 'skip', reason: 'unknown student' };
+  // A relief teacher never sees past records, so an incident from them carries no compiled context.
+  if (e.tbl === 'incidents') { row.context = []; delete row.lodgedAt; }
   // Never overwrite the class teacher's own records.
   if (ctx.existing && TAGGED.has(e.tbl) && !fromThisPass(ctx.existing)) return { action: 'skip', reason: 'class teacher record' };
   // Notes and tags only on a check-in from this pass (not the class teacher's, nor a made-up one).
@@ -239,7 +242,7 @@ export function applyReliefEntry(
 
 /* ---------- Class teacher: reviewing relief entries ---------- */
 
-export interface ReliefEntry { kind: 'checkin' | 'homework' | 'coldcall' | 'brainbreak' | 'assessment'; id: string; studentId?: string; date: string; at: number; relief: ReliefTag; text: string }
+export interface ReliefEntry { kind: 'checkin' | 'homework' | 'coldcall' | 'brainbreak' | 'assessment' | 'incident'; id: string; studentId?: string; date: string; at: number; relief: ReliefTag; text: string }
 
 /** Entries waiting for review: not yet accepted, and less than 7 days old (older ones are accepted automatically). */
 export function reliefToReview(entries: ReliefEntry[], now: number): ReliefEntry[] {
@@ -247,12 +250,13 @@ export function reliefToReview(entries: ReliefEntry[], now: number): ReliefEntry
 }
 
 /** Gathers relief-tagged records into one list for the review card. */
-export function reliefEntries(d: { checkins: Checkin[]; homework: HomeworkCheck[]; coldCalls: ColdCall[]; brainBreaks: BrainBreakLog[]; assessmentChecks: AssessmentCheck[] }, describe: { checkin: (c: Checkin) => string }): ReliefEntry[] {
+export function reliefEntries(d: { checkins: Checkin[]; homework: HomeworkCheck[]; coldCalls: ColdCall[]; brainBreaks: BrainBreakLog[]; assessmentChecks: AssessmentCheck[]; incidents?: Incident[] }, describe: { checkin: (c: Checkin) => string }): ReliefEntry[] {
   const out: ReliefEntry[] = [];
   for (const c of d.checkins) if (c.relief) out.push({ kind: 'checkin', id: c.id, studentId: c.studentId, date: c.date, at: c.createdAt, relief: c.relief, text: describe.checkin(c) });
   for (const h of d.homework) if (h.relief) out.push({ kind: 'homework', id: h.id, studentId: h.studentId, date: h.date, at: h.createdAt, relief: h.relief, text: `Homework: ${h.done ? 'done' : 'not done'}` });
   for (const c of d.coldCalls) if (c.relief) out.push({ kind: 'coldcall', id: c.id, studentId: c.studentId, date: c.date, at: c.createdAt, relief: c.relief, text: `Cold call: ${c.result === 'good' ? 'answered well' : 'struggled'}` });
   for (const b of d.brainBreaks) if (b.relief) out.push({ kind: 'brainbreak', id: b.id, date: b.date, at: b.at, relief: b.relief, text: `Brain break: ${b.name}` });
+  for (const i of d.incidents ?? []) if (i.relief) out.push({ kind: 'incident', id: i.id, studentId: i.studentId, date: i.date, at: i.createdAt, relief: i.relief, text: 'Serious incident: open it to see the report pack and add follow-ups' });
   for (const a of d.assessmentChecks) if (a.relief) out.push({ kind: 'assessment', id: a.id, studentId: a.studentId, date: a.date, at: a.createdAt, relief: a.relief, text: `Assessment: ${a.result === 'on_track' ? 'on track' : 'behind'}` });
   return out;
 }

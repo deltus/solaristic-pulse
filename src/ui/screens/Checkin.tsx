@@ -18,9 +18,11 @@ import { today } from '../../lib/dates';
 import { go, useLive, useSettings } from '../hooks';
 import { displayName, Empty, Icon, initials, Sheet, Switch, toast } from '../components';
 import { seatLabel, watchActive, watchBoosted } from '../../logic/seatingData';
+import { urgentIds } from '../../logic/incidents';
 import { SwipeCard, haptic, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { isRelief, reliefBundle, reliefOrder } from '../../relief/device';
 import { EvidencePrompt, EvidenceSheet } from '../Evidence';
+import { startIncident } from '../Incident';
 
 type Step = 'card' | 'issue' | 'icp';
 
@@ -38,11 +40,12 @@ interface IssueDraft {
   noteOn: boolean;
   note: string;
   subNotes: Record<string, string>;
-  follow: boolean;
+  /** "Follow up urgently": a task due at the end of today, and top of tomorrow's queue. (A normal follow-up next lesson is automatic.) */
+  urgent: boolean;
   /** Behaviour → Peer interactions: "With who?" (saved as unconfirmed keep-apart signals). */
   withWho: string[];
 }
-const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, follow: true, withWho: [] };
+const EMPTY_DRAFT: IssueDraft = { picked: {}, minor: {}, noteOn: false, note: '', subNotes: {}, urgent: false, withWho: [] };
 
 export function CheckinScreen({ classId, studentId }: { classId: string; studentId?: string }) {
   const date = today();
@@ -74,7 +77,8 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const checkedHere = new Set([...thisLesson.filter((c) => c.status === 'complete' || c.status === 'partial').map((c) => c.studentId), ...justChecked]);
   const seatWatch = new Set((ctx?.students ?? []).filter((x) => watchBoosted(x.seatWatch, ctx!.lessons)).map((x) => x.id));
   // Relief teachers get the class teacher's order (without the reasons).
-  const ranked: NeedRow[] = ctx ? reliefOrder(rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere, seatWatch })) : [];
+  const urgent = ctx ? urgentIds(ctx.followUps, ctx.checkins, date) : new Set<string>();
+  const ranked: NeedRow[] = ctx ? reliefOrder(rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere, seatWatch, urgent })) : [];
   const relief = isRelief();
   // Skipped students go to the end, in the order they were skipped.
   const queue = [...ranked.filter((r) => !skipped.includes(r.studentId)), ...skipped.map((id) => ranked.find((r) => r.studentId === id)).filter((r): r is NeedRow => !!r)];
@@ -133,12 +137,18 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
     offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id), relief ? undefined : { label: 'Worked well with…', run: () => setWorkedWell(id) });
     afterSave(id);
   }
-  async function saveIssue(id: string) {
+  async function saveIssue(id: string, then?: 'incident') {
     const d = draft;
-    const r = await svc.logIssue(targetOf(id), { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: d.follow });
-    if (!relief && d.picked.behaviour?.includes('peer_interactions') && d.withWho.length) await svc.logRelationshipSignals(targetOf(id), d.withWho, 'keepApart');
+    const t = targetOf(id);
+    const r = await svc.logIssue(t, { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: true });
+    if (!relief && d.picked.behaviour?.includes('peer_interactions') && d.withWho.length) await svc.logRelationshipSignals(t, d.withWho, 'keepApart');
+    const urgent = d.urgent && r.checkin.result === 'issue' && !relief ? await svc.addUrgentFollowUp(t) : null;
     markLogged(id, true);
-    offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
+    if (then === 'incident') {
+      startIncident(classId, id, { areas: d.picked, note: d.noteOn ? d.note : undefined, checkinId: r.checkin.id, others: d.withWho });
+      return;
+    }
+    offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, async () => { await svc.undoCheckin(r.checkin.id); if (urgent) await svc.deleteFollowUp(urgent.id); });
     afterSave(id);
   }
   function onCard(a: SwipeAction) {
@@ -304,6 +314,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
       {step === 'issue' && (
         <IssueStep s={s} classmates={byName(students.filter((x) => x.id !== s.id))} draft={draft} setDraft={setDraft}
           evidence={hasFeature('evidence') ? { on: withEvidence, count: evidenceCount, toggle: (v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }, open: () => setEvidenceOpen(true) } : null}
+          onIncident={() => (Object.keys(draft.picked).length || Object.keys(draft.minor).some((k) => draft.minor[k].length) ? saveIssue(s.id, 'incident') : startIncident(classId, s.id, { areas: {} }))}
           onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'back' || o === 'cancel') reset(); }} />
       )}
       {evidenceOpen && (
@@ -360,10 +371,11 @@ function HoldChip({ label, on, hasNote, onTap, onHold }: { label: string; on: bo
  * tick box, minor items under Behaviour, and an optional note, evidence and "follow up next time".
  * Swipe right (towards "good") saves straight away; with nothing ticked it goes back. Swipe left cancels.
  */
-function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome }: {
+function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome, onIncident }: {
   s: Student; classmates: Student[]; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
   evidence: { on: boolean; count: number; toggle: (v: boolean) => void; open: () => void } | null;
   onOutcome: (o: IssueOutcome) => void;
+  onIncident: () => void;
 }) {
   const settings = useSettings();
   const refs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -492,7 +504,8 @@ function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome }: {
               {evidence.on && <button class="btn small" onClick={evidence.open}><Icon name="camera" /> {evidence.count ? `${evidence.count} added · add more` : 'Add evidence'}</button>}
             </div>
           )}
-          <label class="check-row"><input type="checkbox" checked={draft.follow} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, follow: v })); }} /> Follow up next time</label>
+          {!isRelief() && <label class="check-row"><input type="checkbox" checked={draft.urgent} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; setDraft((d) => ({ ...d, urgent: v })); }} /> Follow up urgently <span class="tiny muted">(a task due today, top of tomorrow's queue)</span></label>}
+          <button class="btn small danger serious-btn" onClick={onIncident}><Icon name="alert" /> Serious incident</button>
         </div>
         <p class="hold-hint">Swipe {sideOf('good')} to save · {sideOf('issue')} to cancel. Nothing is saved if you cancel.</p>
       </SwipeCard>

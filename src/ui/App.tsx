@@ -23,6 +23,7 @@ import { IcpScreen } from './screens/Icp';
 import { ReportsScreen } from './screens/Reports';
 import { SettingsScreen } from './screens/Settings';
 import { useReminders, type ReminderState } from './reminders';
+import { IncidentForm, IncidentView } from './Incident';
 import { db, saveSettings } from '../db';
 import { FileSavedHost } from './Files';
 import { openFile } from '../files';
@@ -104,10 +105,12 @@ export function App() {
         : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />
         : sub === 'seating' ? <SeatingScreen classId={id} tab={extra} focus={more} />
+        : sub === 'incident' && extra ? <IncidentForm key={extra} classId={id} studentId={extra} />
         : <ClassHub classId={id} reminder={reminder} />;
       break;
     case 'blitz': screen = <BlitzScreen classId={id} />; break;
     case 'teaching': screen = <TeachingScreen />; break;
+    case 'incident': screen = id ? <IncidentView id={id} /> : <HomeScreen reminder={reminder} />; break;
     case 'checkout': screen = id ? <CheckoutScreen classId={id} timetableId={sub} /> : <HomeScreen reminder={reminder} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }

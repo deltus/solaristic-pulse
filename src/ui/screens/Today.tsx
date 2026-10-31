@@ -3,6 +3,7 @@
 // check, Cold call, Blitz, Select student, ICP) and Close lesson.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { ClassFollowUps } from '../Incident';
 import { db, saveSettings } from '../../db';
 import * as svc from '../../services';
 import { formatShort, nowMs, today } from '../../lib/dates';
@@ -133,6 +134,7 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
         <a class="hub-btn" href={`#/icp/class/${classId}`}><Icon name="icp" /><b>ICP {icpDue > 0 && <span class="count-badge" aria-label={`${icpDue} due today`}>{icpDue}</span>}</b><span>{icpDue ? `${icpDue} check${icpDue === 1 ? '' : 's'} due today` : 'Nothing due today'}</span></a>
       </div>
       <a class="hub-btn wide bb-btn" href={`#/class/${classId}/brainbreak`}><Icon name="bolt" /><b>Brain break</b><span>A quick subject game or a calm reset</span></a>
+      <ClassFollowUps classId={classId} tasks={ctx.followUps} students={ctx.students} />
       {reviewSeatItems(ctx.students).map(({ s, table }) => (
         <a key={s.id} class="notice review-seat" href={`#/class/${classId}/seating/plan/${s.id}`}><b>Review seat:</b> {displayName(s)} isn't settled at {table} yet. <Icon name="chevron" /></a>
       ))}

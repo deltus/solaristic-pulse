@@ -322,6 +322,8 @@ export interface StudentNote {
   studentId: string;
   date: string;
   text: string;
+  /** e.g. ['positive'] (from Brain dump). */
+  tags?: string[];
   createdAt: number;
 }
 
@@ -574,4 +576,91 @@ export interface ReliefTag {
   name: string;
   /** Set when the class teacher accepts it (otherwise accepted automatically after 7 days). */
   reviewed?: boolean;
+}
+
+/* ---------- Round 8: serious incidents, follow-up tasks, Close day, Brain dump ---------- */
+
+/** One line of context compiled for an incident report; the teacher ticks which go in. */
+export interface IncidentContextItem {
+  id: string;
+  kind: 'issue' | 'wellbeing' | 'note' | 'followup' | 'icp' | 'icpTitles' | 'homework' | 'assessment' | 'seat';
+  date?: string;
+  text: string;
+  include: boolean;
+}
+
+/** A serious incident: the teacher's working copy (the school's own system is the official record). */
+export interface Incident {
+  /** Lodged by a relief teacher (see ReliefPass). */
+  relief?: ReliefTag;
+  id: string;
+  studentId: string;
+  classId: string;
+  lessonId?: string;
+  /** The lesson's learning intention at the time. */
+  intention?: string;
+  date: string;
+  /** "HH:MM", local time. */
+  time: string;
+  /** Issue areas → ticked sub-options, as on the issue screen. */
+  areas: Record<string, string[]>;
+  what: string;
+  where: string;
+  /** Other students involved (ids). */
+  others: string[];
+  witnesses?: string;
+  /** Action chip ids (see src/config/incidents.ts). */
+  actions: string[];
+  actionNote?: string;
+  /** Snapshot of the context at the time, with the teacher's ticks. */
+  context: IncidentContextItem[];
+  /** Marked "lodged" in the school's own system. */
+  lodgedAt?: number;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export type FollowUpKind = 'urgent' | 'lodge' | 'home' | 'staff' | 'custom';
+export type FollowUpStatus = 'todo' | 'done' | 'notNeeded';
+
+/** A follow-up task with a due time and a reminder. */
+export interface FollowUp {
+  id: string;
+  kind: FollowUpKind;
+  title: string;
+  studentId?: string;
+  classId?: string;
+  incidentId?: string;
+  /** What it's about (Brain dump text, for drafts without an incident). */
+  about?: string;
+  /** "Inform school staff": which role. */
+  role?: string;
+  /** Has an email draft (home or staff). */
+  draft?: 'home' | 'staff';
+  dueAt: number;
+  status: FollowUpStatus;
+  doneAt?: number;
+  note?: string;
+  createdAt: number;
+}
+
+/** "Close day": one per date. */
+export interface DayClose {
+  id: string; // the date
+  date: string;
+  reflection?: 'good' | 'ok' | 'tough';
+  note?: string;
+  counts: Record<string, number>;
+  closedAt: number;
+}
+
+/** A Brain dump's original text, kept for a while then deleted (BRAIN_DUMP_KEEP_DAYS). */
+export interface BrainDump {
+  id: string;
+  date: string;
+  classId?: string;
+  text: string;
+  createdAt: number;
+  sortedAt?: number;
+  deleteAfter: number;
 }

@@ -24,6 +24,9 @@ import { formatDate } from './lib/dates';
 import { SIGNALS } from './config/seating';
 import { answerWatch, leftOutMuteId, newSupport, newWatch, pairKey, seatLabel, type PairSuggestion } from './logic/seatingData';
 import { printableHtml, shortNames } from './logic/seatingPrint';
+import type { BrainDump, DayClose, FollowUp, FollowUpKind, Incident } from './types';
+import { at as atTime, dueFrom, endOfDay, incidentContext, moveToTomorrow } from './logic/incidents';
+import { BRAIN_DUMP_KEEP_DAYS, END_OF_DAY, INCIDENT_TASKS, type DueChip } from './config/incidents';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -46,7 +49,9 @@ export async function updateClass(id: string, patch: Partial<SchoolClass>) {
 export async function deleteClassPermanently(id: string) {
   const students = await db.students.where('classId').equals(id).primaryKeys();
   for (const sid of students) await deleteStudentPermanently(sid);
-  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks, db.brainBreaks, db.reliefPasses, db.relationships, db.seatingPlans], async () => {
+  await db.transaction('rw', [db.classes, db.timetable, db.plans, db.checkins, db.observations, db.checkouts, db.issueTags, db.homework, db.lessons, db.coldCalls, db.journal, db.assessments, db.assessmentChecks, db.brainBreaks, db.reliefPasses, db.relationships, db.seatingPlans, db.incidents, db.followUps], async () => {
+    await db.incidents.where('classId').equals(id).delete();
+    await db.followUps.where('classId').equals(id).delete();
     await db.reliefPasses.where('classId').equals(id).delete();
     await db.brainBreaks.where('classId').equals(id).delete();
     await db.relationships.where('classId').equals(id).delete();
@@ -86,7 +91,10 @@ export async function updateStudent(id: string, patch: Partial<Student>) {
 }
 
 export async function deleteStudentPermanently(id: string) {
-  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks, db.relationships], async () => {
+  await db.transaction('rw', [db.students, db.observations, db.checkins, db.notes, db.icpAdjustments, db.icpChecks, db.plans, db.evidence, db.issueTags, db.homework, db.coldCalls, db.assessmentChecks, db.relationships, db.incidents, db.followUps], async () => {
+    // Deleting a student deletes their incidents and follow-up tasks too.
+    await db.incidents.where('studentId').equals(id).delete();
+    await db.followUps.where('studentId').equals(id).delete();
     await db.relationships.where('studentA').equals(id).delete();
     await db.relationships.where('studentB').equals(id).delete();
     await db.assessmentChecks.where('studentId').equals(id).delete();
@@ -384,7 +392,7 @@ export async function loadLessonContext(classId: string) {
   if (!cls) return null;
   const students = (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived);
   const ids = students.map((s) => s.id);
-  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, plans] = await Promise.all([
+  const [checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, plans, followUps] = await Promise.all([
     db.checkins.where('classId').equals(classId).toArray(),
     db.observations.where('classId').equals(classId).toArray(),
     db.issueTags.where('classId').equals(classId).toArray(),
@@ -396,12 +404,13 @@ export async function loadLessonContext(classId: string) {
     db.coldCalls.where('classId').equals(classId).toArray(),
     db.assessments.where('classId').equals(classId).toArray(),
     db.assessmentChecks.where('classId').equals(classId).toArray(),
-    db.seatingPlans.where('classId').equals(classId).toArray()
+    db.seatingPlans.where('classId').equals(classId).toArray(),
+    db.followUps.where('classId').equals(classId).toArray()
   ]);
   const lesson = openLessonFor(lessons, classId);
   /** The class's active seating plan, if there is one. */
   const seatingPlan = plans.find((p) => p.active);
-  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson, seatingPlan };
+  return { cls, students, checkins, observations, tags, homework, adjustments, icpChecks, evidence, lessons, coldCalls, assessments, assessmentChecks, lesson, seatingPlan, followUps };
 }
 export type LessonContext = NonNullable<Awaited<ReturnType<typeof loadLessonContext>>>;
 
@@ -884,7 +893,7 @@ export async function removeReliefEntry(e: ReliefEntry) {
   await db.table(TABLE_OF[e.kind]).delete(e.id);
 }
 
-const TABLE_OF: Record<ReliefEntry['kind'], string> = { checkin: 'checkins', homework: 'homework', coldcall: 'coldCalls', brainbreak: 'brainBreaks', assessment: 'assessmentChecks' };
+const TABLE_OF: Record<ReliefEntry['kind'], string> = { checkin: 'checkins', homework: 'homework', coldcall: 'coldCalls', brainbreak: 'brainBreaks', assessment: 'assessmentChecks', incident: 'incidents' };
 /* ---------------- Seating plans (round 7) ---------------- */
 
 /** Everything the seating screens need for one class. */
@@ -1027,3 +1036,156 @@ export async function exportSeatingPlan(plan: SeatingPlan, students: Student[], 
   const html = printableHtml(plan, shortNames(students), className, `From ${formatDate(plan.activeFrom ?? todayISO())}`);
   return saveFile(new Blob([html], { type: 'text/html' }), `${className} – seating plan ${plan.activeFrom ?? todayISO()}.html`);
 }
+
+/* ---------------- Serious incidents and follow-up tasks (round 8) ---------------- */
+
+/** Everything the incident screen needs to pre-fill and compile the context. */
+export async function incidentStart(classId: string, studentId: string, checkinId?: string) {
+  const ctx = await loadLessonContext(classId);
+  const student = await db.students.get(studentId);
+  if (!ctx || !student) return null;
+  const notes = await db.notes.where('studentId').equals(studentId).toArray();
+  const followUps = await db.followUps.where('studentId').equals(studentId).toArray();
+  const date = todayISO();
+  const context = incidentContext({ ...ctx, student, classId, date, notes, followUps, excludeCheckinId: checkinId });
+  return { ctx, student, context };
+}
+
+export type IncidentInput = Omit<Incident, 'id' | 'createdAt' | 'updatedAt'> & { id?: string };
+
+export async function saveIncident(i: IncidentInput): Promise<Incident> {
+  const now = nowMs();
+  const old = i.id ? await db.incidents.get(i.id) : undefined;
+  const full: Incident = {
+    ...i, id: i.id ?? newId(), what: i.what.trim(), where: clean(i.where) || 'Classroom', witnesses: clean(i.witnesses) || undefined,
+    actionNote: clean(i.actionNote) || undefined, createdAt: old?.createdAt ?? now, ...(old ? { updatedAt: now } : {})
+  };
+  await db.incidents.put(full);
+  return full;
+}
+
+export async function markLodged(incidentId: string, lodged = true) {
+  await db.incidents.update(incidentId, { lodgedAt: lodged ? nowMs() : undefined });
+  if (lodged) await db.followUps.where('incidentId').equals(incidentId).filter((f) => f.kind === 'lodge' && f.status === 'todo').modify({ status: 'done', doneAt: nowMs() });
+}
+
+export async function deleteIncident(id: string) {
+  await db.transaction('rw', db.incidents, db.followUps, async () => {
+    await db.followUps.where('incidentId').equals(id).delete();
+    await db.incidents.delete(id);
+  });
+}
+
+export interface TaskInput { kind: FollowUpKind; title: string; due: DueChip | number; studentId?: string; classId?: string; incidentId?: string; about?: string; role?: string; draft?: 'home' | 'staff' }
+
+export async function addFollowUp(t: TaskInput): Promise<FollowUp> {
+  const now = nowMs();
+  const f: FollowUp = {
+    id: newId(), kind: t.kind, title: t.title.trim(), dueAt: typeof t.due === 'number' ? t.due : dueFrom(t.due, now), status: 'todo', createdAt: now,
+    ...(t.studentId ? { studentId: t.studentId } : {}), ...(t.classId ? { classId: t.classId } : {}), ...(t.incidentId ? { incidentId: t.incidentId } : {}),
+    ...(clean(t.about) ? { about: clean(t.about) } : {}), ...(t.role ? { role: t.role } : {}), ...(t.draft ? { draft: t.draft } : {})
+  };
+  await db.followUps.add(f);
+  return f;
+}
+
+/** The tasks offered after an incident (the teacher picks which, and when). */
+export async function addIncidentTasks(i: Incident, picks: { kind: 'lodge' | 'home' | 'staff'; due: DueChip | number; role?: string }[]) {
+  const s = await db.students.get(i.studentId);
+  const who = s ? (s.preferredName || s.firstName) : 'student';
+  const out: FollowUp[] = [];
+  for (const p of picks) {
+    const base = INCIDENT_TASKS.find((t) => t.kind === p.kind)!;
+    const title = p.kind === 'staff' ? `Inform ${p.role ?? 'school staff'} about ${who}` : `${base.title}: ${who}`;
+    out.push(await addFollowUp({ kind: p.kind, title, due: p.due, studentId: i.studentId, classId: i.classId, incidentId: i.id, ...(p.role ? { role: p.role } : {}), ...(p.kind !== 'lodge' ? { draft: p.kind } : {}) }));
+  }
+  return out;
+}
+
+/** "Follow up urgently": a task due at the end of today; the student goes top of tomorrow's queue. */
+export async function addUrgentFollowUp(t: { studentId: string; classId: string; date: string }) {
+  const s = await db.students.get(t.studentId);
+  const due = Math.max(atTime(t.date, END_OF_DAY), nowMs() + 15 * 60_000);
+  return addFollowUp({ kind: 'urgent', title: `Follow up urgently: ${s ? (s.preferredName || s.firstName) : 'student'}`, due, studentId: t.studentId, classId: t.classId });
+}
+
+export async function setFollowUpStatus(id: string, status: FollowUp['status'], note?: string) {
+  await db.followUps.update(id, { status, doneAt: status === 'todo' ? undefined : nowMs(), ...(note !== undefined ? { note: clean(note) || undefined } : {}) });
+}
+export const setFollowUpDue = (id: string, dueAt: number) => db.followUps.update(id, { dueAt });
+export async function moveFollowUpToTomorrow(id: string) {
+  const f = await db.followUps.get(id);
+  if (f) await db.followUps.update(id, { dueAt: moveToTomorrow(f, nowMs()) });
+}
+export const deleteFollowUp = (id: string) => db.followUps.delete(id);
+
+/* ---------------- Close day ---------------- */
+
+/** Everything Close day goes through, across all classes, for one date. */
+export async function loadDay(date: string) {
+  const [classes, students, lessons, checkins, observations, tags, incidents, followUps, close] = await Promise.all([
+    db.classes.toArray(), db.students.toArray(), db.lessons.toArray(), db.checkins.where('date').equals(date).toArray(),
+    db.observations.where('date').equals(date).toArray(), db.issueTags.where('date').equals(date).toArray(),
+    db.incidents.toArray(), db.followUps.toArray(), db.dayCloses.get(date)
+  ]);
+  const end = endOfDay(date);
+  return {
+    classes, students, close,
+    openLessons: lessons.filter((l) => l.status !== 'closed' && l.date <= date),
+    issues: checkins.filter((c) => c.result === 'issue'), observations, tags,
+    incidentsToday: incidents.filter((i) => i.date === date),
+    unlodged: incidents.filter((i) => !i.lodgedAt && i.date <= date),
+    tasksDue: followUps.filter((f) => f.status === 'todo' && f.dueAt <= end && !f.draft),
+    drafts: followUps.filter((f) => f.status === 'todo' && f.draft),
+    urgentToday: followUps.filter((f) => f.kind === 'urgent' && f.createdAt >= atTime(date, '00:00') && f.createdAt <= end)
+  };
+}
+export type DayData = Awaited<ReturnType<typeof loadDay>>;
+
+export async function closeDay(date: string, d: { reflection?: DayClose['reflection']; note?: string; counts: Record<string, number> }): Promise<DayClose> {
+  const row: DayClose = { id: date, date, ...(d.reflection ? { reflection: d.reflection } : {}), ...(clean(d.note) ? { note: clean(d.note) } : {}), counts: d.counts, closedAt: nowMs() };
+  await db.dayCloses.put(row);
+  return row;
+}
+
+/* ---------------- Brain dump ---------------- */
+
+export async function saveBrainDump(text: string, classId?: string, id?: string): Promise<BrainDump> {
+  const now = nowMs();
+  const old = id ? await db.brainDumps.get(id) : undefined;
+  const created = old?.createdAt ?? now;
+  const row: BrainDump = {
+    id: id ?? newId(), date: old?.date ?? todayISO(), ...(classId ? { classId } : {}), text, createdAt: created,
+    deleteAfter: created + BRAIN_DUMP_KEEP_DAYS * 86_400_000, ...(old?.sortedAt ? { sortedAt: old.sortedAt } : {})
+  };
+  await db.brainDumps.put(row);
+  return row;
+}
+export const markDumpSorted = (id: string) => db.brainDumps.update(id, { sortedAt: nowMs() });
+
+/** Deletes Brain dump text older than BRAIN_DUMP_KEEP_DAYS. Run when the app opens. */
+export async function purgeBrainDumps(now = nowMs()): Promise<number> {
+  const old = (await db.brainDumps.filter((d) => d.deleteAfter <= now).primaryKeys()) as string[];
+  await db.brainDumps.bulkDelete(old);
+  return old.length;
+}
+
+export async function addTaggedNote(studentId: string, text: string, tags: string[]) {
+  if (!text.trim()) return;
+  await db.notes.add({ id: newId(), studentId, date: todayISO(), text: text.trim(), ...(tags.length ? { tags } : {}), createdAt: nowMs() });
+}
+
+/**
+ * Brain dump "Wellbeing flag": a Wellbeing check-in with its note. It has its own lesson id, so it
+ * never replaces a check-in from a real lesson, and only the Wellbeing area is recorded.
+ */
+export async function logWellbeingFlag(studentId: string, classId: string, note: string, dumpId: string) {
+  const date = todayISO();
+  const r = buildIssue({ studentId, classId, date, lessonId: `dump|${dumpId}` }, { areas: { wellbeing: [] }, note });
+  r.observations = r.observations.filter((o) => o.categoryId === 'wellbeing');
+  r.checkin = { ...r.checkin, source: 'manual' };
+  return saveRecords(r);
+}
+
+/** Leftovers from a Brain dump become one dated journal entry. */
+export const saveDumpLeftovers = (text: string, classId?: string) => (text.trim() ? saveJournalEntry({ classId: classId ?? '', text, tags: ['Brain dump'] }) : Promise.resolve(null));

@@ -6,6 +6,7 @@ import { db } from '../db';
 import type { Settings, TimetableEntry } from '../types';
 import { currentLesson, lessonsOn, nextLesson } from '../logic/schedule';
 import { planReminders } from '../logic/reminderPlan';
+import { followUpReminders } from '../logic/incidents';
 import { nowMinutes, today } from '../lib/dates';
 import { isNative, showNotification } from '../platform';
 import { useLive, useTick } from './hooks';
@@ -19,10 +20,10 @@ export interface ReminderState {
 export function useReminders(settings: Settings | undefined): ReminderState {
   useTick(30_000);
   const data = useLive(async () => {
-    const [timetable, classes, students, adjustments] = await Promise.all([
-      db.timetable.toArray(), db.classes.toArray(), db.students.toArray(), db.icpAdjustments.toArray()
+    const [timetable, classes, students, adjustments, followUps] = await Promise.all([
+      db.timetable.toArray(), db.classes.toArray(), db.students.toArray(), db.icpAdjustments.toArray(), db.followUps.where('status').equals('todo').toArray()
     ]);
-    return { timetable, classes, students, adjustments };
+    return { timetable, classes, students, adjustments, followUps };
   }, []);
   const date = today();
   const timetable = (data?.timetable ?? []).filter((t) => !data?.classes.find((c) => c.id === t.classId)?.archived);
@@ -40,13 +41,14 @@ export function useReminders(settings: Settings | undefined): ReminderState {
 
     if (isNative()) {
       // Schedule two weeks ahead; refreshed whenever the app opens or the timetable/settings change.
-      const plan = planReminders(data.timetable, data.classes, settings.reminders, new Date(), 14, summary);
+      const plan = [...planReminders(data.timetable, data.classes, settings.reminders, new Date(), 14, summary), ...followUpReminders(data.followUps, Date.now())]
+        .sort((a, b) => a.at.getTime() - b.at.getTime());
       import('../native').then((n) => n.scheduleNativeReminders(plan)).catch((e) => console.warn('Reminder scheduling failed', e));
       return;
     }
 
     // Browser: timers only fire while the page is open.
-    const timers = planReminders(data.timetable, data.classes, settings.reminders, new Date(), 1, summary)
+    const timers = [...planReminders(data.timetable, data.classes, settings.reminders, new Date(), 1, summary), ...followUpReminders(data.followUps, Date.now(), 1)]
       .filter((p) => p.at.getTime() - Date.now() < 18 * 3600_000)
       .map((p) => setTimeout(() => {
         const k = `pulse-notified-${p.key}`;

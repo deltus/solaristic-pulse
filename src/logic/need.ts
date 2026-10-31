@@ -22,6 +22,8 @@ export interface NeedRow {
   /** null = never logged in this class. */
   lessonsSince: number | null;
   reasons: string[];
+  /** Has an urgent follow-up (top of the queue). */
+  urgent?: boolean;
 }
 
 const age = (date: string, today: string) => {
@@ -93,6 +95,8 @@ export interface NeedInput {
   excludeIds?: Set<string>;
   /** Students on the seat watch (new seat with an "alone" warning, or left out): boosted for a few lessons. */
   seatWatch?: Set<string>;
+  /** "Follow up urgently" from an earlier day, not seen since: always at the top. */
+  urgent?: Set<string>;
 }
 
 /** Stable "random" tie-breaker: the same within a lesson, different between lessons. */
@@ -113,9 +117,11 @@ export function rankByNeed(input: NeedInput): NeedRow[] {
       const since = lessonsSinceSeen(s.id, checkins, order, lessonId);
       const watch = input.seatWatch?.has(s.id) ? SEAT_WATCH.boost : 0;
       const need = RANKING.concernWeight * Math.min(c.value, RANKING.concernCap) + RANKING.seenWeight * (since ?? RANKING.neverSeenLessons) + watch;
-      return { studentId: s.id, need: round1(need), concern: c.value, lessonsSince: since, reasons: watch ? [...c.reasons, 'New seat: check how they are going'] : c.reasons };
+      const urgent = !!input.urgent?.has(s.id);
+      const reasons = [...(urgent ? ['Urgent follow-up'] : []), ...c.reasons, ...(watch ? ['New seat: check how they are going'] : [])];
+      return { studentId: s.id, need: round1(need), concern: c.value, lessonsSince: since, reasons, ...(urgent ? { urgent } : {}) };
     })
-    .sort((a, b) => b.need - a.need || tieHash(lessonId + a.studentId) - tieHash(lessonId + b.studentId));
+    .sort((a, b) => Number(!!b.urgent) - Number(!!a.urgent) || b.need - a.need || tieHash(lessonId + a.studentId) - tieHash(lessonId + b.studentId));
 }
 
 /**

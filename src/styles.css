@@ -961,3 +961,28 @@ body.projector-mode .content-col { margin: 0; max-width: none; }
 .relief-page .card.flat { margin-bottom: 10px; }
 .relief-page .hub-btn:disabled { opacity: 0.7; cursor: default; }
 .relief-review { border-color: var(--blue); }
+
+/* ---------- Round 8: serious incidents and follow-ups ---------- */
+.safety-banner { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; margin: 10px 0; border-radius: 12px; background: var(--burgundy-50); border: 1px solid var(--burgundy); color: var(--burgundy); font-size: 13.5px; font-weight: 600; position: sticky; top: 0; z-index: 5; }
+.safety-banner svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+.incident .field { display: block; margin: 8px 0; }
+.incident .field > span { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 3px; }
+.inc-h { margin: 16px 0 6px; font-size: 15px; }
+.inc-subs { margin: 6px 0 2px; }
+.ctx-row { align-items: flex-start; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.ctx-row.sensitive { background: var(--some-50); }
+.warn-text { color: var(--some); font-weight: 600; }
+.serious-btn { margin-top: 10px; }
+.task-offer { margin: 8px 0; }
+.due-chips { margin-top: 6px; }
+.due-custom { border: 0; background: transparent; font: inherit; max-width: 170px; }
+.report-pack h4 { margin: 12px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.report-pack p { margin: 2px 0; font-size: 14px; }
+.draft-box { margin: 8px 0; }
+.draft-text { white-space: pre-wrap; font: inherit; font-size: 13.5px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 8px 0; max-height: 260px; overflow: auto; }
+.fu-list { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.fu-row { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.fu-row.overdue { border-color: var(--some); background: var(--some-50); }
+.fu-row.closed { opacity: .6; }
+.follow-ups-home { margin-bottom: 12px; }
+.student-incidents .list-row { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }

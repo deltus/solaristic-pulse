@@ -1,4 +1,5 @@
 import type { JSX } from 'preact';
+import { StudentIncidents } from '../Incident';
 import { useState } from 'preact/hooks';
 import { db, getSettings, saveSettings, sortedCategories } from '../../db';
 import * as svc from '../../services';
@@ -340,6 +341,8 @@ export function StudentProfile({ id }: { id: string }) {
           })}
         </div>
       ) : <p class="small muted">No individual adjustments recorded.</p>}
+
+      <StudentIncidents student={s} />
 
       <div class="section"><h2>Teacher notes</h2></div>
       <div class="card">

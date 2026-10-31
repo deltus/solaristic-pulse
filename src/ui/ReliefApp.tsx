@@ -20,8 +20,9 @@ import { CloseLessonScreen } from './screens/CloseLesson';
 import { ColdCallScreen } from './screens/ColdCall';
 import { BrainBreakScreen } from './screens/BrainBreak';
 import { SeatsProjector } from './screens/Seating';
+import { IncidentForm } from './Incident';
 
-const ALLOWED = new Set([undefined, 'checkin', 'homework', 'coldcall', 'brainbreak', 'close', 'student', 'seats']);
+const ALLOWED = new Set([undefined, 'checkin', 'homework', 'coldcall', 'brainbreak', 'close', 'student', 'seats', 'incident']);
 const MORE: Record<string, string> = {
   'not-found': 'This pass link isn’t recognised. Ask the class teacher to send it again.',
   'not-signed-in': 'Sign in to use this pass.',
@@ -101,7 +102,7 @@ function Notice({ title, children }: { title: string; children?: ComponentChildr
 /** Only this class's relief screens; any other address goes back to the class page. */
 function ReliefShell({ b }: { b: ReliefBundle }) {
   const [page, id, sub, extra] = useRoute();
-  const ok = page === 'class' && id === b.cls.id && ALLOWED.has(sub) && (sub !== 'student' || !!extra);
+  const ok = page === 'class' && id === b.cls.id && ALLOWED.has(sub) && ((sub !== 'student' && sub !== 'incident') || !!extra);
   useEffect(() => { if (!ok) location.hash = `#/class/${b.cls.id}`; }, [ok]);
   if (!ok) return null;
   const banner = <div class="relief-banner"><b>Relief</b>{b.pass.reliefName ? ` · ${b.pass.reliefName}` : ''} · {b.cls.name} · until {formatDate(b.pass.to)}</div>;
@@ -112,6 +113,7 @@ function ReliefShell({ b }: { b: ReliefBundle }) {
     : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
     : sub === 'close' ? <CloseLessonScreen classId={id} />
     : sub === 'seats' ? <ReliefSeats b={b} />
+    : sub === 'incident' && extra ? <IncidentForm key={extra} classId={id} studentId={extra} />
     : <ReliefHub b={b} />;
   return <>{banner}{screen}</>;
 }

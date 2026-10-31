@@ -177,11 +177,12 @@ export function ReliefClassPage({ b, preview }: { b: ReliefBundle; preview?: boo
 /** Home: relief entries waiting for the class teacher (accepted automatically after 7 days). */
 export function ReliefReviewCard() {
   const data = useLive(async () => {
-    const [checkins, homework, coldCalls, brainBreaks, assessmentChecks, observations, tags, students] = await Promise.all([
+    const [checkins, homework, coldCalls, brainBreaks, assessmentChecks, observations, tags, students, incidents] = await Promise.all([
       db.checkins.filter((c) => !!c.relief).toArray(), db.homework.filter((h) => !!h.relief).toArray(), db.coldCalls.filter((c) => !!c.relief).toArray(),
-      db.brainBreaks.filter((b) => !!b.relief).toArray(), db.assessmentChecks.filter((a) => !!a.relief).toArray(), db.observations.toArray(), db.issueTags.toArray(), db.students.toArray()
+      db.brainBreaks.filter((b) => !!b.relief).toArray(), db.assessmentChecks.filter((a) => !!a.relief).toArray(), db.observations.toArray(), db.issueTags.toArray(), db.students.toArray(),
+      db.incidents.filter((i) => !!i.relief).toArray()
     ]);
-    return { entries: reliefEntries({ checkins, homework, coldCalls, brainBreaks, assessmentChecks }, { checkin: (c) => `Check-in: ${summaryText(summarise(c, observations, tags))}` }), students };
+    return { entries: reliefEntries({ checkins, homework, coldCalls, brainBreaks, assessmentChecks, incidents }, { checkin: (c) => `Check-in: ${summaryText(summarise(c, observations, tags))}` }), students };
   }, []);
   const [open, setOpen] = useState(false);
   if (!data) return null;

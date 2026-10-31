@@ -467,8 +467,9 @@ const tidy = (a: CloseAnswers) => ({
 });
 
 /** Close lesson. The two teacher questions are required; everything else is optional. */
-export async function closeLesson(lessonId: string, a: CloseAnswers) {
-  if (!a.happy || !a.planDone) throw new Error('Answer the two teacher questions to close the lesson');
+/** `relief`: a relief teacher closing it, who isn't asked the teacher check (the class teacher's own reflection). */
+export async function closeLesson(lessonId: string, a: CloseAnswers, relief = false) {
+  if (!relief && (!a.happy || !a.planDone)) throw new Error('Answer the two teacher questions to close the lesson');
   await db.lessons.update(lessonId, { ...tidy(a), status: 'closed', closedAt: nowMs(), remindAt: undefined });
 }
 

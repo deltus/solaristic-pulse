@@ -48,6 +48,14 @@ describe('opening and closing a lesson', () => {
     expect((await svc.openLesson(c.id)).id).not.toBe(l.id); // next time: a new lesson
   });
 
+  it('lets a relief teacher close a lesson without the teacher check', async () => {
+    const c = await svc.createClass({ name: '9C Science' });
+    const l = await svc.openLesson(c.id);
+    await svc.closeLesson(l.id, { attentionPct: 60, homeworkSet: false }, true);
+    expect(await db.lessons.get(l.id)).toMatchObject({ status: 'closed', attentionPct: 60 });
+    expect((await db.lessons.get(l.id))?.happy).toBeUndefined();
+  });
+
   it('asks "Close your lesson?" after 60 minutes, offers an unclosed lesson later, and honours "remind me in 30 minutes"', () => {
     const opened = new Date('2026-10-26T09:00:00').getTime();
     const open = lesson('L1', '2026-10-26', { status: 'open', openedAt: opened });

@@ -993,6 +993,7 @@ body.projector-mode .content-col { margin: 0; max-width: none; }
 .relief-page .card.flat { margin-bottom: 10px; }
 .relief-page .hub-btn:disabled { opacity: 0.7; cursor: default; }
 .relief-review { border-color: var(--blue); }
+.relief-student .flag { width: 16px; height: 16px; color: var(--burgundy); vertical-align: -2px; }
 
 /* ---------- Round 8: serious incidents and follow-ups ---------- */
 .safety-banner { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; margin: 10px 0; border-radius: 12px; background: var(--burgundy-50); border: 1px solid var(--burgundy); color: var(--burgundy); font-size: 13.5px; font-weight: 600; position: sticky; top: 0; z-index: 5; }

@@ -51,7 +51,7 @@ function CloseForm({ classId, className, lesson, offerTicket }: { classId: strin
   const ready = attentionDone && (relief || (!!happy && !!plan));
 
   async function close() {
-    await svc.closeLesson(lesson.id, answers());
+    await svc.closeLesson(lesson.id, answers(), relief);
     cancelClosePrompt(lesson.id);
     toast(`${className} closed`);
     go('home');

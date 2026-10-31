@@ -1,13 +1,15 @@
 // Seating plan assistant: Plan (Room → Check → Plan), Relationships and Students tabs, and the
-// projector view. The app suggests and explains; the teacher makes every change.
+// Present view (names only, for the board). The app suggests and explains; the teacher makes every change.
 
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useMemo, useState } from 'preact/hooks';
 import type { BalanceTag, Relationship, RoomCellKind, RoomLayout, SeatingPlan, Student } from '../../types';
 import * as svc from '../../services';
 import { newId } from '../../db';
 import { ROOM_TEMPLATES, SEATING_NEEDS, SEATING_PURPOSE, SUPPORT_LEVELS, needLabel, needShort, supportLabel, type RoomTemplateId } from '../../config/seating';
 import { makePlan, evaluatePlan, scoreLine, seatOfStudent, swapWarnings, type PlannerInput, type PlanReport } from '../../logic/seating';
-import { renumberTables, roomSummary, roomTemplate, tableName } from '../../logic/rooms';
+import {
+  deskTableAt, movedCount, placeBoard, placeDoor, placeWindows, refitSeats, renumberTables, roomSummary, roomTemplate, sameLayout, tableName, wallOf, windowWalls
+} from '../../logic/rooms';
 import {
   icpNeedSuggestions, leftOutStudents, leftOutSuggestions, pairKey, pairSuggestions, plannerRelationships, plannerStudents, relationshipList,
   supportNeedsReview, supportSuggestion, watchReview
@@ -18,15 +20,18 @@ import { formatDate, today } from '../../lib/dates';
 import { useLive, useSettings } from '../hooks';
 import { displayName, Icon, Sheet, Switch, toast } from '../components';
 import { PeoplePicker } from './Checkin';
+import { Present, isPhone, openPresent } from '../Present';
+import { useSyncStatus } from '../../sync/engine';
 
-type Tab = 'plan' | 'relationships' | 'students' | 'projector';
+type Tab = 'plan' | 'relationships' | 'students' | 'present';
 
 export function SeatingScreen({ classId, tab, focus }: { classId: string; tab?: string; focus?: string }) {
   const ctx = useLive(() => svc.loadSeating(classId), [classId]);
   const settings = useSettings();
   if (!ctx || !settings) return ctx === null ? <p class="muted">Class not found.</p> : null;
-  const t: Tab = tab === 'relationships' || tab === 'students' || tab === 'projector' ? tab : 'plan';
-  if (t === 'projector') return <Projector ctx={ctx} />;
+  // "projector" is the old link to Present.
+  const t: Tab = tab === 'relationships' || tab === 'students' ? tab : tab === 'present' || tab === 'projector' ? 'present' : 'plan';
+  if (t === 'present') return <SeatingPresent ctx={ctx} />;
   const suggestions = pairSuggestions(ctx.relationships, today()).length + leftOutSuggestions(leftOutStudents(ctx.tags, today()), ctx.relationships, today()).length;
   return (
     <div class="seating">
@@ -86,7 +91,24 @@ function PlanTab({ ctx, useSupport, focus }: { ctx: svc.SeatingContext; useSuppo
     setStep('plan');
   }
 
-  if (step === 'room') return <RoomStep ctx={ctx} room={room} roomId={roomId} onRoom={(r, id) => { setRoom(r); setRoomId(id); setSeats({}); }} onNext={() => setStep('check')} />;
+  /** "Use this room": with an active plan in a different room, re-fit it straight away; otherwise check, then plan. */
+  function useRoom() {
+    if (!active || sameLayout(active.room, room)) { setStep('check'); return; }
+    const { keep } = refitSeats(active.room, active.seats, room);
+    const held = Object.fromEntries(Object.entries(keep).map(([k, v]) => [k, v.studentId]));
+    const r = makePlan({ ...plannerInput(ctx, room, useSupport, { supportTable, minimise }, undefined, seed), locked: held });
+    const next: Seats = Object.fromEntries(Object.entries(r.seats).map(([k, sid]) => [k, { studentId: sid, ...(keep[k]?.locked && keep[k].studentId === sid ? { locked: true } : {}) }]));
+    setSeats(next);
+    setSaved(false);
+    setStep('plan');
+    const n = movedCount(active.room, active.seats, room, next);
+    toast(n ? `${n} student${n === 1 ? '' : 's'} moved because the room changed` : 'Everyone kept their seat in the new room');
+  }
+
+  if (step === 'room') {
+    return <RoomStep ctx={ctx} room={room} roomId={roomId} onUse={useRoom}
+      onRoom={(r, id) => { setRoom(r); setRoomId(id); setSeats(active && sameLayout(active.room, r) ? active.seats : {}); }} />;
+  }
   if (step === 'check') {
     const rels = plannerRelationships(ctx.relationships);
     const sugg = pairSuggestions(ctx.relationships, today()).length + leftOutSuggestions(leftOutStudents(ctx.tags, today()), ctx.relationships, today()).length;
@@ -122,18 +144,54 @@ function PlanTab({ ctx, useSupport, focus }: { ctx: svc.SeatingContext; useSuppo
 
 const PALETTE: [RoomCellKind, string][] = [['desk', 'Desk'], ['empty', 'Empty'], ['board', 'Board'], ['teacher', 'Teacher'], ['door', 'Door'], ['window', 'Window']];
 
-function RoomStep({ ctx, room, roomId, onRoom, onNext }: { ctx: svc.SeatingContext; room: RoomLayout; roomId?: string; onRoom: (r: RoomLayout, id?: string) => void; onNext: () => void }) {
+/** A small drawing of a room for the picker tiles. */
+function RoomThumb({ room }: { room: RoomLayout }) {
+  return (
+    <svg class="room-thumb" viewBox={`0 0 ${room.cols} ${room.rows}`} aria-hidden="true" preserveAspectRatio="xMidYMid meet">
+      {room.cells.map((c, i) => {
+        if (c.k === 'empty') return null;
+        const x = i % room.cols, y = Math.floor(i / room.cols);
+        return c.k === 'board' ? <rect key={i} class="th-board" x={x} y={y + 0.3} width={1.02} height={0.4} />
+          : <rect key={i} class={`th-${c.k}`} x={x + 0.08} y={y + 0.08} width={0.84} height={0.84} rx={0.15} />;
+      })}
+    </svg>
+  );
+}
+
+type WallStep = 'board' | 'door' | 'window';
+const WALL_STEPS: [WallStep, string][] = [['board', 'Tap the wall with the board'], ['door', 'Tap where the door is'], ['window', 'Tap the wall(s) with windows']];
+
+/**
+ * Step 1: pick a template or one of your rooms (it's made straight away, sized to the class), then
+ * "Use this room". "Tweak" opens the grid editor, with a quick wall setup at the top.
+ */
+function RoomStep({ ctx, room, roomId, onRoom, onUse }: { ctx: svc.SeatingContext; room: RoomLayout; roomId?: string; onRoom: (r: RoomLayout, id?: string) => void; onUse: () => void }) {
+  const [mode, setMode] = useState<'pick' | 'picked' | 'edit'>('pick');
+  const [label, setLabel] = useState('');
   const [tool, setTool] = useState<RoomCellKind | 'group'>('desk');
   const [group, setGroup] = useState<number[]>([]);
+  const [wall, setWall] = useState<WallStep | null>('board');
+  const size = Math.max(ctx.students.length, 8);
+  const saved = ctx.rooms.find((r) => r.id === roomId);
   const nextTable = () => Math.max(0, ...room.cells.map((c) => c.t ?? 0)) + 1;
+  const sum = roomSummary(room);
+
+  function pick(r: RoomLayout, name: string, id?: string) { onRoom(r, id); setLabel(name); setMode('picked'); }
+  function nextWall() { setWall(wall === 'board' ? 'door' : wall === 'door' ? 'window' : null); }
   function tap(i: number) {
     const c = room.cells[i];
+    if (wall) {
+      if (wall === 'board') { onRoom(placeBoard(room, wallOf(room, i)), roomId); nextWall(); }
+      else if (wall === 'door') { onRoom(placeDoor(room, i), roomId); nextWall(); }
+      else { const w = wallOf(room, i), on = windowWalls(room); onRoom(placeWindows(room, on.includes(w) ? on.filter((x) => x !== w) : [...on, w]), roomId); }
+      return;
+    }
     if (tool === 'group') {
       if (c.k === 'desk') setGroup(group.includes(i) ? group.filter((x) => x !== i) : [...group, i]);
       return;
     }
     const cells = [...room.cells];
-    cells[i] = tool === 'desk' ? (c.k === 'desk' ? { k: 'empty' } : { k: 'desk', t: nextTable() }) : { k: c.k === tool ? 'empty' : tool };
+    cells[i] = tool === 'desk' ? (c.k === 'desk' ? { k: 'empty' } : { k: 'desk', t: deskTableAt(room, i) }) : { k: c.k === tool ? 'empty' : tool };
     onRoom({ ...room, cells }, roomId);
   }
   function joinGroup() {
@@ -147,41 +205,142 @@ function RoomStep({ ctx, room, roomId, onRoom, onNext }: { ctx: svc.SeatingConte
     onRoom({ rows, cols, cells }, roomId);
   };
   async function saveAs() {
-    const name = prompt('Name this room (e.g. B12)', ctx.rooms.find((r) => r.id === roomId)?.name ?? '');
+    const name = prompt('Name this room (e.g. B12, Science lab 3)', saved?.name ?? '');
     if (name === null) return;
     const r = await svc.saveRoom({ ...renumberTables(room), name, id: roomId });
-    onRoom(r, r.id);
-    toast('Room saved');
+    onRoom({ rows: r.rows, cols: r.cols, cells: r.cells }, r.id);
+    setLabel(r.name);
+    toast(`Saved to Your rooms: ${r.name}`);
   }
-  const sum = roomSummary(room);
+  async function rename() {
+    if (!saved) return;
+    const name = prompt('Rename room', saved.name);
+    if (name === null) return;
+    await svc.renameRoom(saved.id, name);
+    setLabel(name.trim() || 'Room');
+  }
+  async function duplicate() {
+    if (!saved) return;
+    const r = await svc.duplicateRoom(saved.id);
+    if (r) { pick({ rows: r.rows, cols: r.cols, cells: r.cells }, r.name, r.id); toast(`Made a copy: ${r.name}`); }
+  }
+  async function remove() {
+    if (!saved || !confirm(`Delete the room "${saved.name}"? Plans already made keep their copy.`)) return;
+    const res = await svc.deleteRoom(saved.id);
+    if (!res.ok) {
+      const one = res.usedBy.length === 1;
+      toast(`Can't delete: ${res.usedBy.join(', ')} ${one ? 'uses' : 'use'} it in the active plan. Switch ${one ? 'that class' : 'those classes'} to another room first.`);
+      return;
+    }
+    toast('Room deleted');
+    onRoom(room);
+    setMode('pick');
+  }
+
+  if (mode === 'pick') {
+    return (
+      <div class="fade-up">
+        <span class="eyebrow">Step 1 · Room</span>
+        {ctx.rooms.length > 0 && (
+          <>
+            <h3 class="room-h">Your rooms</h3>
+            <div class="room-tiles">
+              {ctx.rooms.map((r) => (
+                <button key={r.id} class={`room-tile ${roomId === r.id ? 'active' : ''}`} onClick={() => pick({ rows: r.rows, cols: r.cols, cells: r.cells }, r.name, r.id)}>
+                  <RoomThumb room={r} /><span class="room-tile-name">{r.name}</span><span class="tiny muted">{roomSummary(r).seats} desks</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <h3 class="room-h">{ctx.rooms.length ? 'Templates' : 'Pick a layout'}</h3>
+        <div class="room-tiles">
+          {ROOM_TEMPLATES.map((t) => {
+            const r = roomTemplate(t.id as RoomTemplateId, size);
+            return (
+              <button key={t.id} class="room-tile" onClick={() => pick(r, t.label)}>
+                <RoomThumb room={r} /><span class="room-tile-name">{t.label}</span><span class="tiny muted">{roomSummary(r).seats} desks</span>
+              </button>
+            );
+          })}
+        </div>
+        {ctx.seatingPlan && <button class="link-btn" style="margin-top:12px" onClick={() => { onRoom(ctx.seatingPlan!.room, ctx.seatingPlan!.roomId); setLabel(''); setMode('picked'); }}>Keep the current room</button>}
+      </div>
+    );
+  }
+
+  if (mode === 'picked') {
+    return (
+      <div class="fade-up">
+        <span class="eyebrow">Step 1 · Room</span>
+        <h2 style="margin:6px 0 2px">{label || saved?.name || 'Current room'}</h2>
+        <p class="tiny muted" style="margin:0 0 8px">{sum.seats} desks · {sum.tables} tables · {ctx.students.length} students{sum.seats < ctx.students.length ? ' · not enough desks: tap Tweak to add some' : ''}</p>
+        <RoomGrid room={room} render={(i) => { const c = room.cells[i]; return <div key={i} class={`rc k-${c.k} ${c.k === 'desk' && (c.t ?? 0) % 2 ? 'odd' : ''}`} />; }} />
+        <button class="btn primary block" style="margin-top:12px" onClick={onUse}>Use this room <Icon name="arrow" /></button>
+        <div class="row between" style="margin-top:8px">
+          <button class="btn small" onClick={() => { setWall('board'); setMode('edit'); }}><Icon name="edit" /> Tweak</button>
+          <button class="link-btn" onClick={() => setMode('pick')}>Pick another</button>
+        </div>
+        {saved && (
+          <div class="row" style="gap:12px;margin-top:10px">
+            <button class="link-btn tiny" onClick={rename}>Rename</button>
+            <button class="link-btn tiny" onClick={duplicate}>Duplicate</button>
+            <button class="link-btn tiny" onClick={remove}>Delete</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div class="fade-up">
-      <span class="eyebrow">Step 1 · Room</span>
-      <div class="chips" style="flex-wrap:wrap;margin:6px 0 8px">
-        {ROOM_TEMPLATES.map((t) => <button key={t.id} class="chip small" onClick={() => onRoom(roomTemplate(t.id as RoomTemplateId, Math.max(ctx.students.length, 8)))}>{t.label}</button>)}
-        {ctx.rooms.map((r) => <button key={r.id} class={`chip small ${roomId === r.id ? 'active' : ''}`} onClick={() => onRoom({ rows: r.rows, cols: r.cols, cells: r.cells }, r.id)}>{r.name}</button>)}
-      </div>
-      <div class="chips room-tools" style="flex-wrap:wrap">
-        {PALETTE.map(([k, label]) => <button key={k} class={`chip tiny-chip ${tool === k ? 'active' : ''}`} aria-pressed={tool === k} onClick={() => { setTool(k); setGroup([]); }}><i class={`swatch sw-${k}`} />{label}</button>)}
-        <button class={`chip tiny-chip ${tool === 'group' ? 'active' : ''}`} aria-pressed={tool === 'group'} onClick={() => setTool('group')}>Group desks</button>
-      </div>
-      <p class="tiny muted" style="margin:4px 0 8px">{tool === 'group' ? 'Tap desks, then "Join as one table".' : `Tap a square to place: ${PALETTE.find((p) => p[0] === tool)?.[1].toLowerCase()}. The front of the room is wherever the board is.`}</p>
+      <span class="eyebrow">Step 1 · Room · Tweak</span>
+      {wall ? (
+        <div class="wall-strip card flat">
+          <ol class="wall-steps">
+            {WALL_STEPS.map(([id, text], n) => <li key={id} class={wall === id ? 'on' : WALL_STEPS.findIndex((x) => x[0] === wall) > n ? 'done' : ''}><b>{n + 1}</b> {text}</li>)}
+          </ol>
+          <div class="row between">
+            <span class="tiny muted">{wall === 'window' ? 'Tap a wall again to remove. Desks stay put.' : 'Desks stay put.'}</span>
+            <span class="row" style="gap:6px">
+              {wall === 'window' && <button class="btn small primary" onClick={() => setWall(null)}>Done</button>}
+              <button class="btn small" onClick={nextWall}>Skip</button>
+            </span>
+          </div>
+        </div>
+      ) : (
+        <button class="link-btn tiny" style="margin:4px 0" onClick={() => setWall('board')}>Set up walls (board, door, windows)</button>
+      )}
+      {!wall && (
+        <>
+          <div class="chips room-tools" style="flex-wrap:wrap;margin-top:6px">
+            {PALETTE.map(([k, text]) => <button key={k} class={`chip tiny-chip ${tool === k ? 'active' : ''}`} aria-pressed={tool === k} onClick={() => { setTool(k); setGroup([]); }}><i class={`swatch sw-${k}`} />{text}</button>)}
+            <button class={`chip tiny-chip ${tool === 'group' ? 'active' : ''}`} aria-pressed={tool === 'group'} onClick={() => setTool('group')}>Group desks</button>
+          </div>
+          <p class="tiny muted" style="margin:4px 0 8px">{tool === 'group' ? 'Tap desks, then "Join as one table" (e.g. two rows back to back).'
+            : tool === 'desk' ? 'Tap to add or remove a desk. Desks touching in a row are one table; leave an empty square for a walkway.'
+            : `Tap a square to place: ${PALETTE.find((p) => p[0] === tool)?.[1].toLowerCase()}. The front of the room is wherever the board is.`}</p>
+        </>
+      )}
       <RoomGrid room={room} render={(i) => {
         const c = room.cells[i];
         return <button key={i} class={`rc k-${c.k} ${group.includes(i) ? 'picked' : ''} ${c.k === 'desk' && (c.t ?? 0) % 2 ? 'odd' : ''}`} aria-label={`${c.k}${c.t ? ` table ${c.t}` : ''}`} onClick={() => tap(i)}>{c.k === 'desk' ? <span class="rc-t">{c.t}</span> : c.k === 'board' ? '' : c.k === 'empty' ? '' : c.k[0].toUpperCase()}</button>;
       }} />
       <div class="row between" style="margin:8px 0">
         <span class="tiny muted">{sum.seats} desks · {sum.tables} tables · {ctx.students.length} students</span>
-        <span class="row" style="gap:6px">
-          <button class="chip tiny-chip" onClick={() => resize(1, 0)}>+ row</button><button class="chip tiny-chip" onClick={() => resize(-1, 0)}>− row</button>
-          <button class="chip tiny-chip" onClick={() => resize(0, 1)}>+ col</button><button class="chip tiny-chip" onClick={() => resize(0, -1)}>− col</button>
-        </span>
+        {!wall && (
+          <span class="row" style="gap:6px">
+            <button class="chip tiny-chip" onClick={() => resize(1, 0)}>+ row</button><button class="chip tiny-chip" onClick={() => resize(-1, 0)}>− row</button>
+            <button class="chip tiny-chip" onClick={() => resize(0, 1)}>+ col</button><button class="chip tiny-chip" onClick={() => resize(0, -1)}>− col</button>
+          </span>
+        )}
       </div>
-      {tool === 'group' && <button class="btn small" disabled={group.length < 1} onClick={joinGroup}>Join as one table</button>}
+      {tool === 'group' && !wall && <button class="btn small" disabled={group.length < 1} onClick={joinGroup}>Join as one table</button>}
       <div class="grid2" style="margin-top:12px">
-        <button class="btn" onClick={saveAs}>Save room</button>
-        <button class="btn primary" onClick={() => onNext()}>Next <Icon name="arrow" /></button>
+        <button class="btn" onClick={saveAs}>{saved ? 'Save room' : 'Save as a room'}</button>
+        <button class="btn primary" onClick={onUse}>Use this room <Icon name="arrow" /></button>
       </div>
+      <button class="link-btn" style="margin-top:10px" onClick={() => setMode('pick')}>Pick another layout</button>
     </div>
   );
 }
@@ -282,7 +441,7 @@ function PlanStep({ ctx, input, room, roomId, seats, setSeats, saved, focus, onS
       <div class="grid2" style="margin-top:12px">
         <button class="btn" onClick={onShuffle}><Icon name="skip" /> Shuffle</button>
         <button class="btn primary" disabled={saved} onClick={() => (report.warnings.length ? setAskWatch(report.warnings.map((w) => w.studentId)) : save(false))}>{saved ? 'Active plan' : 'Save as active plan'}</button>
-        <a class={`btn ${saved ? '' : 'disabled'}`} href={saved ? `#/class/${ctx.cls.id}/seating/projector` : undefined} onClick={(e) => { if (!saved) { e.preventDefault(); toast('Save the plan first'); } }}><Icon name="today" /> Projector view</a>
+        <button class={`btn ${saved ? '' : 'disabled'}`} onClick={() => (saved ? openPresent(`#/class/${ctx.cls.id}/seating/present`) : toast('Save the plan first'))}><Icon name="today" /> Present</button>
         <button class="btn" disabled={!saved || !ctx.seatingPlan} onClick={async () => { await svc.exportSeatingPlan(ctx.seatingPlan!, ctx.students, ctx.cls.name); }}><Icon name="download" /> Export</button>
       </div>
       <button class="link-btn" style="margin-top:10px" onClick={onNew}>New plan or change the room</button>
@@ -296,23 +455,27 @@ function PlanStep({ ctx, input, room, roomId, seats, setSeats, saved, focus, onS
   );
 }
 
-/** Big names only: no reasons, levels or colours that hint at needs. Board at the top. */
-function Projector({ ctx }: { ctx: svc.SeatingContext }) {
+/** Present on the board: big names only, no reasons, levels or colours that hint at needs. Board at the top. */
+function SeatingPresent({ ctx }: { ctx: svc.SeatingContext }) {
+  const sync = useSyncStatus();
   if (!ctx.seatingPlan) return <p class="muted">No active plan yet. <a href={`#/class/${ctx.cls.id}/seating`}>Make one</a></p>;
-  return <SeatsProjector plan={ctx.seatingPlan} students={ctx.students} className={ctx.cls.name} closeHref={`#/class/${ctx.cls.id}/seating`} />;
+  const footer = isPhone() && !window.opener
+    ? <>To show it on the board, open Radar on the classroom computer and tap Present.{sync.state !== 'off' ? ' Your plan is already there.' : ''}</>
+    : undefined;
+  return <SeatsProjector plan={ctx.seatingPlan} students={ctx.students} className={ctx.cls.name} closeHref={`#/class/${ctx.cls.id}/seating`} footer={footer} />;
 }
 
-/** The projector view on its own (also what a relief teacher sees under "Seats"). */
-export function SeatsProjector({ plan, students, className, closeHref }: { plan: Pick<SeatingPlan, 'room' | 'seats'>; students: Student[]; className: string; closeHref: string }) {
-  useEffect(() => { document.body.classList.add('projector-mode'); return () => document.body.classList.remove('projector-mode'); }, []);
+/** The seating plan on the Present page (also what a relief teacher sees under "Seats"). */
+export function SeatsProjector({ plan, students, className, closeHref, footer }: {
+  plan: Pick<SeatingPlan, 'room' | 'seats'>; students: Student[]; className: string; closeHref: string; footer?: preact.ComponentChildren;
+}) {
   const g = projectorGrid(plan, shortNames(students));
   return (
-    <div class="projector">
-      <div class="row between projector-head"><b>{className}</b><a class="btn small" href={closeHref}>Close</a></div>
+    <Present title={className} closeHref={closeHref} footer={footer}>
       <div class="room-grid projector-grid" style={{ gridTemplateColumns: `repeat(${g.cols}, minmax(0, 1fr))` }}>
         {g.cells.map((c, i) => <div key={i} class={`pc k-${c.kind}`}>{c.kind === 'desk' ? c.name ?? '' : c.kind === 'board' ? '' : c.kind === 'door' ? 'Door' : ''}</div>)}
       </div>
-    </div>
+    </Present>
   );
 }
 
@@ -414,7 +577,7 @@ function RelationshipsTab({ ctx }: { ctx: svc.SeatingContext }) {
           </div>
         </>
       )}
-      <p class="tiny muted" style="margin-top:12px">Only relationships you confirm (or tick "use anyway") are used in plans. Teacher-only: never shown on the projector, printouts or relief passes.</p>
+      <p class="tiny muted" style="margin-top:12px">Only relationships you confirm (or tick "use anyway") are used in plans. Teacher-only: never shown on Present, printouts or relief passes.</p>
     </div>
   );
 }
@@ -477,7 +640,7 @@ function StudentsTab({ ctx, useSupport }: { ctx: svc.SeatingContext; useSupport:
 
       <div class="section"><h3 class="grow">Balance tags</h3></div>
       <div class="card flat">
-        <p class="tiny muted" style="margin-top:0">Your own groups, e.g. "Group A" / "Group B", "EAL", "New this term". Teacher-only and encrypted: never on the projector, printouts, exports or relief passes.</p>
+        <p class="tiny muted" style="margin-top:0">Your own groups, e.g. "Group A" / "Group B", "EAL", "New this term". Teacher-only and encrypted: never on Present, printouts, exports or relief passes.</p>
         {tags.map((t) => (
           <div key={t.id} class="row between" style="margin:6px 0">
             <b class="small">{t.name}</b>
@@ -547,7 +710,7 @@ export function SeatingSettings({ on, onChange }: { on: boolean; onChange: (v: b
       <p class="small">{SEATING_PURPOSE}</p>
       <ul class="small tips">
         <li>Seating needs, relationships, support levels and balance tags are only used to suggest seats. You make every change.</li>
-        <li>They are encrypted when synced, left out of de-identified exports, and never shown on the projector view, printouts or relief passes.</li>
+        <li>They are encrypted when synced, left out of de-identified exports, and never shown on Present, printouts or relief passes.</li>
         <li>Support levels are off by default. When on, each level counts for 10 weeks and is then asked about again. Archiving a student deletes it.</li>
         <li>There is no gender or other protected-attribute field. Balance tags are your own groups.</li>
       </ul>

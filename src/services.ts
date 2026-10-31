@@ -29,6 +29,7 @@ import { at as atTime, dueFrom, endOfDay, incidentContext, moveToTomorrow } from
 import { absentId, absentIds } from './logic/cfu';
 import type { AbsentSource, CfuCheck, CfuResult, CfuResultValue } from './types';
 import { BRAIN_DUMP_KEEP_DAYS, END_OF_DAY, INCIDENT_TASKS, type DueChip } from './config/incidents';
+import { roomUsers } from './logic/rooms';
 
 const clean = (s?: string) => (s ?? '').trim();
 const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -1010,12 +1011,30 @@ export async function saveBalanceTags(classId: string, tags: BalanceTag[]) {
   });
 }
 
+/** Saved rooms belong to the teacher, not a class: any class can use them. */
 export async function saveRoom(r: Omit<Room, 'id' | 'createdAt'> & { id?: string }): Promise<Room> {
-  const room: Room = { ...r, id: r.id ?? newId(), name: clean(r.name) || 'Room', createdAt: Date.now() };
+  const old = r.id ? await db.rooms.get(r.id) : undefined;
+  const room: Room = { rows: r.rows, cols: r.cols, cells: r.cells, id: r.id ?? newId(), name: clean(r.name) || 'Room', createdAt: old?.createdAt ?? Date.now() };
   await db.rooms.put(room);
   return room;
 }
-export const deleteRoom = (id: string) => db.rooms.delete(id);
+export const renameRoom = (id: string, name: string) => db.rooms.update(id, { name: clean(name) || 'Room' });
+export async function duplicateRoom(id: string): Promise<Room | undefined> {
+  const r = await db.rooms.get(id);
+  return r ? saveRoom({ rows: r.rows, cols: r.cols, cells: r.cells, name: `${r.name} (copy)` }) : undefined;
+}
+/** Classes whose active plan uses the room. */
+export async function roomInUse(id: string): Promise<string[]> {
+  const [plans, classes] = await Promise.all([db.seatingPlans.toArray(), db.classes.toArray()]);
+  return roomUsers(id, plans, classes);
+}
+/** Deletes a saved room, unless an active plan uses it: then it returns the classes using it. */
+export async function deleteRoom(id: string): Promise<{ ok: true } | { ok: false; usedBy: string[] }> {
+  const usedBy = await roomInUse(id);
+  if (usedBy.length) return { ok: false, usedBy };
+  await db.rooms.delete(id);
+  return { ok: true };
+}
 
 /**
  * Save as the class's active plan (older plans are kept). Students in `watch` (placed with an "alone"

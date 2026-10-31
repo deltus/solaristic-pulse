@@ -130,13 +130,13 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   async function allGood(id: string) {
     const r = await svc.logAllGood(targetOf(id));
     markLogged(id, true);
-    offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id), { label: 'Worked well with…', run: () => setWorkedWell(id) });
+    offerUndo(`All good · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id), relief ? undefined : { label: 'Worked well with…', run: () => setWorkedWell(id) });
     afterSave(id);
   }
   async function saveIssue(id: string) {
     const d = draft;
     const r = await svc.logIssue(targetOf(id), { areas: d.picked, minor: d.minor, note: d.noteOn ? d.note : undefined, subNotes: d.subNotes, followUp: d.follow });
-    if (d.picked.behaviour?.includes('peer_interactions') && d.withWho.length) await svc.logRelationshipSignals(targetOf(id), d.withWho, 'keepApart');
+    if (!relief && d.picked.behaviour?.includes('peer_interactions') && d.withWho.length) await svc.logRelationshipSignals(targetOf(id), d.withWho, 'keepApart');
     markLogged(id, true);
     offerUndo(`${r.checkin.result === 'issue' ? 'Issue saved' : 'Saved'} · ${displayName(students.find((x) => x.id === id)!)}`, id, () => svc.undoCheckin(r.checkin.id));
     afterSave(id);
@@ -153,7 +153,8 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
     <div class="row between">
       <a class="link-btn back-btn" href={back}><Icon name="back" /> {cls.name}</a>
       <span class="row" style="gap:12px">
-        <a class="link-btn" href={`#/class/${classId}/seating`}>Seats</a>
+        {/* Relief teachers get the names-only projector view, and only when there's a plan. */}
+        {relief ? ctx.seatingPlan && <a class="link-btn" href={`#/class/${classId}/seats`}>Seats</a> : <a class="link-btn" href={`#/class/${classId}/seating`}>Seats</a>}
         {!single && <span class="tiny muted mono">{queue.length} to go</span>}
       </span>
     </div>
@@ -451,7 +452,7 @@ function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome }: {
                   <span class="area-name">{a.name}<span class="area-q">{a.question}</span></span>{on && <Icon name="check" />}
                 </button>
                 {on && subChips(a)}
-                {a.id === 'behaviour' && picked.behaviour?.includes('peer_interactions') && (
+                {a.id === 'behaviour' && picked.behaviour?.includes('peer_interactions') && !isRelief() && (
                   <div class="with-who pop-in">
                     <span class="tiny muted">With who? (optional)</span>
                     <div class="chips" style="flex-wrap:wrap">

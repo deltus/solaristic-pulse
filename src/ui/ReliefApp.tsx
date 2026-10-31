@@ -19,8 +19,9 @@ import { HomeworkScreen } from './screens/Homework';
 import { CloseLessonScreen } from './screens/CloseLesson';
 import { ColdCallScreen } from './screens/ColdCall';
 import { BrainBreakScreen } from './screens/BrainBreak';
+import { SeatsProjector } from './screens/Seating';
 
-const ALLOWED = new Set([undefined, 'checkin', 'homework', 'coldcall', 'brainbreak', 'close', 'student']);
+const ALLOWED = new Set([undefined, 'checkin', 'homework', 'coldcall', 'brainbreak', 'close', 'student', 'seats']);
 const MORE: Record<string, string> = {
   'not-found': 'This pass link isn’t recognised. Ask the class teacher to send it again.',
   'not-signed-in': 'Sign in to use this pass.',
@@ -110,8 +111,17 @@ function ReliefShell({ b }: { b: ReliefBundle }) {
     : sub === 'coldcall' ? <ColdCallScreen classId={id} />
     : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
     : sub === 'close' ? <CloseLessonScreen classId={id} />
+    : sub === 'seats' ? <ReliefSeats b={b} />
     : <ReliefHub b={b} />;
   return <>{banner}{screen}</>;
+}
+
+/** The class teacher's seating plan, names only (the projector view). */
+function ReliefSeats({ b }: { b: ReliefBundle }) {
+  const ctx = useLive(() => svc.loadLessonContext(b.cls.id), [b.cls.id]);
+  if (!ctx) return null;
+  if (!ctx.seatingPlan) return <p class="muted">The class teacher hasn't made a seating plan for this class.</p>;
+  return <SeatsProjector plan={ctx.seatingPlan} students={ctx.students} className={b.cls.name} closeHref={`#/class/${b.cls.id}/checkin`} />;
 }
 
 /** The simplified class page. */

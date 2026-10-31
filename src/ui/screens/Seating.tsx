@@ -2,7 +2,7 @@
 // projector view. The app suggests and explains; the teacher makes every change.
 
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import type { BalanceTag, Relationship, RoomCellKind, RoomLayout, Student } from '../../types';
+import type { BalanceTag, Relationship, RoomCellKind, RoomLayout, SeatingPlan, Student } from '../../types';
 import * as svc from '../../services';
 import { newId } from '../../db';
 import { ROOM_TEMPLATES, SEATING_NEEDS, SEATING_PURPOSE, SUPPORT_LEVELS, needLabel, needShort, supportLabel, type RoomTemplateId } from '../../config/seating';
@@ -298,13 +298,17 @@ function PlanStep({ ctx, input, room, roomId, seats, setSeats, saved, focus, onS
 
 /** Big names only: no reasons, levels or colours that hint at needs. Board at the top. */
 function Projector({ ctx }: { ctx: svc.SeatingContext }) {
-  const plan = ctx.seatingPlan;
+  if (!ctx.seatingPlan) return <p class="muted">No active plan yet. <a href={`#/class/${ctx.cls.id}/seating`}>Make one</a></p>;
+  return <SeatsProjector plan={ctx.seatingPlan} students={ctx.students} className={ctx.cls.name} closeHref={`#/class/${ctx.cls.id}/seating`} />;
+}
+
+/** The projector view on its own (also what a relief teacher sees under "Seats"). */
+export function SeatsProjector({ plan, students, className, closeHref }: { plan: Pick<SeatingPlan, 'room' | 'seats'>; students: Student[]; className: string; closeHref: string }) {
   useEffect(() => { document.body.classList.add('projector-mode'); return () => document.body.classList.remove('projector-mode'); }, []);
-  if (!plan) return <p class="muted">No active plan yet. <a href={`#/class/${ctx.cls.id}/seating`}>Make one</a></p>;
-  const g = projectorGrid(plan, shortNames(ctx.students));
+  const g = projectorGrid(plan, shortNames(students));
   return (
     <div class="projector">
-      <div class="row between projector-head"><b>{ctx.cls.name}</b><a class="btn small" href={`#/class/${ctx.cls.id}/seating`}>Close</a></div>
+      <div class="row between projector-head"><b>{className}</b><a class="btn small" href={closeHref}>Close</a></div>
       <div class="room-grid projector-grid" style={{ gridTemplateColumns: `repeat(${g.cols}, minmax(0, 1fr))` }}>
         {g.cells.map((c, i) => <div key={i} class={`pc k-${c.kind}`}>{c.kind === 'desk' ? c.name ?? '' : c.kind === 'board' ? '' : c.kind === 'door' ? 'Door' : ''}</div>)}
       </div>

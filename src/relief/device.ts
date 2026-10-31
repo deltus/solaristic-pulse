@@ -76,7 +76,7 @@ export async function seedReliefDatabase(b: ReliefBundle) {
   setTracking(false);
   try {
     const now = Date.now();
-    await db.transaction('rw', [db.classes, db.students, db.lessons, db.kv], async () => {
+    await db.transaction('rw', [db.classes, db.students, db.lessons, db.seatingPlans, db.kv], async () => {
       await db.classes.put({ id: b.cls.id, name: b.cls.name, subject: b.cls.subject, yearLevel: b.cls.yearLevel, archived: false, createdAt: now });
       await db.students.bulkPut(b.students.map((s) => ({
         id: s.id, classId: b.cls.id, firstName: s.firstName, lastName: s.lastName, preferredName: s.preferredName, archived: false, priorityAdjust: 0, createdAt: now,
@@ -84,6 +84,12 @@ export async function seedReliefDatabase(b: ReliefBundle) {
       })));
       if (b.homeworkLesson) {
         await db.lessons.put({ id: b.homeworkLesson.id, classId: b.cls.id, date: b.homeworkLesson.date, openedAt: b.homeworkLesson.openedAt, closedAt: b.homeworkLesson.openedAt, status: 'closed', homeworkSet: true, homeworkText: b.homeworkLastLesson, createdAt: b.homeworkLesson.openedAt });
+      }
+      // The seating plan, names only: so the card shows "Seat: Table 3" and cold call can pick by table.
+      await db.seatingPlans.clear();
+      if (b.seating) {
+        const seats = Object.fromEntries(Object.entries(b.seating.seats).map(([seat, studentId]) => [seat, { studentId }]));
+        await db.seatingPlans.put({ id: `relief-${b.pass.id}`, classId: b.cls.id, name: '', room: b.seating.room, seats, active: true, createdAt: now });
       }
       await db.kv.put({ key: 'reliefBundle', value: b });
     });

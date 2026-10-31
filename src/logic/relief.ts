@@ -7,7 +7,7 @@
 // classes. It is encrypted with a key made for that one pass, which travels only in the pass link
 // after '#' (never sent to a server), the same way the "Add a device" QR code carries a key.
 
-import type { Assessment, AssessmentCheck, BrainBreakLog, Checkin, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, Lesson, Observation, ReliefPass, ReliefTag, SchoolClass, Student } from '../types';
+import type { Assessment, AssessmentCheck, BrainBreakLog, Checkin, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, Lesson, Observation, ReliefPass, ReliefTag, SchoolClass, Student, RoomLayout, SeatingPlan } from '../types';
 import { addDays, parseISODate, weekday } from '../lib/dates';
 import { rankByNeed } from './need';
 import { openLessonFor } from './lessons';
@@ -106,11 +106,13 @@ export interface ReliefBundle {
   homeworkLesson?: { id: string; date: string; openedAt: number };
   /** Active assessment names, so Assessment check could be added later. */
   assessments?: { id: string; name: string; dueDate?: string }[];
+  /** The active seating plan, names only: the room and seat id → student id. No locks, plan name, needs or reasons. */
+  seating?: { room: RoomLayout; seats: Record<string, string> };
 }
 
 export function buildReliefBundle(pass: ReliefPass, d: {
   cls: SchoolClass; students: Student[]; adjustments: IcpAdjustment[]; lessons: Lesson[]; checkins: Checkin[]; observations: Observation[];
-  tags: IssueTag[]; homework: HomeworkCheck[]; assessments?: Assessment[]; assessmentChecks?: AssessmentCheck[]; today: string;
+  tags: IssueTag[]; homework: HomeworkCheck[]; assessments?: Assessment[]; assessmentChecks?: AssessmentCheck[]; seatingPlan?: SeatingPlan; today: string;
 }): ReliefBundle {
   const live = d.students.filter((s) => s.classId === d.cls.id && !s.archived);
   const activeAdj = (id: string) => d.adjustments.filter((a) => a.studentId === id && a.active && a.startDate <= pass.to && (!a.endDate || a.endDate >= pass.from));
@@ -131,8 +133,17 @@ export function buildReliefBundle(pass: ReliefPass, d: {
     }),
     queue,
     ...(last?.homeworkSet ? { homeworkLastLesson: last.homeworkText || 'Homework (no details)', homeworkLesson: { id: last.id, date: last.date, openedAt: last.openedAt } } : {}),
+    ...(seatingFor(d.seatingPlan, new Set(live.map((s) => s.id)))),
     ...(d.assessments?.length ? { assessments: d.assessments.filter((a) => a.classId === d.cls.id && !a.closed && (!a.dueDate || a.dueDate >= d.today)).map((a) => ({ id: a.id, name: a.name, ...(a.dueDate ? { dueDate: a.dueDate } : {}) })) } : {})
   };
+}
+
+/** The active plan as the relief teacher gets it: desks and who sits where, nothing else. */
+function seatingFor(plan: SeatingPlan | undefined, students: Set<string>): Pick<ReliefBundle, 'seating'> {
+  if (!plan?.active) return {};
+  const seats: Record<string, string> = {};
+  for (const [seat, v] of Object.entries(plan.seats)) if (students.has(v.studentId)) seats[seat] = v.studentId;
+  return { seating: { room: { rows: plan.room.rows, cols: plan.room.cols, cells: plan.room.cells.map((c) => ({ k: c.k, ...(c.t ? { t: c.t } : {}) })) }, seats } };
 }
 
 /** A new key for a pass (base64url, goes in the link after '#'). */

@@ -74,7 +74,6 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
       {notClosed && <div class="notice day-not-closed"><b>Day not closed</b> ({formatShort(notClosed)}). <a class="btn small" href={`#/closeday/${notClosed}`}>Close yesterday</a></div>}
       {closeDue && <div class="card close-day-prompt"><div class="row between"><span><b>Ready to close the day?</b><br /><span class="tiny muted">Open lessons, follow-ups, emails and a quick reflection.</span></span><a class="btn primary small" href="#/closeday">Close day</a></div></div>}
       <ReliefReviewCard />
-      <FollowUpsHome />
       <div class="row home-tools" style="gap:8px;margin:0 0 12px">
         <a class="btn small" href="#/braindump"><Icon name="edit" /> Brain dump</a>
         {!closeDue && !closedToday && <a class="btn small" href="#/closeday"><Icon name="check" /> Close day</a>}
@@ -82,6 +81,8 @@ export function HomeScreen({ reminder }: { reminder: ReminderState }) {
       </div>
       {todays.length > 0 && <><div class="section" style="margin-top:6px"><h3 class="grow">Today</h3></div><div class="class-grid">{todays.map(card)}</div></>}
       {others.length > 0 && <><div class="section"><h3 class="grow">{todays.length ? 'Other classes' : 'Classes'}</h3></div><div class="class-grid">{others.map(card)}</div></>}
+      {/* Follow-ups sit below the classes (Thomas/Azeem, 31/10). */}
+      <div style="margin-top:16px"><FollowUpsHome /></div>
     </div>
   );
 }

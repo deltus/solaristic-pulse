@@ -71,7 +71,7 @@ Run `supabase/migrations/20261031000000_relief_incidents.sql` the same way as Ro
 2. Choose **Positive** for one, **Wellbeing flag** for one and **Contact home** for one. Save: "Brain dump sorted: 3 records, 1 to the journal".
 3. Try "William forgot his book": it asks **Which William?** (Will Scott, 10A, or Bill Harris, 7B).
 4. Home → **Close day**. Step through it: your open lesson, today's events (the Wellbeing flag shows), the incident from Part A under Reports (**Mark lodged**), follow-ups (**Tomorrow** moves one), and the Contact home draft under Emails. Then choose **Good** → **Close day**.
-5. Tap **+1 day**: Home shows **Day not closed**? No, because you closed it. Do something in a class without closing the day, then tap **+1 day** again: **Day not closed** with **Close yesterday**.
+5. Tap **+1 day**: no "Day not closed" notice, because you closed it. Open a lesson that day without closing the day, then tap **+1 day** again: Home shows **Day not closed** with **Close yesterday**.
 
 **Not done / unsure**
 - The final count ("N things sorted") covers follow-ups closed today, reports lodged and Brain dump records. It doesn't count lessons you closed from step 1.

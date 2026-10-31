@@ -7,6 +7,8 @@ import { BLITZ_TOPICS, blitzTopic, type BlitzMark } from '../../logic/blitz';
 import { formatShort, today, weekday } from '../../lib/dates';
 import { go, useLive } from '../hooks';
 import { Avatar, displayName, Empty, Icon, PageHead, toast } from '../components';
+import { prefillAbsent } from '../../logic/cfu';
+import { AbsentChip } from './Cfu';
 
 /** Blitz tab: choose a class first (today's classes on top), then a topic. */
 export function BlitzScreen({ classId, fromClassPage }: { classId?: string; fromClassPage?: boolean }) {
@@ -51,8 +53,10 @@ function BlitzClass({ classId, back }: { classId: string; back: string }) {
     cls: await db.classes.get(classId),
     students: (await db.students.where('classId').equals(classId).toArray()).filter((s) => !s.archived)
       .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName)),
-    categories: await db.categories.toArray()
-  }), [classId]);
+    categories: await db.categories.toArray(),
+    /** Absent earlier today in this class (round 9): pre-filled as Absent. */
+    absent: new Set((await db.absences.where('classId').equals(classId).filter((a) => a.date === date).toArray()).map((a) => a.studentId))
+  }), [classId, date]);
   const [topic, setTopic] = useState<string | null>(null);
   const [marks, setMarks] = useState<Record<string, BlitzMark>>({});
   const [busy, setBusy] = useState(false);
@@ -61,11 +65,11 @@ function BlitzClass({ classId, back }: { classId: string; back: string }) {
   useEffect(() => {
     if (!topic) return;
     setLoaded(false);
-    svc.loadBlitz(classId, date, topic).then((m) => { setMarks(m); setLoaded(true); });
-  }, [topic, classId, date]);
+    svc.loadBlitz(classId, date, topic).then((m) => { setMarks(prefillAbsent(m, data?.absent ?? new Set(), (data?.students ?? []).map((s) => s.id))); setLoaded(true); });
+  }, [topic, classId, date, !!data]);
 
   if (!data?.cls) return null;
-  const { cls, students, categories } = data;
+  const { cls, students, categories, absent } = data;
 
   if (!topic) {
     return (
@@ -113,6 +117,15 @@ function BlitzClass({ classId, back }: { classId: string; back: string }) {
       <div class="card flat" style="padding:2px 12px">
         {students.map((s) => {
           const m = marks[s.id];
+          if (m === 'absent' && absent.has(s.id)) {
+            return (
+              <div key={s.id} class="blitz-row absent">
+                <Avatar s={s} />
+                <span class="grow">{displayName(s)}</span>
+                <AbsentChip classId={cls.id} student={s} date={date} onHere={() => set(s.id, 'absent')} />
+              </div>
+            );
+          }
           return (
             <div key={s.id} class="blitz-row">
               <Avatar s={s} />

@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  Assessment, AssessmentCheck, BrainBreakLog, BrainDump, DayClose, FollowUp, Incident, ReliefPass, Category, Relationship, Room, SeatingPlan, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
+  AbsentToday, Assessment, AssessmentCheck, BrainBreakLog, CfuCheck, CfuResult, BrainDump, DayClose, FollowUp, Incident, ReliefPass, Category, Relationship, Room, SeatingPlan, Checkin, Checkout, DayPlan, EvidenceItem, ColdCall, HomeworkCheck, IcpAdjustment, IssueTag, JournalEntry, Lesson, IcpCheck, Observation, Question,
   SchoolClass, Settings, Student, StudentNote, TimetableEntry
 } from './types';
 import { DEFAULT_SETTINGS } from './types';
@@ -41,6 +41,9 @@ export class PulseDB extends Dexie {
   followUps!: Table<FollowUp, string>;
   dayCloses!: Table<DayClose, string>;
   brainDumps!: Table<BrainDump, string>;
+  cfuChecks!: Table<CfuCheck, string>;
+  cfuResults!: Table<CfuResult, string>;
+  absences!: Table<AbsentToday, string>;
   /** ICP evidence (photos, files, notes, voice). Device only: not synced or backed up. */
   evidence!: Table<EvidenceItem, string>;
   files!: Table<SavedFile, string>;
@@ -112,6 +115,8 @@ export class PulseDB extends Dexie {
     this.version(14).stores({ relationships: 'id, classId, studentA, studentB, checkinId', rooms: 'id', seatingPlans: 'id, classId' });
     // v15: serious incidents, follow-up tasks, Close day and Brain dump (round 8). Above every open round branch (highest was v14).
     this.version(15).stores({ incidents: 'id, studentId, classId, date', followUps: 'id, studentId, classId, incidentId, dueAt, status', dayCloses: 'id, date', brainDumps: 'id, date, classId' });
+    // v16: checks for understanding and "absent for the rest of the day" notes (round 9). Above every open round branch (highest was v15).
+    this.version(16).stores({ cfuChecks: 'id, lessonId, classId, date', cfuResults: 'id, checkId, lessonId, classId, studentId, date', absences: 'id, classId, studentId, date' });
     this.use(outboxMiddleware(this));
     this.on('populate', (tx) => {
       tx.table('categories').bulkAdd(CORE_CATEGORIES);
@@ -122,7 +127,7 @@ export class PulseDB extends Dexie {
 
 export const TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans', 'incidents', 'followUps', 'dayCloses', 'brainDumps', 'kv'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans', 'incidents', 'followUps', 'dayCloses', 'brainDumps', 'cfuChecks', 'cfuResults', 'absences', 'kv'
 ] as const;
 export type TableName = (typeof TABLES)[number];
 

@@ -12,6 +12,7 @@ import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { NeedLesson } from './Checkin';
 import { tableName } from '../../logic/rooms';
+import { IntentionLine } from './Cfu';
 
 
 export function ColdCallScreen({ classId }: { classId: string }) {
@@ -37,7 +38,8 @@ export function ColdCallScreen({ classId }: { classId: string }) {
   if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
   const lesson = ctx.lesson;
   const back = `#/class/${classId}`;
-  const notHere = new Set(ctx.checkins.filter((c) => lessonOf(c) === lesson.id && c.status === 'absent').map((c) => c.studentId));
+  // Not here this lesson, or absent earlier today in this class: left out of the roll.
+  const notHere = new Set([...ctx.checkins.filter((c) => lessonOf(c) === lesson.id && c.status === 'absent').map((c) => c.studentId), ...ctx.absentNow]);
   // Calls saved this session count straight away (before the database refresh arrives).
   const calls = [...ctx.coldCalls, ...justCalled.map((j, i) => ({ id: `just-${i}`, lessonId: lesson.id, classId, date: lesson.date, result: 'good' as const, ...j }))];
   const plan = ctx.seatingPlan;
@@ -101,9 +103,10 @@ export function ColdCallScreen({ classId }: { classId: string }) {
       <div class="cc checkin" onClick={(e) => { if (phase === 'shuffle' && !(e.target as HTMLElement).closest('.roll, a')) setSkipTick((n) => n + 1); }}>
         {header}
         <div class="cc-eyebrow" style="margin-top:8px">Cold call</div>
+        <IntentionLine lesson={lesson} />
         {phase === 'shuffle' && roll
           ? <Roll key={rollN} plan={roll} skip={skipTick} onLanded={landed} />
-          : <div class="shuffle-box"><span class="muted">Least recently called first, then random. Not here today: left out.</span></div>}
+          : <div class="shuffle-box"><span class="muted">Least recently called first, then random. Not here or absent today: left out.</span></div>}
         {tables.length > 0 && phase === 'idle' && (
           <div class="chips pick-from" style="flex-wrap:wrap;margin-bottom:10px">
             <span class="tiny muted">Pick from:</span>
@@ -157,7 +160,15 @@ export function ColdCallScreen({ classId }: { classId: string }) {
         </div>
       </SwipeCard>
       <div class="grid2 swipe-buttons">{sideOf('good') === 'left' ? [good, bad] : [bad, good]}</div>
-      <div class="row" style="margin-top:10px"><button class="link-btn" onClick={() => pick(s.id)}><Icon name="skip" /> Pick again</button></div>
+      <div class="row between" style="margin-top:10px">
+        <button class="link-btn" onClick={() => pick(s.id)}><Icon name="skip" /> Pick again</button>
+        <button class="link-btn" onClick={async () => {
+          // Not here: absent for the rest of the day in this class, then pick someone else.
+          await svc.markAbsent(classId, s.id, lesson.date, 'coldcall');
+          toast(`Not here · ${displayName(s)}`, { label: 'Undo', seconds: UNDO_SECONDS, run: () => svc.markHereNow(classId, s.id, lesson.date) });
+          setPhase('idle');
+        }}>Not here</button>
+      </div>
       <p class="hold-hint">Swipe {sideOf('good')} for answered well, {sideOf('issue')} for struggled, up to pick someone else</p>
     </div>
   );

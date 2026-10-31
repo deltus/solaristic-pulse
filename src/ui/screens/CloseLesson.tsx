@@ -13,6 +13,7 @@ import { Speedometer, ZONE_COLOUR } from '../Speedometer';
 import { cancelClosePrompt, promptToClose } from '../lessonPrompts';
 import { JournalForm } from '../Journal';
 import { isRelief } from '../../relief/device';
+import { exitTicketDone } from '../../logic/cfu';
 
 const HAPPY: { v: Happy; label: string }[] = [{ v: 'yes', label: 'Yes' }, { v: 'mostly', label: 'Mostly' }, { v: 'no', label: 'No' }];
 const PLAN: { v: PlanDone; label: string }[] = [{ v: 'yes', label: 'Yes' }, { v: 'partly', label: 'Partly' }, { v: 'no', label: 'No' }];
@@ -28,10 +29,10 @@ export function CloseLessonScreen({ classId }: { classId: string }) {
       </div>
     );
   }
-  return <CloseForm key={ctx.lesson.id} classId={classId} className={ctx.cls.name} lesson={ctx.lesson} />;
+  return <CloseForm key={ctx.lesson.id} classId={classId} className={ctx.cls.name} lesson={ctx.lesson} offerTicket={!exitTicketDone(ctx.cfuChecks, ctx.lesson.id)} />;
 }
 
-function CloseForm({ classId, className, lesson }: { classId: string; className: string; lesson: NonNullable<svc.LessonContext['lesson']> }) {
+function CloseForm({ classId, className, lesson, offerTicket }: { classId: string; className: string; lesson: NonNullable<svc.LessonContext['lesson']>; offerTicket: boolean }) {
   // No preset needle (no anchoring): it appears where the teacher first taps. "Skip" leaves attention out.
   const [pct, setPct] = useState<number | null>(lesson.attentionPct ?? null);
   const [skipped, setSkipped] = useState(false);
@@ -67,6 +68,12 @@ function CloseForm({ classId, className, lesson }: { classId: string; className:
       <a class="link-btn back-btn" href={`#/class/${classId}`}><Icon name="back" /> {className}</a>
       <div class="cc-eyebrow" style="margin-top:10px">Close lesson · {formatShort(lesson.date)}</div>
       <div class="cc-head"><h1>{lesson.intention ? lessonName(lesson) : className}</h1></div>
+      {offerTicket && !relief && (
+        <div class="notice info row between" style="gap:10px">
+          <span><b>Run an exit ticket?</b> <span class="tiny muted">None done this lesson.</span></span>
+          <button class="btn small" onClick={() => go(`class/${classId}/cfu/ticket/close`)}>Run one</button>
+        </div>
+      )}
 
       <section class="close-part">
         <h3>Class attention</h3>

@@ -459,6 +459,8 @@ export interface Settings {
   devTools?: boolean;
   /** Seating: "Use support levels in seating plans" (off by default). */
   seatingSupport?: boolean;
+  /** Check for understanding: the mode used last (listed first in the menu). */
+  lastCfuMode?: 'coldcall' | 'thumbs' | 'yesno' | 'ticket';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -663,4 +665,53 @@ export interface BrainDump {
   createdAt: number;
   sortedAt?: number;
   deleteAfter: number;
+}
+
+/* ---------------- Check for understanding (round 9) ---------------- */
+
+export type CfuKind = 'thumbs' | 'yesno' | 'exit' | 'entry';
+
+/** One check for understanding run in a lesson. Thumbs checks hold counts only (no student records). */
+export interface CfuCheck {
+  id: string;
+  lessonId: string;
+  classId: string;
+  date: string;
+  kind: CfuKind;
+  /** Exit or entry ticket question. */
+  question?: string;
+  /** Entry tickets: the previous lesson the question is about. */
+  aboutLessonId?: string;
+  /** Thumbs check: 👍 got it, 👊 sort of, 👎 not yet. */
+  counts?: { up: number; mid: number; down: number };
+  createdAt: number;
+}
+
+/** got = Yes / Got it; notyet = Not yet; partly = Partly (tickets only); absent = not in class. */
+export type CfuResultValue = 'got' | 'partly' | 'notyet' | 'absent';
+
+/** One student's answer in a yes/no grid or an exit/entry ticket. */
+export interface CfuResult {
+  id: string; // `${checkId}|${studentId}`
+  checkId: string;
+  lessonId: string;
+  classId: string;
+  studentId: string;
+  date: string;
+  kind: Exclude<CfuKind, 'thumbs'>;
+  result: CfuResultValue;
+  /** Ticket "Not yet" chips: misconception, incomplete. */
+  tags?: string[];
+  createdAt: number;
+}
+
+/** "Absent for the rest of the day": a daily attendance note for one class (not a rating). */
+export type AbsentSource = 'blitz' | 'cfu' | 'coldcall' | 'checkin' | 'homework';
+export interface AbsentToday {
+  id: string; // `${date}|${classId}|${studentId}`
+  classId: string;
+  studentId: string;
+  date: string;
+  source: AbsentSource;
+  createdAt: number;
 }

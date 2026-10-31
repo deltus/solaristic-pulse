@@ -2,7 +2,7 @@
 // students, ICP → seating need suggestions, support levels (with review dates) and the seat watch
 // after a new plan. Pure functions; the services save the results.
 
-import type { AssessmentCheck, ColdCall, IcpAdjustment, IssueTag, Lesson, Relationship, RelationshipType, RoomLayout, SeatWatch, SeatingPlan, Student } from '../types';
+import type { AssessmentCheck, CfuResult, ColdCall, IcpAdjustment, IssueTag, Lesson, Relationship, RelationshipType, RoomLayout, SeatWatch, SeatingPlan, Student } from '../types';
 import { ICP_SEATING, LEFT_OUT_DAYS, SEAT_WATCH, SIGNALS, SUPPORT_REVIEW_WEEKS, SUPPORT_SUGGEST } from '../config/seating';
 import { subLabel } from '../config/checkin';
 import { addDays, daysBetween } from '../lib/dates';
@@ -106,17 +106,20 @@ export function supportFor(s: Pick<Student, 'support'>, useSupport: boolean, tod
 export const supportNeedsReview = (s: Pick<Student, 'support'>, today: string) => !!s.support && s.support.reviewBy < today;
 
 /**
- * Suggest "needs more support" (the teacher decides): 3 or more Coping → content or assessment
- * progress concerns, or under 40% of cold calls answered well, in the last 4 weeks.
+ * Suggest "needs more support" (the teacher decides): 3 or more content signals (Coping → content or
+ * assessment progress concerns, "behind" on a task, "Not yet" on a yes/no check or ticket, struggled
+ * cold calls), or under 40% of cold calls answered well, in the last 4 weeks.
  */
-export function supportSuggestion(studentId: string, tags: IssueTag[], coldCalls: ColdCall[], today: string, assessment: AssessmentCheck[] = []): string | null {
+export function supportSuggestion(studentId: string, tags: IssueTag[], coldCalls: ColdCall[], today: string, assessment: AssessmentCheck[] = [], cfu: CfuResult[] = []): string | null {
   const recent = (d: string) => within(d, today, SUPPORT_SUGGEST.days);
   const content = tags.filter((t) => t.studentId === studentId && t.areaId === 'coping' && (t.tagId === 'content' || t.tagId === 'assessment_progress') && recent(t.date)).length
-    + assessment.filter((a) => a.studentId === studentId && a.result === 'behind' && recent(a.date)).length;
+    + assessment.filter((a) => a.studentId === studentId && a.result === 'behind' && recent(a.date)).length
+    + cfu.filter((r) => r.studentId === studentId && r.result === 'notyet' && recent(r.date)).length
+    + coldCalls.filter((c) => c.studentId === studentId && c.result === 'struggled' && recent(c.date)).length;
   const calls = coldCalls.filter((c) => c.studentId === studentId && recent(c.date));
   const good = calls.filter((c) => c.result === 'good').length;
   const parts: string[] = [];
-  if (content >= SUPPORT_SUGGEST.contentConcerns) parts.push(`${content} content or assessment concerns`);
+  if (content >= SUPPORT_SUGGEST.contentConcerns) parts.push(`${content} content signals (concerns, "not yet" answers or struggled cold calls)`);
   if (calls.length >= SUPPORT_SUGGEST.minColdCalls && good / calls.length < SUPPORT_SUGGEST.coldCallWellBelow) parts.push(`${Math.round((good / calls.length) * 100)}% of ${calls.length} cold calls answered well`);
   return parts.length ? `${parts.join(' and ')} in the last 4 weeks` : null;
 }

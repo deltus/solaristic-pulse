@@ -16,11 +16,12 @@ import { buildAllGood, buildIssue } from './logic/checkin';
 import { pickColdCall, STRUGGLE_TAGS } from './logic/coldcall';
 import { rankByNeed } from './logic/need';
 import { CHECKIN_AREAS, HOMEWORK_REASONS, WELLBEING } from './config/checkin';
-import type { Relationship, Room, SeatingPlan } from './types';
+import type { CfuCheck, CfuResult, Relationship, Room, SeatingPlan } from './types';
 import { makePlan } from './logic/seating';
 import { roomTemplate } from './logic/rooms';
 import { newSupport, newWatch, plannerRelationships, plannerStudents, seatLabel } from './logic/seatingData';
 import { needByStudent } from './logic/need';
+import { suggestedQuestion } from './logic/cfu';
 
 /** Swipe check-ins start this many days ago in the demo; older days use the previous format. */
 const SWIPE_FROM = 12;
@@ -155,6 +156,10 @@ export async function loadDemoData(): Promise<void> {
   const homework: HomeworkCheck[] = [];
   const lessons: Lesson[] = [];
   const coldCalls: ColdCall[] = [];
+  // Round 9: exit tickets on most recent lessons (own random stream, so the rest of the demo is unchanged).
+  const cfuChecks: CfuCheck[] = [];
+  const cfuResults: CfuResult[] = [];
+  const ticketRand = rng(11);
   const swipeRand = rng(99);
   for (let back = 27; back >= 1; back--) {
     const date = addDays(today, -back);
@@ -322,6 +327,18 @@ export async function loadDemoData(): Promise<void> {
     lesson.happy = tough ? (hr < 0.65 ? 'no' : 'mostly') : hr < 0.55 ? 'yes' : hr < 0.9 ? 'mostly' : 'no';
     lesson.planDone = lesson.attentionPct > 70 ? (swipeRand() < 0.8 ? 'yes' : 'partly') : swipeRand() < 0.35 ? 'yes' : 'partly';
     if (tough && lesson.happy === 'no' && swipeRand() < 0.5) lesson.note = 'Ran out of time for the practice questions.';
+    // An exit ticket in most lessons: more "got it" when the teacher got through the plan.
+    if (ticketRand() < 0.65) {
+      const check: CfuCheck = { id: newId(), lessonId, classId, date, kind: 'exit', question: suggestedQuestion('exit', lesson), createdAt: openedAt + 3_300_000 };
+      cfuChecks.push(check);
+      const pGot = lesson.planDone === 'yes' ? 0.8 : 0.58;
+      for (const st of classStudents) {
+        if (absent.has(st.id)) continue;
+        const r = ticketRand() + (profiles.get(st.id)!.coping ?? 0.08);
+        const result = r < pGot ? 'got' : r < pGot + 0.15 ? 'partly' : 'notyet';
+        cfuResults.push({ id: `${check.id}|${st.id}`, checkId: check.id, lessonId, classId, studentId: st.id, date, kind: 'exit', result, ...(result === 'notyet' && ticketRand() < 0.4 ? { tags: ['misconception'] } : {}), createdAt: check.createdAt + 1000 });
+      }
+    }
   }
 
   // Class focus check-outs for most past lessons (own random stream, so the check-in history is unchanged).
@@ -367,6 +384,8 @@ export async function loadDemoData(): Promise<void> {
     await db.notes.bulkAdd(notes);
     await db.plans.where('id').startsWith(planId(today, '')).delete();
   });
+  await db.cfuChecks.bulkAdd(cfuChecks);
+  await db.cfuResults.bulkAdd(cfuResults);
   // Round 4: an active assessment with a couple of checks in the first class, and journal entries.
   const c0 = classes[0];
   const c0Lessons = lessons.filter((l) => l.classId === c0.id && !l.historical).sort((a, b) => b.openedAt - a.openedAt);

@@ -2,6 +2,7 @@
 // Right (by default) = All good, left = Issue, up = Skip. Also used for "Select student"
 // (one student, same card). A daily target per lesson ("3 of 5 today") with clear stopping points.
 
+import { contentHint, contentSignals } from '../../logic/cfu';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IcpAdjustment, IcpOutcome, Student } from '../../types';
 import * as svc from '../../services';
@@ -78,7 +79,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const seatWatch = new Set((ctx?.students ?? []).filter((x) => watchBoosted(x.seatWatch, ctx!.lessons)).map((x) => x.id));
   // Relief teachers get the class teacher's order (without the reasons).
   const urgent = ctx ? urgentIds(ctx.followUps, ctx.checkins, date) : new Set<string>();
-  const ranked: NeedRow[] = ctx ? reliefOrder(rankByNeed({ ...ctx, lessonId, today: date, excludeIds: loggedHere, seatWatch, urgent })) : [];
+  const ranked: NeedRow[] = ctx ? reliefOrder(rankByNeed({ ...ctx, lessonId, today: date, excludeIds: new Set([...loggedHere, ...(studentId ? [] : ctx.absentNow)]), seatWatch, urgent })) : [];
   const relief = isRelief();
   // Skipped students go to the end, in the order they were skipped.
   const queue = [...ranked.filter((r) => !skipped.includes(r.studentId)), ...skipped.map((id) => ranked.find((r) => r.studentId === id)).filter((r): r is NeedRow => !!r)];
@@ -294,7 +295,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
             <button class="link-btn" onClick={async () => {
               const id = await svc.markNotHere(targetOf(s.id));
               markLogged(s.id, false);
-              offerUndo(`Not here · ${displayName(s)}`, s.id, () => svc.undoCheckin(id));
+              offerUndo(`Not here · ${displayName(s)}`, s.id, () => svc.undoNotHere(targetOf(s.id), id));
               moveOn();
             }}>Not here</button>
           </div>
@@ -313,6 +314,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
 
       {step === 'issue' && (
         <IssueStep s={s} classmates={byName(students.filter((x) => x.id !== s.id))} draft={draft} setDraft={setDraft}
+          contentHint={contentHint(contentSignals(s.id, ctx.cfuResults, ctx.coldCalls, date))}
           evidence={hasFeature('evidence') ? { on: withEvidence, count: evidenceCount, toggle: (v) => { setWithEvidence(v); if (v) setEvidenceOpen(true); }, open: () => setEvidenceOpen(true) } : null}
           onIncident={() => (Object.keys(draft.picked).length || Object.keys(draft.minor).some((k) => draft.minor[k].length) ? saveIssue(s.id, 'incident') : startIncident(classId, s.id, { areas: {} }))}
           onOutcome={(o: IssueOutcome) => { if (o === 'save') saveIssue(s.id); else if (o === 'back' || o === 'cancel') reset(); }} />
@@ -371,7 +373,9 @@ function HoldChip({ label, on, hasNote, onTap, onHold }: { label: string; on: bo
  * tick box, minor items under Behaviour, and an optional note, evidence and "follow up next time".
  * Swipe right (towards "good") saves straight away; with nothing ticked it goes back. Swipe left cancels.
  */
-function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome, onIncident }: {
+function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome, onIncident, contentHint: suggestContent }: {
+  /** Coping → Content suggested from recent "not yet" answers and struggled cold calls (round 9). */
+  contentHint?: string | null;
   s: Student; classmates: Student[]; draft: IssueDraft; setDraft: (f: (d: IssueDraft) => IssueDraft) => void;
   evidence: { on: boolean; count: number; toggle: (v: boolean) => void; open: () => void } | null;
   onOutcome: (o: IssueOutcome) => void;
@@ -429,6 +433,7 @@ function IssueStep({ s, classmates, draft, setDraft, evidence, onOutcome, onInci
               <HoldChip label={x.label} on={picked[a.id]?.includes(x.id) ?? false} hasNote={!!draft.subNotes[key]}
                 onTap={() => toggleSub(a, x.id)} onHold={() => { toggleSub(a, x.id, true); setNoteFor(key); }} />
               {showHints && x.hint && <span class="sub-hint tiny muted">{x.hint}</span>}
+              {suggestContent && a.id === 'coping' && x.id === 'content' && <span class="sub-hint tiny suggested">{suggestContent}</span>}
             </span>
           );
         })}
@@ -599,6 +604,7 @@ export function SelectStudentScreen({ classId }: { classId: string }) {
           {list.map((s) => (
             <a key={s.id} class="mini-row" href={`#/class/${classId}/student/${s.id}`}>
               <span class="grow">{displayName(s)}</span>
+              {ctx.absentNow.has(s.id) && <span class="chip small absent-chip">Absent</span>}
               {logged.has(s.id) ? <span class="ok"><Icon name="check" /></span> : <Icon name="chevron" />}
             </a>
           ))}

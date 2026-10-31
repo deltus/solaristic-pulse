@@ -428,7 +428,7 @@ function StudentsTab({ ctx, useSupport }: { ctx: svc.SeatingContext; useSupport:
   const tags = ctx.cls.balanceTags ?? [];
   const sorted = [...ctx.students].sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
   const reviews = useSupport ? sorted.filter((s) => supportNeedsReview(s, date)) : [];
-  const suggested = useSupport ? sorted.filter((s) => s.support?.level !== 'more').map((s) => ({ s, why: supportSuggestion(s.id, ctx.tags, ctx.coldCalls, date, ctx.assessmentChecks) })).filter((x) => x.why) : [];
+  const suggested = useSupport ? sorted.filter((s) => s.support?.level !== 'more').map((s) => ({ s, why: supportSuggestion(s.id, ctx.tags, ctx.coldCalls, date, ctx.assessmentChecks, ctx.cfuResults) })).filter((x) => x.why) : [];
   const saveTags = (next: BalanceTag[]) => svc.saveBalanceTags(ctx.cls.id, next);
   return (
     <div class="fade-up">

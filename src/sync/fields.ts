@@ -2,7 +2,7 @@
 
 export const SYNCED_TABLES = [
   'classes', 'students', 'checkins', 'observations', 'plans', 'questions', 'categories',
-  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans', 'incidents', 'followUps', 'dayCloses', 'brainDumps'
+  'notes', 'icpAdjustments', 'icpChecks', 'timetable', 'checkouts', 'issueTags', 'homework', 'lessons', 'coldCalls', 'journal', 'assessments', 'assessmentChecks', 'brainBreaks', 'customBreaks', 'reliefPasses', 'relationships', 'rooms', 'seatingPlans', 'incidents', 'followUps', 'dayCloses', 'brainDumps', 'cfuChecks', 'cfuResults', 'absences'
 ] as const;
 // Not synced: `evidence` (photos, files, voice memos stay on the device in this version).
 export type SyncedTable = (typeof SYNCED_TABLES)[number];
@@ -45,7 +45,11 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   incidents: ['intention', 'time', 'areas', 'what', 'where', 'others', 'witnesses', 'actions', 'actionNote', 'context', 'relief'],
   followUps: ['title', 'about', 'role', 'note'],
   dayCloses: ['reflection', 'note', 'counts'],
-  brainDumps: ['text']
+  brainDumps: ['text'],
+  // Checks for understanding: the ticket question can name the lesson's content. Results and absences are ratings and dates.
+  cfuChecks: ['question'],
+  cfuResults: [],
+  absences: []
 };
 
 type Row = Record<string, unknown>;

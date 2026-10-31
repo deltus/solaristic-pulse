@@ -13,6 +13,7 @@ import { useLive } from '../hooks';
 import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import type { HomeworkCheck } from '../../types';
+import { AbsentChip } from './Cfu';
 
 export const homeworkText = (h: Pick<HomeworkCheck, 'done' | 'reason'>) =>
   h.done ? 'Done' : `Not done${h.reason ? `, ${(HOMEWORK_REASONS.find((r) => r.id === h.reason)?.label ?? h.reason).toLowerCase()}` : ''}`;
@@ -29,9 +30,14 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
   // Saved this session (before the database refresh arrives) plus what is already saved.
   const [justChecked, setJustChecked] = useState<Set<string>>(new Set());
   const checked = new Set([...(ctx?.homework ?? []).filter((h) => h.lessonId === lessonId).map((h) => h.studentId), ...justChecked]);
-  const roster = [...(ctx?.students ?? [])].sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName)).filter((s) => !checked.has(s.id));
+  const sorted = [...(ctx?.students ?? [])].sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+  // Absent today in this class: shown as Absent, not asked.
+  const absentList = sorted.filter((s) => ctx?.absentNow.has(s.id) && !checked.has(s.id));
+  const roster = sorted.filter((s) => !checked.has(s.id) && !ctx?.absentNow.has(s.id));
   const queue = [...roster.filter((s) => !skipped.includes(s.id)), ...skipped.map((id) => roster.find((s) => s.id === id)).filter((s) => !!s)] as typeof roster;
-  useEffect(() => { if (!activeId && queue[0]) setActiveId(queue[0].id); }, [activeId, queue[0]?.id]);
+  // Moves on when the current student is checked, or marked absent (once the database refresh arrives).
+  const activeAbsent = !!activeId && !!ctx?.absentNow.has(activeId);
+  useEffect(() => { if ((!activeId || activeAbsent) && queue[0]) setActiveId(queue[0].id); }, [activeId, activeAbsent, queue[0]?.id]);
 
   if (!ctx) return null;
   if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
@@ -47,7 +53,7 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
     );
   }
   const setWhat = forLesson?.homeworkSet ? forLesson.homeworkText || 'Homework' : null;
-  const s = ctx.students.find((x) => x.id === activeId);
+  const s = activeAbsent ? undefined : ctx.students.find((x) => x.id === activeId);
   const target = (id: string): CheckinTarget => ({ studentId: id, classId, date, lessonId });
 
   async function save(id: string, done: boolean, reason?: string) {
@@ -68,7 +74,13 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
   const header = (
     <div class="row between">
       <a class="link-btn back-btn" href={back}><Icon name="back" /> {ctx.cls.name}</a>
-      <span class="tiny muted mono">{checked.size} checked · {queue.length} to go</span>
+      <span class="tiny muted mono">{checked.size} checked{absentList.length ? ` · ${absentList.length} absent` : ''} · {queue.length} to go</span>
+    </div>
+  );
+  const absentStrip = absentList.length > 0 && (
+    <div class="absent-strip">
+      <span class="tiny muted">Absent today:</span>
+      {absentList.map((x) => <span key={x.id} class="row" style="gap:4px"><span class="small">{displayName(x)}</span><AbsentChip classId={classId} student={x} date={date} /></span>)}
     </div>
   );
   if (!s) {
@@ -77,7 +89,8 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
         {header}
         <div class="done-state">
           <div class="check"><Icon name="check" /></div>
-          <h2>Homework checked for everyone</h2>
+          <h2>Homework checked for everyone{absentList.length ? ' here' : ''}</h2>
+          {absentStrip}
           <a class="btn primary" href={back} style="margin-top:10px">Back to {ctx.cls.name}</a>
         </div>
       </div>
@@ -120,8 +133,17 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
             </div>
           </SwipeCard>
           <div class="grid2 swipe-buttons">{sideOf('good') === 'left' ? [done, notDone] : [notDone, done]}</div>
-          <div class="row" style="margin-top:10px"><button class="link-btn" onClick={() => card.current?.fling('up')}><Icon name="skip" /> Skip</button></div>
+          <div class="row between" style="margin-top:10px">
+            <button class="link-btn" onClick={() => card.current?.fling('up')}><Icon name="skip" /> Skip</button>
+            <button class="link-btn" onClick={async () => {
+              // Absent: for the rest of the day in this class (no homework record).
+              await svc.markAbsent(classId, s.id, date, 'homework');
+              toast(`Absent · ${displayName(s)}`, { label: 'Undo', seconds: UNDO_SECONDS, run: () => svc.markHereNow(classId, s.id, date) });
+              setActiveId(null);
+            }}>Absent</button>
+          </div>
           <p class="hold-hint">Swipe {sideOf('good')} for done, {sideOf('issue')} for not done, up to skip</p>
+          {absentStrip}
         </>
       )}
     </div>

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useRoute, useSettings, useLive, useTick } from './hooks';
-import { Icon, Sheet, ToastHost } from './components';
+import { Icon, Sheet, ToastHost, toastMarkedPresent } from './components';
+import { MARKED_PRESENT_EVENT } from '../services';
+import { ThumbsScreen, TicketScreen, YesNoScreen } from './screens/Cfu';
 import { LockScreen } from './Lock';
 import { Setup } from './Setup';
 import { Tour } from './Tour';
@@ -75,6 +77,11 @@ export function App() {
     return () => document.removeEventListener('visibilitychange', on);
   }, [settings]);
   useEffect(() => setDrawer(false), [route.join('/')]);
+  // Entering something for a student marked absent today clears it: say so.
+  useEffect(() => {
+    window.addEventListener(MARKED_PRESENT_EVENT, toastMarkedPresent);
+    return () => window.removeEventListener(MARKED_PRESENT_EVENT, toastMarkedPresent);
+  }, []);
 
   const icpDue = useLive(async () => {
     const adjs = await db.icpAdjustments.filter((a) => a.active).count();
@@ -103,6 +110,9 @@ export function App() {
         : sub === 'homework' ? <HomeworkScreen key={extra ?? ''} classId={id} anyway={extra === 'anyway'} />
         : sub === 'close' ? <CloseLessonScreen classId={id} />
         : sub === 'coldcall' ? <ColdCallScreen classId={id} />
+        : sub === 'cfu' && extra === 'thumbs' ? <ThumbsScreen classId={id} />
+        : sub === 'cfu' && extra === 'yesno' ? <YesNoScreen classId={id} />
+        : sub === 'cfu' && extra === 'ticket' ? <TicketScreen key={more ?? ''} classId={id} fromClose={more === 'close'} />
         : sub === 'assessment' ? <AssessmentCheckScreen key={extra ?? ''} classId={id} assessmentId={extra} />
         : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />

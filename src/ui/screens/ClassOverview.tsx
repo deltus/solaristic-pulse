@@ -12,6 +12,7 @@ import { MultiTrendLine, TrendLine } from '../TrendLine';
 import { classColdCallRate, successSeries, weeksAgo } from '../../logic/classStats';
 import { NeedBadge } from './Students';
 import type { SeatingPlan } from '../../types';
+import { scoreSeries } from '../../logic/cfu';
 
 /** Where each seating plan starts on a chart whose points begin on these dates (fractional index). */
 export function planMarkers(points: string[], plans: SeatingPlan[]): { at: number; label: string }[] {
@@ -33,14 +34,18 @@ async function load(classId: string) {
   const lessons = await db.lessons.where('classId').equals(classId).toArray();
   const coldCalls = await db.coldCalls.where('classId').equals(classId).toArray();
   const seatingPlans = await db.seatingPlans.where('classId').equals(classId).toArray();
-  return { seatingPlans, students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons, coldCalls };
+  const [cfuChecks, cfuResults] = await Promise.all([db.cfuChecks.where('classId').equals(classId).toArray(), db.cfuResults.where('classId').equals(classId).toArray()]);
+  return { cfuChecks, cfuResults, seatingPlans, students: students.filter((s) => !s.archived), observations, checkins, questions, categories, adjustments: adjustments.filter((a) => a.active), icpChecks, settings, tags, homework, lessons, coldCalls };
 }
 
 export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: () => void }) {
   const date = today();
   const d = useLive(() => load(classId), [classId, date]);
   if (!d || !d.students.length) return null;
-  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons, coldCalls, seatingPlans } = d;
+  const { students, observations, checkins, categories, adjustments, icpChecks, settings, tags, homework, lessons, coldCalls, seatingPlans, cfuChecks, cfuResults } = d;
+  const cfu = scoreSeries(lessons, cfuChecks, cfuResults);
+  const cfuLast = cfu.values.length ? Math.round(cfu.values[cfu.values.length - 1] * 100) : null;
+  const cfuAvg = cfu.values.length ? Math.round((cfu.values.reduce((t, v) => t + v, 0) / cfu.values.length) * 100) : null;
   const success = successSeries({ observations: observations.filter((o) => o.classId === classId), checkins: checkins.filter((c) => c.classId === classId), lessons, today: date });
   const cc = classColdCallRate(coldCalls, date);
   // A thin line where each seating plan became active.
@@ -87,6 +92,19 @@ export function ClassOverview({ classId, onBlitz }: { classId: string; onBlitz: 
           <span class="small">Overall: <b>{cc.overall === null ? '–' : `${cc.overall}%`}</b> <span class="tiny muted">({cc.total})</span></span>
         </div>
         <TrendLine values={cc.weekly} height={44} labels={[weeksAgo(cc.weeks - 1), 'this week']} />
+      </div>
+
+      <div class="card">
+        <span class="eyebrow">Check for understanding · % got it per lesson</span>
+        {cfu.values.length ? (
+          <>
+            <div class="row between" style="margin:4px 0">
+              <span class="small">Last lesson: <b>{cfuLast}%</b></span>
+              <span class="small">Average: <b>{cfuAvg}%</b> <span class="tiny muted">({cfu.values.length} lesson{cfu.values.length === 1 ? '' : 's'})</span></span>
+            </div>
+            <TrendLine values={cfu.values} height={44} labels={[formatShort(cfu.lessons[0].date), formatShort(cfu.lessons[cfu.lessons.length - 1].date)]} />
+          </>
+        ) : <p class="small muted" style="margin:4px 0 0">No checks yet. Run a thumbs check, yes/no grid or exit ticket from the class page.</p>}
       </div>
 
       <div class="card">

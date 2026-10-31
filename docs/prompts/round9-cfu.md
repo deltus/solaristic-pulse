@@ -8,17 +8,23 @@ Round 9: Check for understanding. Branch `round9` from the latest main. Read doc
 - Rename the class page's **Cold call** tile to **Check for understanding**. It opens a small menu with four options. The last-used one is remembered and listed first.
 - Show the lesson's learning intention at the top of each mode, if one was entered.
 
-### 2. Modes
-1. **Cold call:** exactly as now (the roll, swipes and history).
-2. **Thumbs check:** a whole-class count with no names. Three big counters: 👍 got it, 👊 sort of, 👎 not yet.
-   - Tap to add, long-press to subtract. It shows a % bar.
-   - Takes about 15 seconds; saved against the lesson.
-3. **Whole class yes/no:** a Blitz-style grid of every student's name. Tap once for **Yes**, twice for **Not yet**, and leave untouched for not checked. Ends with "All others: Yes" or Save. It's per student and saved against the lesson.
-4. **Exit or entry ticket:**
-   - **Set up:** pick **Exit** (end of lesson) or **Entry** (start of lesson, about the previous lesson's intention). Type a question, or use the suggested one: "In one sentence, what did we learn about [learning intention]?"
-   - **Show it:** the question appears in a big projector view. Students answer on paper or sticky notes.
+### 2. Modes (order agreed with Thomas, 31/10/2026)
+1. **Whole class (Blitz-style, the default).** The teacher asks "Is everyone happy with this?" and the class answers with thumbs.
+   - **Everyone starts as Yes.** The teacher only taps the few who said no (Not yet), or "sort of" with a long-press.
+   - Absent students are greyed out and skipped (see "Absent for the rest of the day").
+   - **Save** in one tap. No swiping through names, because you're asking everyone.
+   - Saved per student against the lesson.
+2. **Cold call assistant:** exactly as now (the roll, swipes and history).
+3. **Select a student:** a manual pick. A quick searchable list or grid of names; tap the student you're asking, then record with the same swipes as cold call. It's saved as a cold call with `manual: true`, so the fairness ranking still counts it.
+4. **Entry or exit ticket:**
+   - **Set up:** pick **Entry** (start of lesson, about the previous lesson's intention) or **Exit** (end of lesson). Type up to 3 questions, or use the suggested one: "In one sentence, what did we learn about [learning intention]?" Teachers can save and reuse their questions per class.
+   - **Show it:** the questions appear in a big projector or Present view with an optional countdown timer. Students answer on paper or sticky notes. There's no student app.
    - **Record it:** swipe through the class. Right = **Got it**, left = **Not yet** (optional chips: misconception, incomplete, absent), up = **Partly**.
    - **Close lesson link:** the Close lesson screen offers "Run an exit ticket?" if none was done.
+
+Drop the anonymous thumbs-count mode from the earlier draft; the whole-class mode replaces it. Keep the four modes visually distinct (icons and colours): teachers like a button that feels made for exactly what they're doing.
+
+**Leave room for later (don't build now):** keep the ticket question model simple (`text`, `source: 'teacher' | 'suggested'`), so an AI question generator can be added later. See docs/BACKLOG.md.
 
 ### 3. What the results feed
 - **Per student:** "Not yet" on yes/no or tickets, and "struggled" on cold calls, count as **content** signals for:
@@ -61,11 +67,11 @@ Nothing else clears it: other modes don't silently overwrite it.
 - Absent in one class doesn't affect a different class.
 
 ## Tests
-- Thumbs check: saves counts only, with no student records.
-- Yes/no grid: tap cycles through Yes, Not yet and unchecked; "All others: Yes" works.
+- Whole class: everyone starts as Yes; tapping marks Not yet; absent students are skipped; it saves per student.
+- Select a student: saves as a manual cold call and counts in the cold call fairness ranking.
 - Tickets: results save per student and feed the content signal; entry tickets use the previous lesson's intention.
 - Close lesson offers "Run an exit ticket?" when none was done.
 - The lesson's understanding score shows in the timeline and the class graph.
 
 ## Brief
-Follow CLAUDE.md. In "How to test", include: load demo data, open a lesson, then run each mode once (cold call, thumbs, yes/no, an exit ticket), close the lesson, and check the timeline and graph.
+Follow CLAUDE.md. In "How to test", include: load demo data, open a lesson, then run each mode once (whole class, cold call, select a student, an exit ticket), close the lesson, and check the timeline and graph.

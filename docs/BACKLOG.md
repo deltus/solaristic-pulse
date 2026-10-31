@@ -34,4 +34,35 @@ Possible tagline: "Never open Excel again." (A safer alternative: "Never open a 
   - learning support / SSG meeting pack
   - handover to next year's teacher
 - **Drafting:** start template-based (plain sentences, written on the device, edited by the teacher). AI-written drafts only later, with school approval and de-identified data.
-- This is valuable for secondary too (semester reports). It's a good candidate for the first round after the pilot starts.
+- **Moved up: planned as Round 10 (secondary semester report comments first),** because Thomas says reports are what teachers care about most.
+
+## Vision ideas from the 31/10/2026 call (long term; nothing here is scheduled)
+
+### AI question helper (a likely first paid feature)
+- **Entry and exit tickets:** the teacher gives year, subject and topic (Radar already knows the learning intentions). It suggests easy entry questions related to the content and exit questions directly on the content. The teacher taps yes or no until they have three, then presents them. The teacher must approve every question.
+- **Rapid review:** draws questions from the class's history of learning intentions (previous lesson only, or the whole year).
+- **Lesson hooks:** a separate "activating prior knowledge" option. These are related hooks, not recall.
+- Small, specific prompts keep the output reliable; it's not full lesson planning. It needs an AI provider decision, a cost per use, and a privacy check (send only the topic, year and intentions, never student data).
+
+### Lesson planner (a possible paid feature)
+- **Flow:** open lesson, enter the learning intention, then "Develop a full lesson plan?" A few questions follow (key objectives, worries, how the lesson should feel). It drafts a timed plan with ticks to keep or drop each part; the teacher edits and locks it.
+- **Links to Radar data,** e.g. "cold calls 20% that day: what was the plan?". At the end of the year it can export all of the teacher's plans as their own resource.
+- It can also offer worksheets: generate questions, and the teacher picks which to keep.
+
+### Community library
+- **Categories:** brain breaks, icebreakers, wet weather games, party days, morale boosters, and Check for understanding ideas.
+- **Contributions:** teachers upload ideas, tagging who it suits.
+- **Ratings come from use:** "Spin again" counts as a skip (a small minus), and using it counts as a plus. Popular ones rise and rarely used ones sink. Show how often each is used.
+- **Building ideas into the app:** a suggestions box ("I wish there was an app for…"). Popular ideas can become built-in tools, e.g. a silent Kahoot-style quiz or a class story built from one word each. Credit the teacher who suggested it.
+- **Growth:** a teacher community (e.g. a Facebook group), and inviting contributors to speak at Solaristic PD sessions or a conference.
+
+### Crowd-sourced lesson book or textbook, teacher profiles and mentoring
+- **The book:** teachers publish polished lessons, chapters and worksheets on a shared template, using an optional paid AI polish. Schools pick chapters to build their own book; authors earn per use; a printed book is optional.
+- **Profiles:** teacher profiles show their resources, ratings and mentoring, like a portfolio. Pre-service teachers can find mentors there.
+- **Things to check before any of this:**
+  - **IP:** lessons a teacher writes for their job may legally belong to their employer (the education department or the school). Check before paying teachers for them.
+  - **Consent:** we must *not* collect teachers' plans, reflections or class data for training or resale "without telling them". Everything must be opt-in, explained in plain words, and licensed. Class or student outcome data needs de-identification plus school or department approval, the same as the modelling work.
+  - **Competition:** Scootle (Education Services Australia) already offers curriculum-linked resources, so we need a clear difference: a consistent template, built-in Radar data and quality.
+
+### Seating plan faces (live student mood)
+- Students would report how they're feeling and the seating plan would show faces changing in real time. It needs a student-facing app. Parked: Thomas and Azeem agreed not to go down the student-app path for now.

@@ -135,10 +135,12 @@ export function App() {
     <div class="shell">
       <div ref={shadeRef} class={`drawer-shade ${drawer ? 'open' : ''}`} onClick={() => setDrawer(false)} />
       <nav ref={drawerRef} class={`drawer ${drawer ? 'open' : ''}`} aria-label="Main" data-tour="drawer">
-        <div class="drawer-head">
+        {/* Your name opens your profile. */}
+        <a class="drawer-head" href="#/settings/profile" aria-label="Your profile" onClick={() => setDrawer(false)}>
           <span class="topbar-mark"><img src="icons/mark.png" alt="" /></span>
-          <div><b>Solaristic Radar</b><span>{settings.profile.name}</span></div>
-        </div>
+          <div class="grow"><b>Solaristic Radar</b><span>{settings.profile.name}</span></div>
+          <Icon name="chevron" />
+        </a>
         {NAV.map((n) => (
           <a key={n.path} href={`#/${n.path}`} data-tour={`nav-${n.path}`} class={`nav-item ${(page === n.path && !(page === 'settings' && (id === 'invite' || id === 'account'))) || (isToday && n.path === 'today') ? 'active' : ''}`} onClick={() => setDrawer(false)}>
             <Icon name={n.icon} /><span>{n.label}</span>

@@ -106,7 +106,8 @@ body { touch-action: pan-y; }
   opacity: 0; pointer-events: none; transition: opacity 0.28s;
 }
 .drawer-shade.open { opacity: 1; pointer-events: auto; }
-.drawer-head { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; }
+.drawer-head { display: flex; align-items: center; gap: 10px; padding: 0 8px 18px; color: inherit; text-decoration: none; border-radius: 12px; }
+.drawer-head > svg { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .drawer-head .topbar-mark { width: 38px; height: 38px; border-radius: 19px; }
 .drawer-head .topbar-mark img { height: 28px; }
 .drawer-head b { display: block; font-size: 15px; letter-spacing: -0.01em; }
@@ -1035,3 +1036,7 @@ body.projector-mode .content-col { margin: 0; max-width: none; }
 .projector-actions .btn:not(.primary) { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.5); }
 .cfu-score { font-family: var(--mono); font-weight: 700; }
 .sub-hint.suggested { color: var(--blue); font-weight: 600; }
+
+/* "← Previous" on swipe screens */
+.prev-btn { display: inline-flex; align-items: center; gap: 4px; margin: 8px 0 0; padding: 6px 0; color: var(--blue); font-weight: 600; }
+.prev-btn svg { width: 16px; height: 16px; }

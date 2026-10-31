@@ -2,6 +2,7 @@
 // left = Behind (optional reasons), up = Skip, through the class in roster order.
 // Also the Assessments tab under Manage class: set up tasks, see past ones, extend a due date.
 
+import { PreviousButton, usePrevious } from '../Previous';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Assessment } from '../../types';
 import * as svc from '../../services';
@@ -28,6 +29,7 @@ export function AssessmentCheckScreen({ classId, assessmentId }: { classId: stri
   const [asking, setAsking] = useState(false);
   const [reasons, setReasons] = useState<string[]>([]);
   const card = useRef<SwipeControl | null>(null);
+  const prev = usePrevious();
 
   // Saved this session (before the database refresh arrives) plus what is already saved this lesson.
   const [justChecked, setJustChecked] = useState<Set<string>>(new Set());
@@ -64,12 +66,23 @@ export function AssessmentCheckScreen({ classId, assessmentId }: { classId: stri
   async function save(id: string, onTrack: boolean, why: string[] = []) {
     const row = await svc.saveAssessmentCheck(target(id), task!.id, onTrack ? 'on_track' : 'behind', why, checkpoint || undefined);
     setJustChecked((j) => new Set([...j, id]));
-    const name = displayName(ctx!.students.find((x) => x.id === id)!);
-    toast(`${onTrack ? 'On track' : 'Behind'} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { await svc.undoAssessmentCheck(row.id); setJustChecked((j) => { const n = new Set(j); n.delete(id); return n; }); setAsking(false); setActiveId(id); } });
+    const undo = () => svc.undoAssessmentCheck(row.id);
+    prev.push(id, undo);
+    toast(`${onTrack ? 'On track' : 'Behind'} · ${nameOf(id)}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { prev.drop(id); await undo(); bringBack(id); } });
     setAsking(false);
     setReasons([]);
     setActiveId(null);
   }
+  const nameOf = (id: string) => displayName(ctx!.students.find((x) => x.id === id)!);
+  /** After an undo (toast or Previous): that student's card again. */
+  function bringBack(id: string) {
+    setJustChecked((j) => { const n = new Set(j); n.delete(id); return n; });
+    setSkipped((k) => k.filter((x) => x !== id));
+    setAsking(false);
+    setReasons([]);
+    setActiveId(id);
+  }
+  const previous = <PreviousButton prev={prev} name={nameOf} onBack={bringBack} />;
   function onSwipe(a: SwipeAction) {
     if (!s) return;
     if (a === 'good') save(s.id, true);
@@ -101,6 +114,7 @@ export function AssessmentCheckScreen({ classId, assessmentId }: { classId: stri
           <h2>Everyone checked for {task.name}</h2>
           <p class="muted small">{sum.onTrack} on track · {sum.behind} behind</p>
           <a class="btn primary" href={back} style="margin-top:10px">Back to {ctx.cls.name}</a>
+          <div style="margin-top:10px">{previous}</div>
         </div>
       </div>
     );
@@ -139,6 +153,7 @@ export function AssessmentCheckScreen({ classId, assessmentId }: { classId: stri
           </SwipeCard>
           <div class="grid2 swipe-buttons">{sideOf('good') === 'left' ? [onTrack, behind] : [behind, onTrack]}</div>
           <div class="row" style="margin-top:10px"><button class="link-btn" onClick={() => card.current?.fling('up')}><Icon name="skip" /> Skip</button></div>
+          {previous}
           <p class="hold-hint">Swipe {sideOf('good')} for on track, {sideOf('issue')} for behind, up to skip</p>
         </>
       )}

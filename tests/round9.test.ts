@@ -11,6 +11,7 @@ import { studentTimeline } from '../src/logic/timeline';
 import { earlierLessons } from '../src/logic/lessons';
 import { ENCRYPTED, SYNCED_TABLES } from '../src/sync/fields';
 import type { CfuResult, Lesson } from '../src/types';
+import { dropStep, lastStep, pushStep, type PrevStep } from '../src/logic/previous';
 
 let n = 0;
 beforeEach(async () => {
@@ -241,3 +242,36 @@ describe('Check for understanding', () => {
 async function setupOther() {
   return svc.createClass({ name: '7A Science' });
 }
+
+describe('Previous (go back to the last student)', () => {
+  it('goes back newest first; a student answered again appears once; Undo removes them from the list', () => {
+    const undo = async () => {};
+    let st = pushStep([], { studentId: 'a', undo });
+    st = pushStep(st, { studentId: 'b', undo });
+    st = pushStep(st, { studentId: 'a', undo }); // went back to a and answered again
+    expect(st.map((x) => x.studentId)).toEqual(['b', 'a']);
+    expect(lastStep(st)?.studentId).toBe('a');
+    st = dropStep(st, 'a'); // the toast's Undo already took it back
+    expect(lastStep(st)?.studentId).toBe('b');
+    expect(lastStep(dropStep(st, 'b'))).toBeUndefined();
+  });
+
+  it('taking back the last two answers removes what was saved, including a "Not here" absence', async () => {
+    const { a, mia, cal, lesson } = await setup();
+    const t = (id: string) => ({ studentId: id, classId: a.id, date: today(), lessonId: lesson.id });
+    let st: PrevStep[] = [];
+    const r = await svc.logAllGood(t(mia.id));
+    st = pushStep(st, { studentId: mia.id, undo: () => svc.undoCheckin(r.checkin.id) });
+    const id = await svc.markNotHere(t(cal.id));
+    st = pushStep(st, { studentId: cal.id, undo: () => svc.undoNotHere(t(cal.id), id) });
+    for (const who of [cal.id, mia.id]) {
+      const step = lastStep(st)!;
+      expect(step.studentId).toBe(who);
+      st = dropStep(st, who);
+      await step.undo();
+    }
+    const ctx = await ctxOf(a.id);
+    expect(ctx.checkins).toEqual([]);
+    expect(ctx.absentNow.size).toBe(0);
+  });
+});

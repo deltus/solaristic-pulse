@@ -2,6 +2,7 @@
 // Right (by default) = All good, left = Issue, up = Skip. Also used for "Select student"
 // (one student, same card). A daily target per lesson ("3 of 5 today") with clear stopping points.
 
+import { PreviousButton, usePrevious } from '../Previous';
 import { contentHint, contentSignals } from '../../logic/cfu';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IcpAdjustment, IcpOutcome, Student } from '../../types';
@@ -68,6 +69,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
   const [workedWell, setWorkedWell] = useState<string | null>(null);
   const [watchAnswered, setWatchAnswered] = useState<Record<string, boolean>>({});
   const card = useRef<SwipeControl | null>(null);
+  const prev = usePrevious();
 
   // Saved this session (before the database refresh arrives) plus everything already in the database.
   const [justLogged, setJustLogged] = useState<Set<string>>(new Set());
@@ -112,15 +114,24 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
     if (!single) setMilestone(milestoneAfter(count, target, { extra: settings?.extraEncouragement !== false, everyoneSeen }));
   };
   /** Undo for 5 seconds after any save: removes what was saved and brings the student back. */
+  // "Previous" keeps the same undo for the rest of this visit.
   function offerUndo(label: string, studentId: string, run: () => Promise<unknown>, extra?: { label: string; run: () => void }) {
+    if (!single) prev.push(studentId, run);
     toast(label, {
       label: 'Undo', seconds: UNDO_SECONDS, extra, run: async () => {
+        prev.drop(studentId);
         await run();
-        const drop = (j: Set<string>) => { const n = new Set(j); n.delete(studentId); return n; };
-        setJustLogged(drop); setJustChecked(drop); setMilestone(null); reset(); setActiveId(studentId);
+        bringBack(studentId);
       }
     });
   }
+  /** After an undo (toast or Previous): the student's card again, as if they hadn't been answered. */
+  function bringBack(studentId: string) {
+    const drop = (j: Set<string>) => { const n = new Set(j); n.delete(studentId); return n; };
+    setJustLogged(drop); setJustChecked(drop); setMilestone(null); reset(); setActiveId(studentId);
+    setSkipped((k) => k.filter((x) => x !== studentId));
+  }
+  const previous = !single && <PreviousButton prev={prev} name={(id) => displayName(students.find((x) => x.id === id)!)} onBack={bringBack} />;
   function icpDue(id: string) {
     return ctx!.adjustments.filter((a) => a.studentId === id && a.active && a.startDate <= date && (!a.endDate || a.endDate >= date))
       .filter((a) => icpDueStatus(a, ctx!.icpChecks, date, true).due);
@@ -186,6 +197,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
           <h2>That's the whole class. All done for this lesson</h2>
           <p class="muted small">{cls.name} · {checkedHere.size} checked in</p>
           <a class="btn primary" href={back} style="margin-top:10px">Back to {cls.name}</a>
+          <div style="margin-top:10px">{previous}</div>
         </div>
       </div>
     );
@@ -212,6 +224,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
             <button class="btn primary block" onClick={() => setMilestone(null)}>Next student <Icon name="arrow" /></button>
           </div>
         )}
+        <div style="margin-top:10px">{previous}</div>
       </div>
     );
   }
@@ -299,6 +312,7 @@ export function CheckinScreen({ classId, studentId }: { classId: string; student
               moveOn();
             }}>Not here</button>
           </div>
+          {previous}
           <p class="hold-hint">Swipe {good.side} for all good, {issue.side} for an issue, up to skip</p>
           {!single && queue.length > 1 && (
             <div class="up-next">

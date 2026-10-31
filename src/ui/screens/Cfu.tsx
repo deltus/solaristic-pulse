@@ -15,6 +15,7 @@ import { go, useLive, useSettings } from '../hooks';
 import { displayName, Icon, initials, Sheet, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { NeedLesson } from './Checkin';
+import { PreviousButton, usePrevious } from '../Previous';
 
 const byName = (a: Student, b: Student) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName);
 const modePath = (classId: string, m: CfuMode) => (m === 'coldcall' ? `class/${classId}/coldcall` : `class/${classId}/cfu/${m}`);
@@ -238,6 +239,7 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
   const [tags, setTags] = useState<string[]>([]);
   const card = useRef<SwipeControl | null>(null);
   const checkRef = useRef<string | null>(null);
+  const prev = usePrevious();
   useEffect(() => () => { if (checkRef.current) void svc.dropEmptyTicket(checkRef.current); }, []);
 
   const students = [...(ctx?.students ?? [])].sort(byName);
@@ -268,11 +270,22 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
     setDone((d) => ({ ...d, [id]: result }));
     const name = displayName(students.find((s) => s.id === id)!);
     const label = result === 'got' ? 'Got it' : result === 'partly' ? 'Partly' : result === 'notyet' ? 'Not yet' : 'Absent';
-    toast(`${label} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { await svc.undoTicketResult(r); setDone((d) => { const n = { ...d }; delete n[id]; return n; }); setActiveId(id); setPhase('record'); } });
+    const undo = () => svc.undoTicketResult(r);
+    prev.push(id, undo);
+    toast(`${label} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { prev.drop(id); await undo(); bringBack(id); } });
     setTags([]);
     setActiveId(null);
     setPhase('record');
   }
+  /** After an undo (toast or Previous): that student's card again. */
+  function bringBack(id: string) {
+    setDone((d) => { const n = { ...d }; delete n[id]; return n; });
+    setSkipped((k) => k.filter((x) => x !== id));
+    setTags([]);
+    setActiveId(id);
+    setPhase('record');
+  }
+  const previousBtn = <PreviousButton prev={prev} name={(id) => displayName(students.find((x) => x.id === id)!)} onBack={bringBack} />;
   function onSwipe(a: SwipeAction) {
     if (!activeId) return;
     if (a === 'good') save(activeId, 'got');
@@ -338,6 +351,7 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
           <h2>{kind === 'exit' ? 'Exit' : 'Entry'} ticket recorded</h2>
           <p class="small">{n('got')} got it · {n('partly')} partly · {n('notyet')} not yet{n('absent') ? ` · ${n('absent')} absent` : ''}</p>
           {absentStrip}
+          <div style="margin-top:10px">{previousBtn}</div>
           <button class="btn primary" style="margin-top:10px" onClick={() => go(backTo)}>{fromClose ? 'Back to Close lesson' : `Back to ${ctx.cls.name}`}</button>
         </div>
       </div>
@@ -382,6 +396,7 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
         <button class="link-btn" onClick={() => card.current?.fling('up')}>Partly</button>
         <button class="link-btn" onClick={() => { setSkipped((k) => [...k.filter((x) => x !== s.id), s.id]); setActiveId(null); }}><Icon name="skip" /> Skip</button>
       </div>
+      {previousBtn}
       <p class="hold-hint">Swipe {sideOf('good')} for got it, {sideOf('issue')} for not yet, up for partly</p>
       {absentStrip}
     </div>

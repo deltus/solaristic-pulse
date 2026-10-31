@@ -13,6 +13,7 @@ import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe
 import { NeedLesson } from './Checkin';
 import { tableName } from '../../logic/rooms';
 import { IntentionLine } from './Cfu';
+import { PreviousButton, usePrevious } from '../Previous';
 
 
 export function ColdCallScreen({ classId }: { classId: string }) {
@@ -32,6 +33,7 @@ export function ColdCallScreen({ classId }: { classId: string }) {
   const [table, setTable] = useState<string | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const card = useRef<SwipeControl | null>(null);
+  const prev = usePrevious();
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
   if (!ctx) return null;
@@ -82,9 +84,20 @@ export function ColdCallScreen({ classId }: { classId: string }) {
     const c = await svc.logColdCall(lesson, s!.id, result, t);
     const name = displayName(s!);
     setJustCalled((j) => [...j, { studentId: s!.id, createdAt: c.createdAt }]);
-    toast(`${result === 'good' ? 'Answered well' : 'Struggled'} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { await svc.undoColdCall(c.id); setJustCalled((j) => j.filter((x) => x.createdAt !== c.createdAt)); } });
+    const undo = async () => { await svc.undoColdCall(c.id); setJustCalled((j) => j.filter((x) => x.createdAt !== c.createdAt)); };
+    prev.push(s!.id, undo);
+    toast(`${result === 'good' ? 'Answered well' : 'Struggled'} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { prev.drop(s!.id); await undo(); } });
     setPhase('idle');
   }
+  /** "Previous": the last student called (or marked Not here), back on screen to answer again. */
+  function bringBack(id: string) {
+    timers.current.forEach(clearTimeout);
+    chosenRef.current = id;
+    setTags([]);
+    setPickedId(id);
+    setPhase('card');
+  }
+  const previous = <PreviousButton prev={prev} name={(id) => displayName(ctx!.students.find((x) => x.id === id)!)} onBack={bringBack} />;
   function onSwipe(a: SwipeAction) {
     if (a === 'good') save('good');
     else if (a === 'issue') setPhase('struggle');
@@ -115,6 +128,7 @@ export function ColdCallScreen({ classId }: { classId: string }) {
           </div>
         )}
         <button class="btn primary big block" disabled={phase === 'shuffle' || !present.length} onClick={() => pick()}><Icon name="user" /> {phase === 'shuffle' ? 'Picking…' : 'Pick a student'}</button>
+        {phase === 'idle' && <div style="margin-top:10px">{previous}</div>}
       </div>
     );
   }
@@ -165,10 +179,13 @@ export function ColdCallScreen({ classId }: { classId: string }) {
         <button class="link-btn" onClick={async () => {
           // Not here: absent for the rest of the day in this class, then pick someone else.
           await svc.markAbsent(classId, s.id, lesson.date, 'coldcall');
-          toast(`Not here · ${displayName(s)}`, { label: 'Undo', seconds: UNDO_SECONDS, run: () => svc.markHereNow(classId, s.id, lesson.date) });
+          const undo = () => svc.markHereNow(classId, s.id, lesson.date);
+          prev.push(s.id, undo);
+          toast(`Not here · ${displayName(s)}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { prev.drop(s.id); await undo(); } });
           setPhase('idle');
         }}>Not here</button>
       </div>
+      {previous}
       <p class="hold-hint">Swipe {sideOf('good')} for answered well, {sideOf('issue')} for struggled, up to pick someone else</p>
     </div>
   );

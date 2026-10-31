@@ -14,6 +14,7 @@ import { displayName, Icon, initials, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import type { HomeworkCheck } from '../../types';
 import { AbsentChip } from './Cfu';
+import { PreviousButton, usePrevious } from '../Previous';
 
 export const homeworkText = (h: Pick<HomeworkCheck, 'done' | 'reason'>) =>
   h.done ? 'Done' : `Not done${h.reason ? `, ${(HOMEWORK_REASONS.find((r) => r.id === h.reason)?.label ?? h.reason).toLowerCase()}` : ''}`;
@@ -26,6 +27,9 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
   const [activeId, setActiveId] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const card = useRef<SwipeControl | null>(null);
+  const prev = usePrevious();
+  /** Brought back from Absent (Undo or Previous): shown again before the database refresh arrives. */
+  const [hereAgain, setHereAgain] = useState<Set<string>>(new Set());
 
   // Saved this session (before the database refresh arrives) plus what is already saved.
   const [justChecked, setJustChecked] = useState<Set<string>>(new Set());
@@ -36,7 +40,7 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
   const roster = sorted.filter((s) => !checked.has(s.id) && !ctx?.absentNow.has(s.id));
   const queue = [...roster.filter((s) => !skipped.includes(s.id)), ...skipped.map((id) => roster.find((s) => s.id === id)).filter((s) => !!s)] as typeof roster;
   // Moves on when the current student is checked, or marked absent (once the database refresh arrives).
-  const activeAbsent = !!activeId && !!ctx?.absentNow.has(activeId);
+  const activeAbsent = !!activeId && !!ctx?.absentNow.has(activeId) && !hereAgain.has(activeId);
   useEffect(() => { if ((!activeId || activeAbsent) && queue[0]) setActiveId(queue[0].id); }, [activeId, activeAbsent, queue[0]?.id]);
 
   if (!ctx) return null;
@@ -59,11 +63,24 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
   async function save(id: string, done: boolean, reason?: string) {
     const row = await svc.saveHomeworkCheck(target(id), done, reason, forLesson?.id);
     setJustChecked((j) => new Set([...j, id]));
-    const name = displayName(ctx!.students.find((x) => x.id === id)!);
-    toast(`${done ? 'Done' : 'Not done'} · ${name}`, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { await svc.undoHomeworkCheck(row.id); setJustChecked((j) => { const n = new Set(j); n.delete(id); return n; }); setAsking(false); setActiveId(id); } });
+    offerUndo(`${done ? 'Done' : 'Not done'} · ${nameOf(id)}`, id, () => svc.undoHomeworkCheck(row.id));
     setAsking(false);
     setActiveId(null);
   }
+  const nameOf = (id: string) => displayName(ctx!.students.find((x) => x.id === id)!);
+  /** Undo for 5 seconds; "Previous" keeps the same undo for the rest of this visit. */
+  function offerUndo(label: string, id: string, run: () => Promise<unknown>) {
+    prev.push(id, run);
+    toast(label, { label: 'Undo', seconds: UNDO_SECONDS, run: async () => { prev.drop(id); await run(); bringBack(id); } });
+  }
+  function bringBack(id: string) {
+    setJustChecked((j) => { const n = new Set(j); n.delete(id); return n; });
+    setHereAgain((h) => new Set([...h, id]));
+    setSkipped((k) => k.filter((x) => x !== id));
+    setAsking(false);
+    setActiveId(id);
+  }
+  const previous = <PreviousButton prev={prev} name={nameOf} onBack={bringBack} />;
   function onSwipe(a: SwipeAction) {
     if (!s) return;
     if (a === 'good') save(s.id, true);
@@ -91,6 +108,7 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
           <div class="check"><Icon name="check" /></div>
           <h2>Homework checked for everyone{absentList.length ? ' here' : ''}</h2>
           {absentStrip}
+          <div style="margin-top:10px">{previous}</div>
           <a class="btn primary" href={back} style="margin-top:10px">Back to {ctx.cls.name}</a>
         </div>
       </div>
@@ -138,10 +156,12 @@ export function HomeworkScreen({ classId, anyway = false }: { classId: string; a
             <button class="link-btn" onClick={async () => {
               // Absent: for the rest of the day in this class (no homework record).
               await svc.markAbsent(classId, s.id, date, 'homework');
-              toast(`Absent · ${displayName(s)}`, { label: 'Undo', seconds: UNDO_SECONDS, run: () => svc.markHereNow(classId, s.id, date) });
+              setHereAgain((h) => { const n = new Set(h); n.delete(s.id); return n; });
+              offerUndo(`Absent · ${displayName(s)}`, s.id, () => svc.markHereNow(classId, s.id, date));
               setActiveId(null);
             }}>Absent</button>
           </div>
+          {previous}
           <p class="hold-hint">Swipe {sideOf('good')} for done, {sideOf('issue')} for not done, up to skip</p>
           {absentStrip}
         </>

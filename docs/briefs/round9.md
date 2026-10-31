@@ -69,3 +69,23 @@ https://deltus.github.io/solaristic-pulse/preview/round9/
 - **The suggested question** drops instruction words at the start of the intention ("Explain…", "We are learning to…"). The list is in `src/config/cfu.ts`, so check a few of your real intentions read well.
 - **Not in exports yet:** check-for-understanding results aren't in the CSV or report exports.
 - **Still to check on a phone:** the long-press on thumbs, swiping on tickets, and the projector view on a real projector.
+
+## Adjustments
+### 1. Previous button, and name → Profile (Azeem, 31/10)
+- **← Previous: [name]** on every screen where you swipe through students one at a time: daily check-in, homework check, exit/entry ticket, assessment check and cold call.
+  - It brings back the last student you answered and removes what was saved for them, so you can swipe again with the right answer. Tap it again to keep going back.
+  - It also appears on the "all done" screen and the "target reached" card, so you can fix the last student after finishing.
+  - Going back on a "Not here" or "Absent" also clears the absence.
+  - It remembers the students from your current visit to that screen. If you leave and come back, it starts fresh. To fix someone earlier, open them through Select student.
+  - The 5-second Undo in the message at the bottom still works as before.
+- **Your name in the side menu** (under Solaristic Radar) now opens **Settings → Profile** and closes the menu.
+
+**How to test**
+1. Open a lesson and start the **Daily check-in**. Swipe one student All good and the next **Not here**.
+2. Tap **← Previous** under the buttons. The "Not here" student is back. Tap it again and the first student is back. Check their "Already logged this lesson" line is gone.
+3. Try the same in **Homework check** (including **Absent**), an **exit ticket** and **Cold call** (after "Answered well", tap Previous on the Pick a student screen).
+4. Open the side menu and tap your name at the top. Profile should open.
+
+**Not done / unsure**
+- Previous only goes back through students you answered on this visit, not ones from before you left the screen.
+- If an ICP question was answered right after a check-in, going back removes the check-in but not the ICP answer.

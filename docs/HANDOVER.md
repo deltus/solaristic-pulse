@@ -24,18 +24,6 @@
 **Then Round 9 (Check for understanding), branch `round9`.** Prompt: docs/prompts/round9-cfu.md.
 **Parked (don't build):** the primary version, capability snapshots and the report builder. See docs/BACKLOG.md. Secondary comes first.
 
-**Round 7 adjustments (seating), from the 31/10 call with Thomas.** Do these on the round7 branch before it merges:
-- **Guided room setup:**
-  1. "Tap the wall with the whiteboard"
-  2. "Tap the wall with the door" (and where along it)
-  3. "Tap the wall(s) with windows"
-  4. Then a 10×10 grid: tap cells to place desks. Desks touching in a row form one table; an empty cell between them is a walkway. Tables can face each other (two rows back to back, like the 6-tables-of-4 "3 above, 3 below" layout).
-- **Ready-made templates, each editable:** rows of 3, separate desks, groups of 4, groups of 6, and U-shape. "Pick a template, then Edit" is the main path.
-- **Saved classrooms, named by the teacher** (e.g. "Block C 12", "Block A 3"). A class can switch room, and the plan re-flows automatically, keeping locked seats where possible.
-- **Present view:** a "Present" button opens a clean full-screen window for the projector (names only, the board at the top). On a computer it opens in a new browser window. From a phone, show "Open on your computer: [URL]" if sync is on; otherwise say "Open Radar on the classroom computer and tap Present". There's no direct casting. The same Present view will be reused later for tickets and brain breaks (a big title plus an optional countdown).
-
-**Priorities (Thomas, 31/10):** data security first (student, teacher, transfer and storage), then reports. Report writing is what teachers most want help with, so the report builder in docs/BACKLOG.md moves up to Round 10, after Round 9.
-
 **Small fixes to fold in:** on the previews list page, the "updated" times are local time but labelled UTC (.github/workflows/pages.yml).
 
 **Unsure / to check on a phone:** swipe fly-off and cold-call roll motion; vibration (Android only); Word journal export opened in Word; Android notifications.

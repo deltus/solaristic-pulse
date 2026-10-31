@@ -6,8 +6,8 @@
 - `round5`, then
 - `round6` (5 merged in), then
 - `round7` (5 and 6 merged in), then
-- `round8` (from round7), then
-- `round9` (from round8).
+- `round8` (from round7, round 7 adjustments merged in 31/10), then
+- `round9` (from round8, same).
 
 All are pushed with previews and briefs (docs/briefs/roundN.md).
 
@@ -15,17 +15,17 @@ All are pushed with previews and briefs (docs/briefs/roundN.md).
 |---|---|---|---|---|
 | round5 | Brain breaks | v12 | – | 148 |
 | round6 | Relief passes | v13 | 20261027000000_relief_passes.sql | 169 |
-| round7 | Seating | v14 | – | 196 |
-| round8 | Incidents, follow-ups, Close day, Brain dump | v15 | 20261031000000_relief_incidents.sql | 214 |
-| round9 | Check for understanding, absent for the rest of the day, Previous button, name → Profile | v16 | – | 233 |
+| round7 | Seating (+ adjustments: template tiles, wall setup, named rooms, room re-fit, Present) | v14 | – | 208 |
+| round8 | Incidents, follow-ups, Close day, Brain dump | v15 | 20261031000000_relief_incidents.sql | 226 |
+| round9 | Check for understanding, absent for the rest of the day, Previous button, name → Profile | v16 | – | 245 |
 
 ## Plan agreed with Azeem (31/10)
-1. **Now: Round 7 adjustments.** Prompt from Cowork: "Merge main into round7, then do docs/prompts/round7-adjustments.md. Show me a 5-line plan first and wait for my OK. Push for a preview when done." (The prompt file is on main, so merge main in first.) Stay on DB v14 unless a new table is unavoidable.
-2. **Carry round7 up:** merge round7 into round8, then round8 into round9. Keep the DB numbers (v14, v15, v16). If HANDOVER.md conflicts, keep the newest one.
-3. **Rework round9** to the updated docs/prompts/round9-cfu.md (changed on main 31/10, agreed with Thomas):
+1. **Done 31/10: Round 7 adjustments** (brief: docs/briefs/round7.md, "Adjustments 2"). Prompt from Cowork: "Merge main into round7, then do docs/prompts/round7-adjustments.md. Show me a 5-line plan first and wait for my OK. Push for a preview when done." (The prompt file is on main, so merge main in first.) Stay on DB v14 unless a new table is unavoidable.
+2. **Done 31/10: Carry round7 up.** HANDOVER.md conflicts kept the newest copy; services.ts imports kept both sides. merge round7 into round8, then round8 into round9. Keep the DB numbers (v14, v15, v16). If HANDOVER.md conflicts, keep the newest one.
+3. **Next: Rework round9** (on the `round9` branch) to the updated docs/prompts/round9-cfu.md (changed on main 31/10, agreed with Thomas):
    - Thumbs check is replaced by **Whole class**: everyone starts as Yes; tap for Not yet, long-press for Sort of; saved per student, and Not yet is a content signal.
    - Add **Select a student**: a searchable grid, saved as a cold call with `manual: true`.
-   - Tickets: up to 3 questions, saved questions to reuse per class, shown with round 7's **Present** page.
+   - Tickets: up to 3 questions, saved questions to reuse per class, shown with round 7's **Present** page (src/ui/Present.tsx: `<Present title body countdown closeHref>`; open it with `openPresent(hash)`).
    - Each mode gets its own icon and colour.
    - Keep: cold call, absent for the rest of the day, the Previous button, results feeding signals/timeline/graph/My teaching, and Close lesson's "Run an exit ticket?".
    - The current round9 code: src/ui/screens/Cfu.tsx, src/logic/cfu.ts, src/config/cfu.ts and tests/round9.test.ts. The yes/no grid is the closest starting point for Whole class.
@@ -40,4 +40,5 @@ All are pushed with previews and briefs (docs/briefs/roundN.md).
 - Word journal export opened in Word
 - Android notifications
 - the seating plan's sideways scroll
+- Present: new window + Full screen on a computer; iPhone can't go truly full screen
 - thumbs long-press and ticket swipes (round 9)

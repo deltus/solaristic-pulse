@@ -937,6 +937,37 @@ body.projector-mode .content-col { margin: 0; max-width: none; }
 .pc.k-desk { background: #fff; border: 2px solid var(--ink); color: var(--ink); min-height: clamp(40px, 6vw, 110px); }
 .pc.k-board { background: var(--navy-2); min-height: 14px; border-radius: 4px; }
 .pc.k-door { border: 2px dashed var(--ink-2); color: var(--ink-2); font-weight: 600; }
+.pc.k-teacher, .pc.k-window, .pc.k-empty { background: transparent; }
+/* Present: a clean, full-screen page for the board (src/ui/Present.tsx). */
+.present { min-height: 100vh; padding: clamp(12px, 2vw, 32px); background: var(--bg); display: flex; flex-direction: column; gap: 12px; }
+.present-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.present-title { margin: 0; font-size: clamp(24px, 4vw, 56px); line-height: 1.1; flex: 1; }
+.present-count { font-size: clamp(28px, 5vw, 72px); font-weight: 800; font-variant-numeric: tabular-nums; }
+.present-count.done { color: var(--sig); }
+.present-tools { display: flex; gap: 8px; }
+.present-body { font-size: clamp(20px, 3vw, 44px); line-height: 1.3; }
+.present-foot { margin-top: auto; text-align: center; padding: 8px; }
+/* Room picker tiles and quick wall setup (round 7 adjustments). */
+.room-h { margin: 14px 0 8px; font-size: 15px; }
+.room-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.room-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 120px; padding: 10px; border-radius: 14px; border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.room-tile.active { outline: 2.5px solid var(--blue); outline-offset: 1px; }
+.room-tile-name { font-weight: 700; font-size: 15px; }
+.room-thumb { width: 100%; height: 72px; margin-bottom: 4px; }
+.th-desk { fill: var(--surface-2); stroke: var(--ink-2); stroke-width: 0.08; }
+.th-board { fill: var(--navy-2); }
+.th-teacher { fill: var(--blue-50); stroke: var(--blue-600); stroke-width: 0.08; }
+.th-door { fill: none; stroke: var(--ink-2); stroke-width: 0.1; stroke-dasharray: 0.2 0.15; }
+.th-window { fill: #dfe8f6; }
+.btn.block { width: 100%; justify-content: center; }
+.wall-strip { margin: 6px 0 8px; padding: 10px 12px; }
+.wall-steps { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.wall-steps li { color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.wall-steps li b { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--line-strong); font-size: 12px; }
+.wall-steps li.on { color: var(--ink); font-weight: 650; }
+.wall-steps li.on b { background: var(--blue); border-color: var(--blue); color: #fff; }
+.wall-steps li.done b { background: var(--ok-50); border-color: var(--ok); color: var(--ok); }
 /* ---------- Round 5: brain breaks ---------- */
 .hub-btn.wide { grid-column: 1 / -1; }
 .bb-pick { display: grid; gap: 12px; }

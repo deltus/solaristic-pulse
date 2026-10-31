@@ -75,10 +75,11 @@ export const PLANNER = {
   startTemp: 30
 };
 
-/** Room templates offered in Step 1. */
+/** Room templates offered in Step 1, in this order. Groups of 4 and 6 are two rows of desks facing each other. */
 export const ROOM_TEMPLATES = [
-  { id: 'pairs', label: 'Rows of pairs' },
   { id: 'fours', label: 'Groups of 4' },
+  { id: 'pairs', label: 'Rows of pairs' },
+  { id: 'threes', label: 'Rows of 3' },
   { id: 'sixes', label: 'Groups of 6' },
   { id: 'ushape', label: 'U-shape' },
   { id: 'singles', label: 'Rows of singles' }

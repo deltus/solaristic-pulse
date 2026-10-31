@@ -77,3 +77,9 @@ Run `supabase/migrations/20261031000000_relief_incidents.sql` the same way as Ro
 - The final count ("N things sorted") covers follow-ups closed today, reports lodged and Brain dump records. It doesn't count lessons you closed from step 1.
 - A Brain dump Wellbeing flag is saved as its own check-in, so it shows in the timeline and Close day. It doesn't replace a real check-in from that lesson.
 - Name matching is simple, with no spelling tolerance: "Aarav" matches, "Arav" doesn't. Nicknames the roster doesn't have aren't found.
+
+## Adjustments 2 (31/10/2026)
+
+- **Follow-ups moved below the classes on the Today screen.** Your classes come first; the Follow-ups card is at the bottom. The Close day prompt, Brain dump and Close day buttons stay at the top.
+
+**How to test:** open the preview → Today. If you have any open follow-ups, scroll past the class cards: the Follow-ups card is there. (Demo data has none; log an incident with a follow-up to see one.)

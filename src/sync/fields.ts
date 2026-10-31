@@ -11,7 +11,7 @@ export const isSynced = (t: string): t is SyncedTable => (SYNCED_TABLES as reado
 /** Identifying or free-text fields: encrypted end to end. Everything else (ratings, dates, areas, weights) stays readable. */
 export const ENCRYPTED: Record<SyncedTable, string[]> = {
   // Seating: balance tags, seating needs, support levels and the seat watch are sensitive.
-  classes: ['balanceTags'],
+  classes: ['balanceTags', 'savedQuestions'],
   students: ['firstName', 'lastName', 'preferredName', 'externalId', 'flag', 'seatingNeeds', 'seatingNeedNote', 'seatingIcpDismissed', 'support', 'balanceTags', 'seatWatch'],
   checkins: ['note', 'relief'],
   observations: ['note', 'context'],
@@ -46,8 +46,8 @@ export const ENCRYPTED: Record<SyncedTable, string[]> = {
   followUps: ['title', 'about', 'role', 'note'],
   dayCloses: ['reflection', 'note', 'counts'],
   brainDumps: ['text'],
-  // Checks for understanding: the ticket question can name the lesson's content. Results and absences are ratings and dates.
-  cfuChecks: ['question'],
+  // Checks for understanding: ticket questions can name the lesson's content. Results and absences are ratings and dates.
+  cfuChecks: ['question', 'questions'],
   cfuResults: [],
   absences: []
 };

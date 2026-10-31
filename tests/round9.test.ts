@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PulseDB, useDatabase, db } from '../src/db';
 import * as svc from '../src/services';
 import { addDays, setDayOffset, today } from '../src/lib/dates';
-import { intentionTopic, allOthersYes, contentHint, contentSignals, cycleMark, exitTicketDone, lessonScore, planTicketInsight, prefillAbsent, scoreSeries, suggestedQuestion, thumbsShares } from '../src/logic/cfu';
+import { intentionTopic, addSavedQuestion, allOthersYes, contentHint, contentSignals, exitTicketDone, holdMark, lessonScore, planTicketInsight, prefillAbsent, scoreSeries, suggestedQuestion, tapMark, ticketQuestions, tidyQuestions, wholeClassStart } from '../src/logic/cfu';
 import { pickColdCall } from '../src/logic/coldcall';
 import { supportSuggestion } from '../src/logic/seatingData';
 import { studentTimeline } from '../src/logic/timeline';
@@ -35,13 +35,15 @@ async function setup() {
 const ctxOf = async (classId: string) => (await svc.loadLessonContext(classId))!;
 
 describe('Absent for the rest of the day', () => {
-  it('Absent in Blitz carries to a later yes/no grid and cold call the same day; "All others: Yes" skips them', async () => {
+  it('Absent in Blitz carries to a later Whole class check and cold call the same day; "All others: Yes" skips them', async () => {
     const { a, mia, cal, ana } = await setup();
     await svc.saveBlitz(a.id, today(), 'homework', { [mia.id]: 'absent', [cal.id]: 'yes' });
     const ctx = await ctxOf(a.id);
     expect([...ctx.absentNow]).toEqual([mia.id]);
     const ids = ctx.students.map((s) => s.id);
-    // Yes/no grid starts with Mia as Absent; "All others: Yes" marks everyone else and leaves her absent.
+    // Whole class starts with Mia as Absent and everyone else as Yes.
+    expect(wholeClassStart(ids, ctx.absentNow)).toEqual({ [mia.id]: 'absent', [cal.id]: 'got', [ana.id]: 'got' });
+    // Blitz: "All others: Yes" marks everyone else and leaves her absent.
     const grid = prefillAbsent({}, ctx.absentNow, ids);
     expect(grid).toEqual({ [mia.id]: 'absent' });
     const all = allOthersYes(grid, ids, new Set([mia.id]), 'got');
@@ -61,8 +63,8 @@ describe('Absent for the rest of the day', () => {
   it('a note or a homework result also clears it, but another mode marking the class does not', async () => {
     const { a, mia, cal, lesson } = await setup();
     await svc.markAbsent(a.id, mia.id, today(), 'blitz');
-    // A whole-class yes/no grid saved later doesn't silently mark her present.
-    await svc.saveYesNo(lesson, { [cal.id]: 'got' });
+    // A Whole class check saved later doesn't silently mark her present.
+    await svc.saveWholeClass(lesson, { [cal.id]: 'got' });
     expect((await ctxOf(a.id)).absentNow.has(mia.id)).toBe(true);
     await svc.addNote(mia.id, 'Came in at morning tea');
     expect((await ctxOf(a.id)).absentNow.has(mia.id)).toBe(false);
@@ -113,7 +115,7 @@ describe('Absent for the rest of the day', () => {
 
   it('an absent swipe on a ticket marks it, and its undo lifts it', async () => {
     const { a, mia, lesson } = await setup();
-    const check = await svc.startTicket(lesson, 'exit', 'What did we learn?');
+    const check = await svc.startTicket(lesson, 'exit', ['What did we learn?']);
     const r = await svc.recordTicket(check, mia.id, 'absent');
     expect((await ctxOf(a.id)).absentNow.has(mia.id)).toBe(true);
     await svc.undoTicketResult(r);
@@ -122,39 +124,77 @@ describe('Absent for the rest of the day', () => {
 });
 
 describe('Check for understanding', () => {
-  it('thumbs check saves counts only, with no student records', async () => {
-    const { a, lesson } = await setup();
-    await svc.saveThumbs(lesson, { up: 18, mid: 6, down: 2 });
-    const checks = await db.cfuChecks.where('classId').equals(a.id).toArray();
-    expect(checks).toHaveLength(1);
-    expect(checks[0]).toMatchObject({ kind: 'thumbs', counts: { up: 18, mid: 6, down: 2 }, lessonId: lesson.id });
-    expect(await db.cfuResults.count()).toBe(0);
-    expect(thumbsShares({ up: 18, mid: 6, down: 2 })).toEqual({ total: 26, up: 69, mid: 23, down: 8 });
-    expect(lessonScore(lesson.id, checks, [])).toBe(69);
+  it('Whole class: everyone starts as Yes; tap marks Not yet; long-press marks Sort of; absent are skipped; saves per student', async () => {
+    const { a, mia, cal, ana, lesson } = await setup();
+    await svc.markAbsent(a.id, ana.id, today(), 'blitz');
+    const ctx = await ctxOf(a.id);
+    let marks = wholeClassStart(ctx.students.map((s) => s.id), ctx.absentNow);
+    expect(marks).toEqual({ [mia.id]: 'got', [cal.id]: 'got', [ana.id]: 'absent' });
+    expect(tapMark('got')).toBe('notyet');
+    expect(tapMark('notyet')).toBe('got');
+    expect(tapMark('partly')).toBe('got');
+    expect(holdMark('got')).toBe('partly');
+    expect(holdMark('notyet')).toBe('partly');
+    expect(holdMark('partly')).toBe('got');
+    marks = { ...marks, [mia.id]: tapMark(marks[mia.id]), [cal.id]: holdMark(marks[cal.id]) };
+    await svc.saveWholeClass(lesson, marks);
+    const rs = await db.cfuResults.toArray();
+    expect(rs.map((r) => [r.studentId, r.result, r.kind]).sort()).toEqual([[ana.id, 'absent', 'yesno'], [cal.id, 'partly', 'yesno'], [mia.id, 'notyet', 'yesno']].sort());
+    // Absent students are left out of the score: 0 of 2 got it.
+    expect(lessonScore(lesson.id, [], rs)).toBe(0);
+    // Ana stays absent; Mia's Not yet is a content signal.
+    expect((await ctxOf(a.id)).absentNow.has(ana.id)).toBe(true);
+    expect(contentSignals(mia.id, rs, [], today()).notYet).toBe(1);
+    expect(contentSignals(cal.id, rs, [], today()).notYet).toBe(0);
   });
 
-  it('yes/no grid: a tap cycles Yes, Not yet, unchecked; "All others: Yes" works; results save per student', async () => {
-    expect(cycleMark(undefined)).toBe('got');
-    expect(cycleMark('got')).toBe('notyet');
-    expect(cycleMark('notyet')).toBeUndefined();
-    const { mia, cal, ana, lesson } = await setup();
-    const marks = allOthersYes({ [mia.id]: 'notyet' as const }, [mia.id, cal.id, ana.id], new Set(), 'got' as const);
-    expect(marks).toEqual({ [mia.id]: 'notyet', [cal.id]: 'got', [ana.id]: 'got' });
-    await svc.saveYesNo(lesson, marks);
-    const rs = await db.cfuResults.toArray();
-    expect(rs.map((r) => [r.studentId, r.result, r.kind]).sort()).toEqual([[ana.id, 'got', 'yesno'], [cal.id, 'got', 'yesno'], [mia.id, 'notyet', 'yesno']].sort());
-    expect(lessonScore(lesson.id, [], rs)).toBe(67);
+  it('Select a student saves a manual cold call that counts in the fairness ranking', async () => {
+    const { a, mia, cal, ana, lesson } = await setup();
+    await svc.logColdCall(lesson, mia.id, 'good', [], true);
+    await svc.logColdCall(lesson, cal.id, 'good');
+    const ctx = await ctxOf(a.id);
+    expect(ctx.coldCalls.find((c) => c.studentId === mia.id)).toMatchObject({ manual: true, result: 'good' });
+    expect(ctx.coldCalls.find((c) => c.studentId === cal.id)?.manual).toBeUndefined();
+    // Mia and Callum have had a turn, so the roll picks Ana.
+    for (let i = 0; i < 10; i++) expect(pickColdCall(ctx.students, ctx.coldCalls, new Set(), Math.random)?.id).toBe(ana.id);
+  });
+
+  it('Select a student clears an absence today ("Marked present")', async () => {
+    const { a, mia, lesson } = await setup();
+    await svc.markAbsent(a.id, mia.id, today(), 'blitz');
+    await svc.logColdCall(lesson, mia.id, 'struggled', [], true);
+    expect((await ctxOf(a.id)).absentNow.has(mia.id)).toBe(false);
+  });
+
+  it('tickets hold up to 3 questions, and questions can be saved per class', async () => {
+    const { a, b, lesson } = await setup();
+    expect(tidyQuestions(['  What is a  republic? ', '', 'Why did Rome split?', 'Who was Diocletian?', 'Extra'])).toEqual(['What is a republic?', 'Why did Rome split?', 'Who was Diocletian?']);
+    const check = await svc.startTicket(lesson, 'exit', ['Q1', 'Q2', 'Q3', 'Q4']);
+    expect(ticketQuestions(check)).toEqual(['Q1', 'Q2', 'Q3']);
+    await svc.updateTicket(check.id, 'exit', ['Only one']);
+    expect(ticketQuestions((await svc.getCfuCheck(check.id))!)).toEqual(['Only one']);
+    // Older tickets had one question.
+    expect(ticketQuestions({ question: 'Old one' })).toEqual(['Old one']);
+
+    expect(addSavedQuestion(['Why did Rome split?'], 'why did rome split? ')).toEqual(['why did rome split?']);
+    await svc.saveClassQuestion(a.id, 'What is a republic?');
+    await svc.saveClassQuestion(a.id, 'Why did Rome split?');
+    await svc.saveClassQuestion(a.id, 'What is a republic?');
+    expect((await db.classes.get(a.id))!.savedQuestions).toEqual(['What is a republic?', 'Why did Rome split?']);
+    expect((await db.classes.get(b.id))!.savedQuestions).toBeUndefined();
+    await svc.removeClassQuestion(a.id, 'Why did Rome split?');
+    expect((await db.classes.get(a.id))!.savedQuestions).toEqual(['What is a republic?']);
   });
 
   it('tickets save per student and feed the content signal', async () => {
     const { a, mia, cal, lesson } = await setup();
-    const check = await svc.startTicket(lesson, 'exit', 'In one sentence, what did we learn?');
+    const check = await svc.startTicket(lesson, 'exit', ['In one sentence, what did we learn?']);
     await svc.recordTicket(check, mia.id, 'notyet', ['misconception']);
     await svc.recordTicket(check, cal.id, 'partly');
     const rs = await db.cfuResults.toArray();
     expect(rs.find((r) => r.studentId === mia.id)).toMatchObject({ result: 'notyet', tags: ['misconception'], kind: 'exit' });
     // Another "not yet" on a yes/no and a struggled cold call: Coping → Content is suggested.
-    await svc.saveYesNo(lesson, { [mia.id]: 'notyet' });
+    await svc.saveWholeClass(lesson, { [mia.id]: 'notyet' });
     await svc.logColdCall(lesson, mia.id, 'struggled');
     const ctx = await ctxOf(a.id);
     const sig = contentSignals(mia.id, ctx.cfuResults, ctx.coldCalls, today());
@@ -179,30 +219,31 @@ describe('Check for understanding', () => {
     expect(intentionTopic('We are learning to explain how volcanoes erupt.')).toBe('how volcanoes erupt');
     expect(intentionTopic('Fractions of amounts')).toBe('fractions of amounts');
     expect(intentionTopic('Use')).toBe('use');
+    expect(intentionTopic('Label the parts of a flower')).toBe('the parts of a flower');
     expect(suggestedQuestion('entry', ctx.lesson!, undefined)).toBe('In one sentence, what did we learn last lesson?');
-    const check = await svc.startTicket(ctx.lesson!, 'entry', 'Q', before.id);
+    const check = await svc.startTicket(ctx.lesson!, 'entry', ['Q'], before.id);
     expect(check).toMatchObject({ kind: 'entry', aboutLessonId: 'prev' });
   });
 
   it('Close lesson offers "Run an exit ticket?" until one is done (an empty one left behind is removed)', async () => {
     const { a, mia, lesson } = await setup();
     expect(exitTicketDone((await ctxOf(a.id)).cfuChecks, lesson.id)).toBe(false);
-    const empty = await svc.startTicket(lesson, 'exit', 'Q');
+    const empty = await svc.startTicket(lesson, 'exit', ['Q']);
     await svc.dropEmptyTicket(empty.id);
     expect(exitTicketDone((await ctxOf(a.id)).cfuChecks, lesson.id)).toBe(false);
-    const check = await svc.startTicket(lesson, 'exit', 'Q');
+    const check = await svc.startTicket(lesson, 'exit', ['Q']);
     await svc.recordTicket(check, mia.id, 'got');
     await svc.dropEmptyTicket(check.id);
     expect(exitTicketDone((await ctxOf(a.id)).cfuChecks, lesson.id)).toBe(true);
     // An entry ticket doesn't count as an exit ticket.
     const other = await svc.openLesson((await setupOther()).id);
-    await svc.startTicket(other, 'entry', 'Q');
+    await svc.startTicket(other, 'entry', ['Q']);
     expect(exitTicketDone(await db.cfuChecks.toArray(), other.id)).toBe(false);
   });
 
   it("the lesson's understanding score shows in the timeline and the class graph", async () => {
     const { a, mia, cal, lesson } = await setup();
-    const check = await svc.startTicket(lesson, 'exit', 'Q');
+    const check = await svc.startTicket(lesson, 'exit', ['Q']);
     await svc.recordTicket(check, mia.id, 'notyet', ['incomplete']);
     await svc.recordTicket(check, cal.id, 'got');
     const ctx = await ctxOf(a.id);
@@ -224,14 +265,15 @@ describe('Check for understanding', () => {
     expect(planTicketInsight(lessons.slice(0, 3), results)).toBeNull();
   });
 
-  it('new tables sync, with the ticket question encrypted', () => {
+  it('new tables sync, with ticket questions (and saved ones) encrypted', () => {
     for (const t of ['cfuChecks', 'cfuResults', 'absences']) expect(SYNCED_TABLES).toContain(t);
-    expect(ENCRYPTED.cfuChecks).toEqual(['question']);
+    expect(ENCRYPTED.cfuChecks).toEqual(['question', 'questions']);
+    expect(ENCRYPTED.classes).toContain('savedQuestions');
   });
 
   it('deleting a student removes their results and absences', async () => {
     const { a, mia, lesson } = await setup();
-    await svc.saveYesNo(lesson, { [mia.id]: 'got' });
+    await svc.saveWholeClass(lesson, { [mia.id]: 'got' });
     await svc.markAbsent(a.id, mia.id, today(), 'blitz');
     await svc.deleteStudentPermanently(mia.id);
     expect(await db.cfuResults.count()).toBe(0);

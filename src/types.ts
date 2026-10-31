@@ -15,6 +15,8 @@ export interface SchoolClass {
   dailyTarget?: number;
   /** Teacher-made balance tags for seating (e.g. "Group A", "EAL"). Sensitive: encrypted when synced, never exported or shown to relief teachers. */
   balanceTags?: BalanceTag[];
+  /** Exit and entry ticket questions saved to reuse in this class (round 9). Encrypted when synced. */
+  savedQuestions?: string[];
 }
 
 export interface BalanceTag {
@@ -254,6 +256,8 @@ export interface ColdCall {
   studentId: string;
   date: string;
   result: ColdCallResult;
+  /** Picked by the teacher ("Select a student"), not by the roll. Still counts in the fairness ranking. */
+  manual?: boolean;
   tags?: string[];
   createdAt: number;
 }
@@ -460,7 +464,7 @@ export interface Settings {
   /** Seating: "Use support levels in seating plans" (off by default). */
   seatingSupport?: boolean;
   /** Check for understanding: the mode used last (listed first in the menu). */
-  lastCfuMode?: 'coldcall' | 'thumbs' | 'yesno' | 'ticket';
+  lastCfuMode?: 'whole' | 'coldcall' | 'select' | 'ticket' | 'thumbs' | 'yesno';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -669,28 +673,29 @@ export interface BrainDump {
 
 /* ---------------- Check for understanding (round 9) ---------------- */
 
-export type CfuKind = 'thumbs' | 'yesno' | 'exit' | 'entry';
+/** yesno = Whole class. */
+export type CfuKind = 'yesno' | 'exit' | 'entry';
 
-/** One check for understanding run in a lesson. Thumbs checks hold counts only (no student records). */
+/** One check for understanding run in a lesson. */
 export interface CfuCheck {
   id: string;
   lessonId: string;
   classId: string;
   date: string;
   kind: CfuKind;
-  /** Exit or entry ticket question. */
+  /** Exit or entry ticket questions (up to 3). */
+  questions?: string[];
+  /** Before 1 Nov 2026 tickets had one question. */
   question?: string;
   /** Entry tickets: the previous lesson the question is about. */
   aboutLessonId?: string;
-  /** Thumbs check: 👍 got it, 👊 sort of, 👎 not yet. */
-  counts?: { up: number; mid: number; down: number };
   createdAt: number;
 }
 
-/** got = Yes / Got it; notyet = Not yet; partly = Partly (tickets only); absent = not in class. */
+/** got = Yes / Got it; notyet = Not yet; partly = Partly (Sort of on Whole class); absent = not in class. */
 export type CfuResultValue = 'got' | 'partly' | 'notyet' | 'absent';
 
-/** One student's answer in a yes/no grid or an exit/entry ticket. */
+/** One student's answer in a Whole class check or an exit/entry ticket. */
 export interface CfuResult {
   id: string; // `${checkId}|${studentId}`
   checkId: string;
@@ -698,7 +703,7 @@ export interface CfuResult {
   classId: string;
   studentId: string;
   date: string;
-  kind: Exclude<CfuKind, 'thumbs'>;
+  kind: CfuKind;
   result: CfuResultValue;
   /** Ticket "Not yet" chips: misconception, incomplete. */
   tags?: string[];

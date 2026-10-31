@@ -1,9 +1,9 @@
-// Check for understanding (round 9): yes/no grid marks, thumbs counts, ticket questions, the
+// Check for understanding (round 9): Whole class marks, ticket questions, the
 // per-lesson understanding score, content signals and "absent for the rest of the day".
 // Pure functions so they can be tested.
 
 import type { AbsentToday, CfuCheck, CfuResult, CfuResultValue, ColdCall, Lesson } from '../types';
-import { CONTENT_SIGNAL, FALLBACK_ENTRY_QUESTION, FALLBACK_QUESTION, INTENTION_LEAD_INS, SUGGESTED_QUESTION } from '../config/cfu';
+import { CONTENT_SIGNAL, FALLBACK_ENTRY_QUESTION, FALLBACK_QUESTION, INTENTION_LEAD_INS, MAX_TICKET_QUESTIONS, SUGGESTED_QUESTION } from '../config/cfu';
 import { daysBetween } from '../lib/dates';
 
 /* ---------------- Absent for the rest of the day ---------------- */
@@ -15,17 +15,22 @@ export function absentIds(absences: AbsentToday[], classId: string, date: string
   return new Set(absences.filter((a) => a.classId === classId && a.date === date).map((a) => a.studentId));
 }
 
-/* ---------------- Yes/no grid ---------------- */
+/* ---------------- Whole class ---------------- */
 
-/** Grid mark: unchecked (undefined), Yes ('got'), Not yet, or Absent. */
-export type GridMark = Extract<CfuResultValue, 'got' | 'notyet' | 'absent'>;
+/** Whole class mark: Yes ('got'), Sort of ('partly'), Not yet, or Absent. */
+export type GridMark = Extract<CfuResultValue, 'got' | 'partly' | 'notyet' | 'absent'>;
 
-/** One tap: unchecked → Yes → Not yet → unchecked. */
-export function cycleMark(m: GridMark | undefined): GridMark | undefined {
-  return m === undefined ? 'got' : m === 'got' ? 'notyet' : undefined;
+/** Everyone starts as Yes; students absent today start as Absent. */
+export function wholeClassStart(studentIds: string[], absent: Set<string>): Record<string, GridMark> {
+  return Object.fromEntries(studentIds.map((id) => [id, absent.has(id) ? 'absent' : 'got']));
 }
 
-/** Absent-today students start as Absent. */
+/** A tap: Yes ↔ Not yet (Sort of goes back to Yes). */
+export const tapMark = (m: GridMark): GridMark => (m === 'got' ? 'notyet' : 'got');
+/** Press and hold: Sort of (holding again goes back to Yes). */
+export const holdMark = (m: GridMark): GridMark => (m === 'partly' ? 'got' : 'partly');
+
+/** Blitz: absent-today students start as Absent. */
 export function prefillAbsent<T extends string>(marks: Record<string, T>, absent: Set<string>, studentIds: string[]): Record<string, T | 'absent'> {
   const out: Record<string, T | 'absent'> = { ...marks };
   for (const id of studentIds) if (absent.has(id) && out[id] === undefined) out[id] = 'absent';
@@ -37,16 +42,6 @@ export function allOthersYes<T extends string>(marks: Record<string, T>, student
   const out = { ...marks };
   for (const id of studentIds) if (out[id] === undefined && !absent.has(id)) out[id] = yes;
   return out;
-}
-
-/* ---------------- Thumbs ---------------- */
-
-export type ThumbCounts = { up: number; mid: number; down: number };
-
-export function thumbsShares(c: ThumbCounts) {
-  const total = c.up + c.mid + c.down;
-  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
-  return { total, up: pct(c.up), mid: pct(c.mid), down: pct(c.down) };
 }
 
 /* ---------------- Tickets ---------------- */
@@ -73,6 +68,19 @@ export function suggestedQuestion(kind: 'exit' | 'entry', lesson: Pick<Lesson, '
   return kind === 'exit' ? FALLBACK_QUESTION : FALLBACK_ENTRY_QUESTION;
 }
 
+/** A ticket's questions (older tickets saved one `question`). */
+export const ticketQuestions = (c: Pick<CfuCheck, 'questions' | 'question'>): string[] => c.questions ?? (c.question ? [c.question] : []);
+
+/** Up to 3 questions, tidied, blanks dropped. */
+export const tidyQuestions = (qs: string[]) => qs.map((q) => q.trim().replace(/\s+/g, ' ')).filter(Boolean).slice(0, MAX_TICKET_QUESTIONS);
+
+/** Saved questions for a class: newest first, no repeats (ignoring case). */
+export function addSavedQuestion(saved: string[] = [], q: string): string[] {
+  const t = tidyQuestions([q])[0];
+  if (!t) return saved;
+  return [t, ...saved.filter((x) => x.toLowerCase() !== t.toLowerCase())];
+}
+
 /** Close lesson: offer "Run an exit ticket?" when none was done in this lesson. */
 export const exitTicketDone = (checks: CfuCheck[], lessonId: string) => checks.some((c) => c.lessonId === lessonId && c.kind === 'exit');
 
@@ -86,17 +94,9 @@ function resultScore(rs: CfuResult[]): number | null {
   return answered.length ? pctOf(answered.filter((r) => r.result === 'got').length, answered.length) : null;
 }
 
-/**
- * The lesson's understanding score (% got it). Per-student results (yes/no grid and tickets) when
- * there are any; otherwise the latest thumbs check (👍 share).
- */
-export function lessonScore(lessonId: string, checks: CfuCheck[], results: CfuResult[]): number | null {
-  const fromResults = resultScore(results.filter((r) => r.lessonId === lessonId));
-  if (fromResults !== null) return fromResults;
-  const thumbs = checks.filter((c) => c.lessonId === lessonId && c.kind === 'thumbs' && c.counts).sort((a, b) => b.createdAt - a.createdAt)[0];
-  if (!thumbs) return null;
-  const s = thumbsShares(thumbs.counts!);
-  return s.total ? s.up : null;
+/** The lesson's understanding score (% got it) from Whole class and ticket results. */
+export function lessonScore(lessonId: string, _checks: CfuCheck[], results: CfuResult[]): number | null {
+  return resultScore(results.filter((r) => r.lessonId === lessonId));
 }
 
 /** Exit-ticket score for one lesson (% got it), or null. */
@@ -113,7 +113,7 @@ export function scoreSeries(lessons: Lesson[], checks: CfuCheck[], results: CfuR
 /* ---------------- What the results feed ---------------- */
 
 const RESULT_TEXT: Record<CfuResultValue, string> = { got: 'got it', partly: 'partly', notyet: 'not yet', absent: 'absent' };
-const KIND_TEXT = { yesno: 'Check', exit: 'Exit ticket', entry: 'Entry ticket' } as const;
+const KIND_TEXT = { yesno: 'Whole class', exit: 'Exit ticket', entry: 'Entry ticket' } as const;
 
 /** Student timeline: "Exit ticket: not yet (misconception)". */
 export function resultText(r: Pick<CfuResult, 'kind' | 'result' | 'tags'>): string {

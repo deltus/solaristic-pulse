@@ -26,7 +26,7 @@ import { answerWatch, leftOutMuteId, newSupport, newWatch, pairKey, seatLabel, t
 import { printableHtml, shortNames } from './logic/seatingPrint';
 import type { BrainDump, DayClose, FollowUp, FollowUpKind, Incident } from './types';
 import { at as atTime, dueFrom, endOfDay, incidentContext, moveToTomorrow } from './logic/incidents';
-import { absentId, absentIds } from './logic/cfu';
+import { absentId, absentIds, addSavedQuestion, tidyQuestions } from './logic/cfu';
 import type { AbsentSource, CfuCheck, CfuResult, CfuResultValue } from './types';
 import { BRAIN_DUMP_KEEP_DAYS, END_OF_DAY, INCIDENT_TASKS, type DueChip } from './config/incidents';
 import { roomUsers } from './logic/rooms';
@@ -482,10 +482,11 @@ export async function finishLessonLater(lessonId: string, a: CloseAnswers, minut
 /* ---------------- Cold call ---------------- */
 
 /** Saves a cold call. "Wasn't listening" also records an Attention concern for that lesson. */
-export async function logColdCall(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, studentId: string, result: ColdCallResult, tags: string[] = []): Promise<ColdCall> {
+/** `manual`: picked by the teacher (Select a student), not the roll. */
+export async function logColdCall(lesson: Pick<Lesson, 'id' | 'classId' | 'date'>, studentId: string, result: ColdCallResult, tags: string[] = [], manual = false): Promise<ColdCall> {
   const now = Date.now();
   await presentOnEntry(studentId, lesson.date);
-  const c: ColdCall = { id: newId(), lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, result, ...(result === 'struggled' && tags.length ? { tags } : {}), createdAt: now };
+  const c: ColdCall = { id: newId(), lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, result, ...(result === 'struggled' && tags.length ? { tags } : {}), ...(manual ? { manual } : {}), createdAt: now };
   await db.transaction('rw', db.coldCalls, db.observations, async () => {
     await db.coldCalls.add(c);
     if (result === 'struggled' && tags.includes('not_listening')) {
@@ -1305,15 +1306,8 @@ async function presentOnEntry(studentId: string, date: string) {
 
 type LessonRef = Pick<Lesson, 'id' | 'classId' | 'date'>;
 
-/** Thumbs check: counts only, never student records. */
-export async function saveThumbs(lesson: LessonRef, counts: { up: number; mid: number; down: number }): Promise<CfuCheck> {
-  const c: CfuCheck = { id: newId(), lessonId: lesson.id, classId: lesson.classId, date: lesson.date, kind: 'thumbs', counts, createdAt: nowMs() };
-  await db.cfuChecks.add(c);
-  return c;
-}
-
-/** Yes/no grid: one check and a result for each marked student (unchecked students aren't saved). */
-export async function saveYesNo(lesson: LessonRef, marks: Record<string, Extract<CfuResultValue, 'got' | 'notyet' | 'absent'>>): Promise<CfuCheck> {
+/** Whole class: one check and a result for each student (Yes, Sort of, Not yet or Absent). */
+export async function saveWholeClass(lesson: LessonRef, marks: Record<string, Extract<CfuResultValue, 'got' | 'partly' | 'notyet' | 'absent'>>): Promise<CfuCheck> {
   const check: CfuCheck = { id: newId(), lessonId: lesson.id, classId: lesson.classId, date: lesson.date, kind: 'yesno', createdAt: nowMs() };
   const results: CfuResult[] = Object.entries(marks).map(([studentId, result], i) => ({
     id: `${check.id}|${studentId}`, checkId: check.id, lessonId: lesson.id, classId: lesson.classId, studentId, date: lesson.date, kind: 'yesno', result, createdAt: check.createdAt + i
@@ -1327,8 +1321,8 @@ export async function saveYesNo(lesson: LessonRef, marks: Record<string, Extract
 }
 
 /** Exit or entry ticket: saved when recording starts, so each swipe can be saved (and undone) on its own. */
-export async function startTicket(lesson: LessonRef, kind: 'exit' | 'entry', question: string, aboutLessonId?: string): Promise<CfuCheck> {
-  const c: CfuCheck = { id: newId(), lessonId: lesson.id, classId: lesson.classId, date: lesson.date, kind, question: clean(question), ...(aboutLessonId ? { aboutLessonId } : {}), createdAt: nowMs() };
+export async function startTicket(lesson: LessonRef, kind: 'exit' | 'entry', questions: string[], aboutLessonId?: string): Promise<CfuCheck> {
+  const c: CfuCheck = { id: newId(), lessonId: lesson.id, classId: lesson.classId, date: lesson.date, kind, questions: tidyQuestions(questions), ...(aboutLessonId ? { aboutLessonId } : {}), createdAt: nowMs() };
   await db.cfuChecks.add(c);
   return c;
 }
@@ -1350,6 +1344,23 @@ export async function undoTicketResult(r: CfuResult) {
     const a = await db.absences.get(absentId(r.date, r.classId, r.studentId));
     if (a?.source === 'cfu') await db.absences.delete(a.id);
   }
+}
+
+export const getCfuCheck = async (id: string) => (await db.cfuChecks.get(id)) ?? null;
+
+/** Changing the questions after Show it (before anyone is recorded). */
+export async function updateTicket(checkId: string, kind: 'exit' | 'entry', questions: string[], aboutLessonId?: string) {
+  await db.cfuChecks.update(checkId, { kind, questions: tidyQuestions(questions), aboutLessonId });
+}
+
+/** Saves a ticket question to reuse in this class (newest first). */
+export async function saveClassQuestion(classId: string, question: string) {
+  const c = await db.classes.get(classId);
+  if (c) await db.classes.update(classId, { savedQuestions: addSavedQuestion(c.savedQuestions, question) });
+}
+export async function removeClassQuestion(classId: string, question: string) {
+  const c = await db.classes.get(classId);
+  if (c) await db.classes.update(classId, { savedQuestions: (c.savedQuestions ?? []).filter((q) => q !== question) });
 }
 
 /** A ticket nobody was recorded for is removed when the teacher leaves. */

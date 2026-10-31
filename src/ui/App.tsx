@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { useRoute, useSettings, useLive, useTick } from './hooks';
 import { Icon, Sheet, ToastHost, toastMarkedPresent } from './components';
 import { MARKED_PRESENT_EVENT } from '../services';
-import { ThumbsScreen, TicketScreen, YesNoScreen } from './screens/Cfu';
+import { TicketPresent, TicketScreen, WholeClassScreen } from './screens/Cfu';
 import { LockScreen } from './Lock';
 import { Setup } from './Setup';
 import { Tour } from './Tour';
@@ -93,7 +93,7 @@ export function App() {
   if (locked && settings.pin) return <LockScreen pin={settings.pin} name={settings.profile.name} onUnlock={() => setLocked(false)} />;
   if (!settings.onboarded) return <Setup />;
 
-  const [page = 'home', id, sub, extra, more] = route;
+  const [page = 'home', id, sub, extra, more, rest, last] = route;
   const currentClass = classes?.find((c) => c.id === (page === 'class' && id ? id : settings.currentClassId)) ?? classes?.[0];
   let screen;
   switch (page) {
@@ -109,10 +109,11 @@ export function App() {
         : sub === 'student' && extra ? <CheckinScreen key={extra} classId={id} studentId={extra} />
         : sub === 'homework' ? <HomeworkScreen key={extra ?? ''} classId={id} anyway={extra === 'anyway'} />
         : sub === 'close' ? <CloseLessonScreen classId={id} />
-        : sub === 'coldcall' ? <ColdCallScreen classId={id} />
-        : sub === 'cfu' && extra === 'thumbs' ? <ThumbsScreen classId={id} />
-        : sub === 'cfu' && extra === 'yesno' ? <YesNoScreen classId={id} />
-        : sub === 'cfu' && extra === 'ticket' ? <TicketScreen key={more ?? ''} classId={id} fromClose={more === 'close'} />
+        : sub === 'coldcall' ? <ColdCallScreen key="roll" classId={id} />
+        : sub === 'cfu' && (extra === 'whole' || extra === 'yesno' || extra === 'thumbs') ? <WholeClassScreen classId={id} />
+        : sub === 'cfu' && extra === 'select' ? <ColdCallScreen key="select" classId={id} manual />
+        : sub === 'cfu' && extra === 'ticket' ? <TicketScreen key={`${more ?? ''}/${rest ?? ''}`} classId={id} fromClose={more === 'close' || rest === 'close'} resumeId={more && more !== 'close' ? more : undefined} />
+        : sub === 'cfu' && extra === 'present' && more ? <TicketPresent classId={id} checkId={more} seconds={Number(rest) || 0} fromClose={last === 'close'} />
         : sub === 'assessment' ? <AssessmentCheckScreen key={extra ?? ''} classId={id} assessmentId={extra} />
         : sub === 'brainbreak' ? <BrainBreakScreen classId={id} />
         : sub === 'select' ? <SelectStudentScreen classId={id} />

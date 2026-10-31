@@ -329,7 +329,7 @@ export async function loadDemoData(): Promise<void> {
     if (tough && lesson.happy === 'no' && swipeRand() < 0.5) lesson.note = 'Ran out of time for the practice questions.';
     // An exit ticket in most lessons: more "got it" when the teacher got through the plan.
     if (ticketRand() < 0.65) {
-      const check: CfuCheck = { id: newId(), lessonId, classId, date, kind: 'exit', question: suggestedQuestion('exit', lesson), createdAt: openedAt + 3_300_000 };
+      const check: CfuCheck = { id: newId(), lessonId, classId, date, kind: 'exit', questions: [suggestedQuestion('exit', lesson)], createdAt: openedAt + 3_300_000 };
       cfuChecks.push(check);
       const pGot = lesson.planDone === 'yes' ? 0.8 : 0.58;
       for (const st of classStudents) {

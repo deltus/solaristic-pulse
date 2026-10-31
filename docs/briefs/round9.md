@@ -89,3 +89,41 @@ https://deltus.github.io/solaristic-pulse/preview/round9/
 **Not done / unsure**
 - Previous only goes back through students you answered on this visit, not ones from before you left the screen.
 - If an ICP question was answered right after a check-in, going back removes the check-in but not the ICP answer.
+
+### 2. New Check for understanding modes (agreed with Thomas, 31/10)
+**What changed**
+- **The menu** now has four modes, in this order, each with its own icon and colour:
+  1. **Whole class** (green): replaces both the thumbs check and the yes/no grid.
+  2. **Cold call assistant** (blue): the roll, as before.
+  3. **Select a student** (burgundy): new.
+  4. **Entry or exit ticket** (amber): reworked.
+- **Whole class:** ask "Is everyone happy with this?". **Everyone starts as Yes**, so you only tap the few who aren't.
+  - Tap a name for **Not yet** (tap again for Yes).
+  - Press and hold for **Sort of**.
+  - **A** marks a student absent. Anyone absent earlier today starts greyed out with an Absent chip and isn't counted.
+  - **Save** in one tap, saved per student. "Not yet" counts as a content signal, like a ticket "Not yet".
+- **Select a student:** a search box and a grid of names. Tap a name and you get the same card and swipes as cold call. It's saved as a cold call marked "manual", so the fair pick in Cold call assistant knows that student has had a turn. Students absent today are greyed but can still be picked; recording a result marks them present.
+- **Tickets:**
+  - **Up to 3 questions.** The first is the suggested one; tap **Add a question** for more.
+  - **Save for this class** under a question keeps it, and saved questions show as chips to tap next time. The × removes one. Each class has its own list.
+  - **Countdown:** None, 1, 2, 3 or 5 minutes.
+  - **Show it** now uses the round 7 **Present** page: big text and the countdown. On a phone it fills the screen, and **Close** brings you straight back to recording. On a computer it opens a new window to drag onto the board, while recording carries on in the first window. **Show it again** is under the swipe card.
+- **Understanding score** now comes only from Whole class and ticket results (the thumbs counts are gone).
+- **Suggested question** reads better for intentions starting "Label…" or "Name…".
+- **No new database version.** Saved questions are stored on the class (encrypted when synced), so round 9 stays on **v16** and needs no Supabase script.
+
+**How to test**
+1. Load demo data, open a class and open a lesson with a learning intention.
+2. Tap **Check for understanding**. Check the 4 modes, the order and the colours.
+3. **Whole class:** everyone shows Yes. Tap one name (Not yet) and press and hold another (Sort of). Tap **Save** and check the message counts.
+4. **Cold call assistant:** pick a student, swipe right.
+5. **Select a student:** search for a name, tap it, swipe right. Then open **Cold call assistant** and pick a few times: that student shouldn't come up before the others have had a turn.
+6. **Exit ticket:** add a second question, tap **Save for this class** under it, choose **2 min**, then tap **Show it**. Check the big page and the countdown, then tap **Close**. You should be straight on the swipe cards; swipe a few.
+7. Open the ticket again: your saved question shows as a chip. Tap it to use it, and tap × to remove it.
+8. **Close the lesson**, then check the timeline (student page) and the class graph (Manage class).
+
+**Not done / unsure**
+- Old thumbs checks made on the preview before today no longer count toward the score. (Nothing is live, so this only affects test data.)
+- On a computer, if you open **Show it** and then leave the ticket without recording anyone, the ticket is dropped, and the board window will say "This ticket was removed".
+- If you leave the board page on a phone without tapping Close (e.g. the back button), the ticket stays saved with no answers. It then counts as "exit ticket done" for Close lesson.
+- Press-and-hold and the Present page still need checking on a real phone.

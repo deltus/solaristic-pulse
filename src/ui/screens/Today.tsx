@@ -129,7 +129,7 @@ export function ClassHub({ classId, reminder }: { classId: string; reminder: Rem
         {hw.mode === 'set'
           ? <a class="hub-btn" href={`#/class/${classId}/homework`}><Icon name="reports" /><b>Homework check</b><span>{hw.previous?.homeworkText || 'Homework from last lesson'}</span></a>
           : <button class="hub-btn greyed" onClick={() => setAskAnyway(true)}><Icon name="reports" /><b>Homework check</b><span>No homework set last lesson</span></button>}
-        <button class="hub-btn" onClick={() => setCfuMenu(true)}><Icon name="user" /><b>Check for understanding</b><span>Cold call, thumbs, yes/no, tickets</span></button>
+        <button class="hub-btn" onClick={() => setCfuMenu(true)}><Icon name="user" /><b>Check for understanding</b><span>Whole class, cold call, select, tickets</span></button>
         <a class="hub-btn" href={`#/classes/${classId}/blitz`}><Icon name="bolt" /><b>Blitz</b><span>One question, whole class</span></a>
         <a class="hub-btn" href={`#/class/${classId}/select`}><Icon name="search" /><b>Select student</b><span>Log one student now</span></a>
         {assess.length > 0 && <a class="hub-btn" href={`#/class/${classId}/assessment${assess.length === 1 ? `/${assess[0].id}` : ''}`}><Icon name="reports" /><b>Assessment check</b><span>{assess.length === 1 ? `${assess[0].name}${dueText(assess[0], today()) ? ` · ${dueText(assess[0], today()).toLowerCase()}` : ''}` : `${assess.length} tasks`}</span></a>}

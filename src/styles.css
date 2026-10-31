@@ -1033,38 +1033,51 @@ body.projector-mode .content-col { margin: 0; max-width: none; }
 .cfu-menu { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .cfu-mode { width: 100%; text-align: left; background: var(--surface); border: 0; border-top: 1px solid var(--line); cursor: pointer; font: inherit; color: inherit; }
 .cfu-mode:first-child { border-top: 0; }
+/* Each mode has its own colour: --c (strong) and --c-50 (tint). */
+.cfu-c-whole { --c: var(--ok); --c-50: var(--ok-50); }
+.cfu-c-coldcall { --c: var(--blue); --c-50: var(--blue-50); }
+.cfu-c-select { --c: var(--burgundy); --c-50: var(--burgundy-50); }
+.cfu-c-ticket { --c: var(--some); --c-50: var(--some-50); }
+.cfu-icon { width: 40px; height: 40px; border-radius: 12px; flex: none; display: inline-flex; align-items: center; justify-content: center; background: var(--c-50, var(--blue-50)); color: var(--c, var(--blue)); }
+.cfu-icon svg { width: 20px; height: 20px; }
+.cfu-mode { border-left: 4px solid var(--c, transparent); }
+.cfu-title { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; font-size: 13px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c); }
+.cfu-icon.small { width: 28px; height: 28px; border-radius: 8px; }
+.cfu-icon.small svg { width: 15px; height: 15px; }
+.btn.primary.cfu-c-whole, .btn.primary.cfu-c-ticket { background: var(--c); border-color: var(--c); }
+.pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.pick-cell { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); font: inherit; font-weight: 600; color: inherit; text-align: left; cursor: pointer; }
+.pick-cell:active { border-color: var(--burgundy); background: var(--burgundy-50); }
+.pick-cell.absent { opacity: 0.55; }
+.pick-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ticket-q { margin-bottom: 10px; }
+.saved-qs { flex-wrap: wrap; margin-top: 4px; }
+.saved-q { display: inline-flex; align-items: center; gap: 2px; padding: 0; max-width: 100%; }
+.saved-q button { background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.saved-q-use { padding: 6px 4px 6px 12px; text-align: left; overflow-wrap: anywhere; }
+.saved-q-x { padding: 6px 10px 6px 4px; display: inline-flex; }
+.saved-q-x svg { width: 14px; height: 14px; }
+.ticket-list { margin: 0; padding-left: 20px; }
+.present-q { margin: 0.5em 0; font-weight: 700; }
+.present-qs { margin: 0.5em 0; padding-left: 1.3em; font-weight: 700; display: flex; flex-direction: column; gap: 0.6em; }
+.present-hint { font-size: 0.55em; color: var(--muted); margin-top: 1.2em; }
 .cfu-intention { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; margin: 6px 0 4px; border-radius: 12px; background: var(--blue-50); border-left: 3px solid var(--blue); }
 .cfu-intention b { font-size: 15px; }
-.thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.thumb-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 6px; min-height: 150px; border-radius: 18px; border: 2px solid var(--line-strong); background: #fff; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; font: inherit; color: inherit; }
-.thumb-btn:active { transform: scale(0.97); }
-.thumb-btn.up { border-color: var(--ok); }
-.thumb-btn.mid { border-color: var(--some); }
-.thumb-btn.down { border-color: var(--sig); }
-.thumb-emoji { font-size: 40px; line-height: 1; }
-.thumb-n { font-size: 34px; font-family: var(--mono); }
-.pct-bar { display: flex; height: 16px; border-radius: 8px; overflow: hidden; background: var(--line); margin-top: 14px; }
-.pct-bar i { display: block; height: 100%; transition: width 0.2s; }
-.pct-bar .up { background: var(--ok); }
-.pct-bar .mid { background: var(--some); }
-.pct-bar .down { background: var(--sig); }
 .yn-row { padding: 0; }
 .yn-tap { display: flex; align-items: center; gap: 10px; padding: 10px 0; background: none; border: 0; font: inherit; font-weight: 550; color: inherit; text-align: left; cursor: pointer; min-height: 52px; }
 .yn-mark { font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; min-width: 64px; justify-content: flex-end; }
 .yn-mark svg { width: 15px; height: 15px; }
 .yn-row.got .yn-mark { color: var(--ok); }
 .yn-row.notyet .yn-mark { color: var(--sig); }
+.yn-row.partly .yn-mark { color: var(--some); }
+.yn-row.notyet { background: linear-gradient(90deg, var(--sig-50), transparent 70%); }
+.yn-row.partly { background: linear-gradient(90deg, var(--some-50), transparent 70%); }
+.yn-tap { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: manipulation; }
 .yn-row.got { background: linear-gradient(90deg, var(--ok-50), transparent 70%); }
 .yn-row.absent { opacity: 0.55; padding: 10px 0; min-height: 52px; }
 .absent-chip { background: var(--line); border-color: var(--line-strong); color: var(--ink); font-weight: 700; }
 .blitz-row.absent .blitz-btns { display: none; }
 .absent-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
-.projector { position: fixed; inset: 0; z-index: 60; background: var(--navy); color: #fff; display: flex; flex-direction: column; justify-content: center; padding: 24px 20px; text-align: center; }
-.projector-label { font-size: 14px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.7; }
-.projector-q { font-size: clamp(28px, 7vw, 64px); line-height: 1.2; margin: 18px auto; max-width: 18em; overflow-wrap: anywhere; }
-.projector-hint { opacity: 0.75; margin: 0 0 24px; }
-.projector-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-.projector-actions .btn:not(.primary) { background: transparent; color: #fff; border-color: rgba(255, 255, 255, 0.5); }
 .cfu-score { font-family: var(--mono); font-weight: 700; }
 .sub-hint.suggested { color: var(--blue); font-weight: 600; }
 

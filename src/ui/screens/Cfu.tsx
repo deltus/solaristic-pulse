@@ -1,14 +1,16 @@
-// Check for understanding (round 9): the menu on the class page and three of its four modes
-// (Cold call is ColdCall.tsx). Thumbs check (counts only, no names), Whole class yes/no (a
-// Blitz-style grid) and Exit or entry ticket (set up, show on the projector, swipe through the class).
-// Students marked absent earlier today start as Absent; their chip offers "Here now" or "Arrived late".
+// Check for understanding (round 9): the menu on the class page and two of its four modes
+// (Cold call and Select a student are ColdCall.tsx). Whole class (everyone starts as Yes; tap the
+// few who aren't) and Entry or exit ticket (up to 3 questions, shown with Present, then swipe
+// through the class). Students marked absent earlier today start as Absent; their chip offers
+// "Here now" or "Arrived late".
 
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { saveSettings } from '../../db';
 import * as svc from '../../services';
-import { CFU_MODES, THUMBS, THUMBS_HOLD_MS, TICKET_NOT_YET_TAGS, type CfuMode } from '../../config/cfu';
+import { CFU_MODES, cfuModeOf, MAX_TICKET_QUESTIONS, TICKET_NOT_YET_TAGS, TICKET_TIMERS, WHOLE_HOLD_MS, type CfuMode } from '../../config/cfu';
 import { UNDO_SECONDS } from '../../config/checkin';
-import { allOthersYes, cycleMark, prefillAbsent, suggestedQuestion, thumbsShares, type GridMark, type ThumbCounts } from '../../logic/cfu';
+import { holdMark, suggestedQuestion, tapMark, ticketQuestions, wholeClassStart, type GridMark } from '../../logic/cfu';
 import { earlierLessons, lessonName } from '../../logic/lessons';
 import type { CfuCheck, CfuResultValue, Lesson, Student } from '../../types';
 import { go, useLive, useSettings } from '../hooks';
@@ -16,21 +18,23 @@ import { displayName, Icon, initials, Sheet, toast } from '../components';
 import { SwipeCard, sideOf, type SwipeAction, type SwipeControl } from '../Swipe';
 import { NeedLesson } from './Checkin';
 import { PreviousButton, usePrevious } from '../Previous';
+import { openPresent, Present } from '../Present';
 
 const byName = (a: Student, b: Student) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName);
 const modePath = (classId: string, m: CfuMode) => (m === 'coldcall' ? `class/${classId}/coldcall` : `class/${classId}/cfu/${m}`);
+const modeOf = (id: CfuMode) => CFU_MODES.find((m) => m.id === id)!;
 
 /** The tile's menu: four modes, the last one used first. */
 export function CfuMenu({ classId, onClose }: { classId: string; onClose: () => void }) {
   const settings = useSettings();
-  const last = settings?.lastCfuMode;
+  const last = cfuModeOf(settings?.lastCfuMode);
   const modes = [...CFU_MODES].sort((a, b) => (a.id === last ? -1 : b.id === last ? 1 : 0));
   return (
     <Sheet title="Check for understanding" onClose={onClose}>
       <div class="cfu-menu">
         {modes.map((m) => (
-          <button key={m.id} class="list-item cfu-mode" onClick={() => { void saveSettings({ lastCfuMode: m.id }); onClose(); go(modePath(classId, m.id)); }}>
-            <span class="guide-icon small"><Icon name={m.icon} /></span>
+          <button key={m.id} class={`list-item cfu-mode ${m.color}`} onClick={() => { void saveSettings({ lastCfuMode: m.id }); onClose(); go(modePath(classId, m.id)); }}>
+            <span class="cfu-icon"><Icon name={m.icon} /></span>
             <span class="grow"><b>{m.label}</b><span class="tiny muted" style="display:block">{m.hint}</span></span>
             {m.id === last && <span class="tiny muted">Last used</span>}
             <Icon name="chevron" />
@@ -39,6 +43,12 @@ export function CfuMenu({ classId, onClose }: { classId: string; onClose: () => 
       </div>
     </Sheet>
   );
+}
+
+/** The mode's name in its own colour, with its icon, at the top of its screen. */
+export function ModeTitle({ mode, children }: { mode: CfuMode; children?: string }) {
+  const m = modeOf(mode);
+  return <div class={`cfu-title ${m.color}`}><span class="cfu-icon small"><Icon name={m.icon} /></span>{children ?? m.label}</div>;
 }
 
 /** The lesson's learning intention, at the top of each mode (when one was entered). */
@@ -83,44 +93,80 @@ function Header({ classId, name, right }: { classId: string; name: string; right
   );
 }
 
-/* ---------------- Thumbs check ---------------- */
+/* ---------------- Whole class ---------------- */
 
-export function ThumbsScreen({ classId }: { classId: string }) {
+const MARK_TEXT: Record<GridMark, string> = { got: 'Yes', partly: 'Sort of', notyet: 'Not yet', absent: 'Absent' };
+
+export function WholeClassScreen({ classId }: { classId: string }) {
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
-  const [counts, setCounts] = useState<ThumbCounts>({ up: 0, mid: 0, down: 0 });
-  if (!ctx) return null;
+  const [marks, setMarks] = useState<Record<string, GridMark> | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Everyone starts as Yes, absent-today students as Absent (once, when the screen opens).
+  useEffect(() => { if (ctx && marks === null) setMarks(wholeClassStart(ctx.students.map((s) => s.id), ctx.absentNow)); }, [!!ctx]);
+  if (!ctx || !marks) return ctx === null ? null : <p class="muted" style="padding:20px 0">Loading…</p>;
   if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
   const lesson = ctx.lesson;
-  const sh = thumbsShares(counts);
-  const bump = (id: keyof ThumbCounts, n: number) => setCounts((c) => ({ ...c, [id]: Math.max(0, c[id] + n) }));
+  const students = [...ctx.students].sort(byName);
+  const count = (m: GridMark) => students.filter((s) => (marks[s.id] ?? 'got') === m).length;
+  /** `m` is a function of the current mark, so quick double taps each count. */
+  const setOne = (id: string, m: (cur: GridMark) => GridMark) => setMarks((x) => ({ ...x, [id]: m(x![id] ?? 'got') }));
 
   async function save() {
-    await svc.saveThumbs(lesson, counts);
-    toast(`Thumbs check saved: ${sh.up}% got it`);
+    setBusy(true);
+    const all = Object.fromEntries(students.map((s) => [s.id, marks![s.id] ?? 'got'])) as Record<string, GridMark>;
+    await svc.saveWholeClass(lesson, all);
+    toast(`Saved: ${count('got')} yes, ${count('partly')} sort of, ${count('notyet')} not yet`);
     go(`class/${classId}`);
   }
 
   return (
-    <div class="cc">
-      <Header classId={classId} name={ctx.cls.name} right={`${sh.total} counted`} />
-      <div class="cc-eyebrow" style="margin-top:8px">Thumbs check</div>
+    <div>
+      <Header classId={classId} name={ctx.cls.name} />
+      <ModeTitle mode="whole" />
       <IntentionLine lesson={lesson} />
-      <p class="tiny muted" style="margin:4px 0 10px">Tap to add one, press and hold to take one off. No names are saved.</p>
-      <div class="thumbs">
-        {THUMBS.map((t) => <ThumbButton key={t.id} emoji={t.emoji} label={t.label} n={counts[t.id]} cls={t.id} onAdd={() => bump(t.id, 1)} onRemove={() => bump(t.id, -1)} />)}
+      <p class="small" style="margin:6px 0 2px"><b>“Is everyone happy with this?”</b> Thumbs up, sideways or down.</p>
+      <p class="tiny muted" style="margin:0 0 10px">Everyone starts as Yes. Tap the few who aren't for Not yet; press and hold for Sort of.</p>
+      <div class="card flat" style="padding:2px 12px">
+        {students.map((s) => {
+          const m = marks[s.id] ?? 'got';
+          if (m === 'absent') {
+            return (
+              <div key={s.id} class="blitz-row yn-row absent">
+                <span class="avatar">{initials(s)}</span>
+                <span class="grow">{displayName(s)}</span>
+                {ctx.absentNow.has(s.id)
+                  ? <AbsentChip classId={classId} student={s} date={lesson.date} onHere={() => setOne(s.id, () => 'got')} />
+                  : <button class="chip small absent-chip" aria-label={`${displayName(s)}: absent. Tap to undo`} onClick={() => setOne(s.id, () => 'got')}>Absent</button>}
+              </div>
+            );
+          }
+          return (
+            <div key={s.id} class={`blitz-row yn-row ${m}`}>
+              <HoldButton
+                class="yn-tap grow"
+                label={`${displayName(s)}: ${MARK_TEXT[m]}. Tap for ${m === 'got' ? 'Not yet' : 'Yes'}, hold for Sort of`}
+                onTap={() => setOne(s.id, tapMark)}
+                onHold={() => setOne(s.id, holdMark)}
+              >
+                <span class="avatar">{initials(s)}</span>
+                <span class="grow">{displayName(s)}</span>
+                <span class={`yn-mark ${m}`}>{m === 'got' ? <><Icon name="check" /> Yes</> : MARK_TEXT[m]}</span>
+              </HoldButton>
+              <button class="bz abs" aria-label={`${displayName(s)}: absent`} onClick={() => setOne(s.id, () => 'absent')}>A</button>
+            </div>
+          );
+        })}
       </div>
-      <div class="pct-bar" aria-label={`${sh.up}% got it, ${sh.mid}% sort of, ${sh.down}% not yet`}>
-        {sh.total ? <><i class="up" style={{ width: `${sh.up}%` }} /><i class="mid" style={{ width: `${sh.mid}%` }} /><i class="down" style={{ width: `${sh.down}%` }} /></> : null}
+      <div class="blitz-bar">
+        <span class="small"><b>{count('got')}</b> yes · <b>{count('partly')}</b> sort of · <b>{count('notyet')}</b> not yet{count('absent') ? ` · ${count('absent')} absent` : ''}</span>
+        <button class="btn primary small cfu-c-whole" disabled={busy || !students.length} onClick={save}><Icon name="check" /> Save</button>
       </div>
-      <div class="row between tiny" style="margin:4px 0 14px">
-        <span>👍 {sh.up}%</span><span>👊 {sh.mid}%</span><span>👎 {sh.down}%</span>
-      </div>
-      <button class="btn primary big block" disabled={!sh.total} onClick={save}><Icon name="check" /> Save</button>
     </div>
   );
 }
 
-function ThumbButton({ emoji, label, n, cls, onAdd, onRemove }: { emoji: string; label: string; n: number; cls: string; onAdd: () => void; onRemove: () => void }) {
+/** A button with a tap and a press-and-hold (keyboard Enter/Space is a tap). */
+function HoldButton({ onTap, onHold, label, children, ...rest }: { onTap: () => void; onHold: () => void; label: string; class: string; children: ComponentChildren }) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const held = useRef(false);
   const down = useRef(false);
@@ -128,109 +174,41 @@ function ThumbButton({ emoji, label, n, cls, onAdd, onRemove }: { emoji: string;
   const cancel = () => { clearTimeout(timer.current); down.current = false; };
   return (
     <button
-      class={`thumb-btn ${cls}`}
-      aria-label={`${label}: ${n}. Tap to add, hold to take one off`}
+      class={rest.class}
+      aria-label={label}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         held.current = false;
         down.current = true;
-        timer.current = setTimeout(() => { held.current = true; navigator.vibrate?.(20); onRemove(); }, THUMBS_HOLD_MS);
+        timer.current = setTimeout(() => { held.current = true; navigator.vibrate?.(20); onHold(); }, WHOLE_HOLD_MS);
       }}
-      onPointerUp={() => { if (down.current && !held.current) { navigator.vibrate?.(8); onAdd(); } cancel(); }}
+      onPointerUp={() => { if (down.current && !held.current) { navigator.vibrate?.(8); onTap(); } cancel(); }}
       onPointerLeave={cancel}
       onPointerCancel={cancel}
       onContextMenu={(e) => e.preventDefault()}
-      onClick={(e) => { if (e.detail === 0) onAdd(); /* keyboard */ }}
+      onClick={(e) => { if (e.detail === 0) onTap(); /* keyboard */ }}
     >
-      <span class="thumb-emoji" aria-hidden="true">{emoji}</span>
-      <b class="thumb-n">{n}</b>
-      <span class="tiny">{label}</span>
+      {children}
     </button>
   );
 }
 
-/* ---------------- Whole class yes/no ---------------- */
+/* ---------------- Entry or exit ticket ---------------- */
 
-export function YesNoScreen({ classId }: { classId: string }) {
-  const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
-  const [marks, setMarks] = useState<Record<string, GridMark> | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Absent-today students start as Absent (once, when the screen opens).
-  useEffect(() => { if (ctx && marks === null) setMarks(prefillAbsent({}, ctx.absentNow, ctx.students.map((s) => s.id))); }, [!!ctx]);
-  if (!ctx || !marks) return ctx === null ? null : <p class="muted" style="padding:20px 0">Loading…</p>;
-  if (!ctx.lesson) return <NeedLesson classId={classId} name={ctx.cls.name} />;
-  const lesson = ctx.lesson;
-  const students = [...ctx.students].sort(byName);
-  const absent = new Set(students.filter((s) => marks[s.id] === 'absent').map((s) => s.id));
-  const count = (m: GridMark) => Object.values(marks).filter((x) => x === m).length;
-  const unchecked = students.filter((s) => marks[s.id] === undefined).length;
-  /** `m` can be a function of the current mark, so quick double taps each count. */
-  const setOne = (id: string, m: GridMark | undefined | ((cur: GridMark | undefined) => GridMark | undefined)) => setMarks((x) => {
-    const n = { ...x };
-    const v = typeof m === 'function' ? m(n[id]) : m;
-    if (v === undefined) delete n[id]; else n[id] = v;
-    return n;
-  });
+type TicketPhase = 'setup' | 'record' | 'notyet';
 
-  async function save() {
-    setBusy(true);
-    await svc.saveYesNo(lesson, marks!);
-    toast(`Saved: ${count('got')} yes, ${count('notyet')} not yet`);
-    go(`class/${classId}`);
-  }
+const ticketHash = (classId: string, checkId: string, fromClose: boolean) => `#/class/${classId}/cfu/ticket/${checkId}${fromClose ? '/close' : ''}`;
 
-  return (
-    <div>
-      <Header classId={classId} name={ctx.cls.name} />
-      <div class="cc-eyebrow" style="margin-top:8px">Whole class yes/no</div>
-      <IntentionLine lesson={lesson} />
-      <p class="tiny muted" style="margin:4px 0 10px">Tap a name once for Yes, twice for Not yet, three times to clear. Untouched means not checked.</p>
-      <div class="card flat" style="padding:2px 12px">
-        {students.map((s) => {
-          const m = marks[s.id];
-          if (m === 'absent') {
-            return (
-              <div key={s.id} class="blitz-row yn-row absent">
-                <span class="avatar">{initials(s)}</span>
-                <span class="grow">{displayName(s)}</span>
-                {ctx.absentNow.has(s.id)
-                  ? <AbsentChip classId={classId} student={s} date={lesson.date} onHere={() => setOne(s.id, undefined)} />
-                  : <button class="chip small absent-chip" onClick={() => setOne(s.id, undefined)}>Absent</button>}
-              </div>
-            );
-          }
-          return (
-            <div key={s.id} class={`blitz-row yn-row ${m ?? ''}`}>
-              <button class="yn-tap grow" aria-label={`${displayName(s)}: ${m === 'got' ? 'yes' : m === 'notyet' ? 'not yet' : 'not checked'}. Tap to change`} onClick={() => setOne(s.id, cycleMark)}>
-                <span class="avatar">{initials(s)}</span>
-                <span class="grow">{displayName(s)}</span>
-                <span class={`yn-mark ${m ?? ''}`}>{m === 'got' ? <><Icon name="check" /> Yes</> : m === 'notyet' ? 'Not yet' : ''}</span>
-              </button>
-              <button class="bz abs" aria-label={`${displayName(s)}: absent`} onClick={() => setOne(s.id, 'absent')}>A</button>
-            </div>
-          );
-        })}
-      </div>
-      <div class="blitz-bar">
-        <span class="small"><b>{count('got')}</b> yes · <b>{count('notyet')}</b> not yet{absent.size ? ` · ${absent.size} absent` : ''}{unchecked ? ` · ${unchecked} not checked` : ''}</span>
-        <div class="row" style="gap:6px">
-          {unchecked > 0 && <button class="btn small" onClick={() => setMarks(allOthersYes(marks, students.map((s) => s.id), absent, 'got' as GridMark))}>All others: Yes</button>}
-          <button class="btn primary small" disabled={busy || !Object.keys(marks).length} onClick={save}>Save</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ---------------- Exit or entry ticket ---------------- */
-
-type TicketPhase = 'setup' | 'show' | 'record' | 'notyet';
-
-/** `fromClose`: opened from Close lesson ("Run an exit ticket?"), so it starts as Exit and returns there. */
-export function TicketScreen({ classId, fromClose = false }: { classId: string; fromClose?: boolean }) {
+/**
+ * `fromClose`: opened from Close lesson ("Run an exit ticket?"), so it starts as Exit and returns there.
+ * `resumeId`: back from the Present page on a phone, so recording carries on with that ticket.
+ */
+export function TicketScreen({ classId, fromClose = false, resumeId }: { classId: string; fromClose?: boolean; resumeId?: string }) {
   const ctx = useLive(() => svc.loadLessonContext(classId), [classId]);
   const [kind, setKind] = useState<'exit' | 'entry'>('exit');
-  const [question, setQuestion] = useState<string | null>(null);
+  /** null: just the suggested question. */
+  const [qs, setQs] = useState<string[] | null>(null);
+  const [timer, setTimer] = useState(0);
   const [phase, setPhase] = useState<TicketPhase>('setup');
   const [check, setCheck] = useState<CfuCheck | null>(null);
   const [done, setDone] = useState<Record<string, CfuResultValue>>({});
@@ -239,8 +217,24 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
   const [tags, setTags] = useState<string[]>([]);
   const card = useRef<SwipeControl | null>(null);
   const checkRef = useRef<string | null>(null);
+  /** Leaving for the Present page on this phone: keep the (still empty) ticket. */
+  const presenting = useRef(false);
+  const resumed = useRef(false);
   const prev = usePrevious();
-  useEffect(() => () => { if (checkRef.current) void svc.dropEmptyTicket(checkRef.current); }, []);
+  useEffect(() => () => { if (checkRef.current && !presenting.current) void svc.dropEmptyTicket(checkRef.current); }, []);
+  // Back from Present: the same ticket, with anyone already recorded.
+  useEffect(() => {
+    if (!ctx || !resumeId || resumed.current) return;
+    resumed.current = true;
+    const c = ctx.cfuChecks.find((x) => x.id === resumeId);
+    if (!c) return;
+    checkRef.current = c.id;
+    setCheck(c);
+    setKind(c.kind === 'entry' ? 'entry' : 'exit');
+    setQs(ticketQuestions(c));
+    setDone(Object.fromEntries(ctx.cfuResults.filter((r) => r.checkId === c.id).map((r) => [r.studentId, r.result])));
+    setPhase('record');
+  }, [!!ctx]);
 
   const students = [...(ctx?.students ?? [])].sort(byName);
   const absentNow = ctx?.absentNow ?? new Set<string>();
@@ -253,18 +247,52 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
   const lesson = ctx.lesson;
   const previous = earlierLessons(ctx.lessons, classId, lesson)[0];
   const suggested = suggestedQuestion(kind, lesson, previous);
-  const q = question ?? suggested;
+  const questions = qs ?? [suggested];
+  const filled = questions.filter((q) => q.trim());
+  const saved = ctx.cls.savedQuestions ?? [];
   const backTo = fromClose ? `class/${classId}/close` : `class/${classId}`;
   const absentList = students.filter((s) => absentNow.has(s.id) && !(s.id in done));
+  const about = kind === 'entry' ? previous?.id : undefined;
+  const setQ = (i: number, v: string) => setQs(questions.map((q, j) => (j === i ? v : q)));
 
-  async function startRecording() {
-    if (!check) {
-      const c = await svc.startTicket(lesson, kind, q, kind === 'entry' ? previous?.id : undefined);
-      checkRef.current = c.id;
+  /** Saves the ticket (or its edited questions) so it can be shown and recorded. */
+  async function ensureCheck(): Promise<CfuCheck> {
+    if (check) {
+      await svc.updateTicket(check.id, kind, filled, about);
+      const c = { ...check, kind, questions: filled, aboutLessonId: about };
       setCheck(c);
+      return c;
     }
+    const c = await svc.startTicket(lesson, kind, filled, about);
+    checkRef.current = c.id;
+    setCheck(c);
+    return c;
+  }
+  async function startRecording() {
+    await ensureCheck();
     setPhase('record');
   }
+  /** Show it: the Present page (a new window on a computer, full screen here on a phone). */
+  async function showIt() {
+    const c = await ensureCheck();
+    setPhase('record');
+    presenting.current = true;
+    openPresent(`#/class/${classId}/cfu/present/${c.id}/${timer * 60}${fromClose ? '/close' : ''}`);
+    // Still here (a new window opened): drop the ticket if the teacher leaves without recording.
+    setTimeout(() => { presenting.current = false; }, 1500);
+  }
+  async function saveQuestion(q: string) {
+    await svc.saveClassQuestion(classId, q);
+    toast(`Saved for ${ctx!.cls.name}`);
+  }
+  function pickSaved(q: string) {
+    const empty = questions.findIndex((x) => !x.trim());
+    if (questions.some((x) => x.trim().toLowerCase() === q.toLowerCase())) return;
+    if (empty >= 0) setQ(empty, q);
+    else if (questions.length < MAX_TICKET_QUESTIONS) setQs([...questions, q]);
+    else setQs([...questions.slice(0, -1), q]);
+  }
+
   async function save(id: string, result: CfuResultValue, t: string[] = []) {
     const r = await svc.recordTicket(check!, id, result, t);
     setDone((d) => ({ ...d, [id]: result }));
@@ -293,43 +321,65 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
     else save(activeId, 'partly');
   }
 
-  if (phase === 'show') {
-    return (
-      <div class="projector" onClick={(e) => e.target === e.currentTarget && setPhase('setup')}>
-        <span class="projector-label">{kind === 'exit' ? 'Exit ticket' : 'Entry ticket'}</span>
-        <h1 class="projector-q">{q}</h1>
-        <p class="projector-hint">Write your answer on paper or a sticky note.</p>
-        <div class="projector-actions">
-          <button class="btn" onClick={() => setPhase('setup')}><Icon name="back" /> Back</button>
-          <button class="btn primary" onClick={startRecording}>Record answers <Icon name="arrow" /></button>
-        </div>
-      </div>
-    );
-  }
-
   const counts = Object.values(done);
   const n = (v: CfuResultValue) => counts.filter((x) => x === v).length;
   const header = <Header classId={classId} name={ctx.cls.name} right={phase === 'setup' ? undefined : `${counts.length} recorded · ${queue.length} to go`} />;
+  const kindName = kind === 'exit' ? 'Exit ticket' : 'Entry ticket';
 
   if (phase === 'setup') {
     return (
       <div class="cc">
         {header}
-        <div class="cc-eyebrow" style="margin-top:8px">Exit or entry ticket</div>
+        <ModeTitle mode="ticket" />
         <IntentionLine lesson={lesson} />
         <div class="seg" style="margin:6px 0 4px">
           <button class={kind === 'exit' ? 'sel' : ''} aria-pressed={kind === 'exit'} onClick={() => setKind('exit')}>Exit</button>
           <button class={kind === 'entry' ? 'sel' : ''} aria-pressed={kind === 'entry'} onClick={() => setKind('entry')}>Entry</button>
         </div>
         <p class="tiny muted" style="margin:4px 0 10px">{kind === 'exit' ? 'End of lesson: about today.' : previous ? `Start of lesson: about last lesson${previous.intention ? ` (${lessonName(previous)})` : ''}.` : 'Start of lesson: about last lesson (none recorded yet).'}</p>
-        <label class="small" for="ticket-q"><b>Question</b></label>
-        <textarea id="ticket-q" class="input" style="margin-top:6px;min-height:84px" maxLength={200} value={q} onInput={(e) => setQuestion((e.target as HTMLTextAreaElement).value)} />
-        {question !== null && question !== suggested && <button class="link-btn tiny" onClick={() => setQuestion(null)}>Use the suggested question</button>}
-        <div class="grid2" style="margin-top:14px">
-          <button class="btn" disabled={!q.trim()} onClick={startRecording}>Record answers</button>
-          <button class="btn primary" disabled={!q.trim()} onClick={() => setPhase('show')}><Icon name="share" /> Show it</button>
+        {questions.map((q, i) => {
+          const isSaved = saved.some((x) => x.toLowerCase() === q.trim().toLowerCase());
+          return (
+            <div key={i} class="ticket-q">
+              <div class="row between">
+                <label class="small" for={`ticket-q${i}`}><b>{questions.length > 1 ? `Question ${i + 1}` : 'Question'}</b></label>
+                {questions.length > 1 && <button class="link-btn tiny" aria-label={`Remove question ${i + 1}`} onClick={() => setQs(questions.filter((_, j) => j !== i))}><Icon name="x" /> Remove</button>}
+              </div>
+              <textarea id={`ticket-q${i}`} class="input" style="margin-top:6px;min-height:70px" maxLength={200} value={q} onInput={(e) => setQ(i, (e.target as HTMLTextAreaElement).value)} />
+              {q.trim() && (isSaved
+                ? <span class="tiny muted"><Icon name="check" /> Saved for this class</span>
+                : <button class="link-btn tiny" onClick={() => saveQuestion(q)}><Icon name="plus" /> Save for this class</button>)}
+            </div>
+          );
+        })}
+        <div class="row" style="gap:12px;flex-wrap:wrap">
+          {questions.length < MAX_TICKET_QUESTIONS && <button class="link-btn small" onClick={() => setQs([...questions, ''])}><Icon name="plus" /> Add a question</button>}
+          {qs !== null && !(questions.length === 1 && questions[0] === suggested) && <button class="link-btn small" onClick={() => setQs(null)}>Use the suggested question</button>}
         </div>
-        <p class="tiny muted" style="margin-top:8px">Show it: the question in big text for the projector. Students answer on paper; then swipe through the class to record.</p>
+        {saved.length > 0 && (
+          <div style="margin-top:12px">
+            <span class="tiny muted">Saved for {ctx.cls.name}: tap to use</span>
+            <div class="chips saved-qs">
+              {saved.map((q) => (
+                <span key={q} class="chip saved-q">
+                  <button class="saved-q-use" onClick={() => pickSaved(q)}>{q}</button>
+                  <button class="saved-q-x" aria-label={`Remove saved question: ${q}`} onClick={() => svc.removeClassQuestion(classId, q)}><Icon name="x" /></button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style="margin-top:14px">
+          <span class="tiny muted">Countdown on the board</span>
+          <div class="chips" style="flex-wrap:wrap;margin-top:4px">
+            {TICKET_TIMERS.map((m) => <button key={m} class={`chip tiny-chip ${timer === m ? 'active' : ''}`} aria-pressed={timer === m} onClick={() => setTimer(m)}>{m ? `${m} min` : 'None'}</button>)}
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:14px">
+          <button class="btn" disabled={!filled.length} onClick={startRecording}>Record answers</button>
+          <button class="btn primary cfu-c-ticket" disabled={!filled.length} onClick={showIt}><Icon name="share" /> Show it</button>
+        </div>
+        <p class="tiny muted" style="margin-top:8px">Show it: the questions in big text for the board. Students answer on paper; then swipe through the class to record.</p>
       </div>
     );
   }
@@ -340,6 +390,8 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
       {absentList.map((s) => <span key={s.id} class="row" style="gap:4px"><span class="small">{displayName(s)}</span><AbsentChip classId={classId} student={s} date={lesson.date} /></span>)}
     </div>
   );
+  const shown = check ? ticketQuestions(check) : filled;
+  const showAgain = check && <button class="link-btn small" onClick={() => { presenting.current = true; openPresent(`#/class/${classId}/cfu/present/${check.id}/0${fromClose ? '/close' : ''}`); setTimeout(() => { presenting.current = false; }, 1500); }}><Icon name="share" /> Show it again</button>;
 
   const s = students.find((x) => x.id === activeId);
   if (!s) {
@@ -348,7 +400,7 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
         {header}
         <div class="done-state">
           <div class="check"><Icon name="check" /></div>
-          <h2>{kind === 'exit' ? 'Exit' : 'Entry'} ticket recorded</h2>
+          <h2>{kindName} recorded</h2>
           <p class="small">{n('got')} got it · {n('partly')} partly · {n('notyet')} not yet{n('absent') ? ` · ${n('absent')} absent` : ''}</p>
           {absentStrip}
           <div style="margin-top:10px">{previousBtn}</div>
@@ -384,7 +436,8 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
   return (
     <div class="cc checkin">
       {header}
-      <p class="hw-from">{kind === 'exit' ? 'Exit' : 'Entry'} ticket: <b>{q}</b></p>
+      <ModeTitle mode="ticket">{kindName}</ModeTitle>
+      <div class="hw-from">{shown.length > 1 ? <ol class="ticket-list">{shown.map((q) => <li key={q}>{q}</li>)}</ol> : <b>{shown[0]}</b>}</div>
       <SwipeCard key={s.id} control={card} onSwipe={onSwipe} labels={{ good: 'Got it', issue: 'Not yet', up: 'Partly' }} class="student-card">
         <div class="row" style="gap:12px">
           <span class="avatar big">{initials(s)}</span>
@@ -396,9 +449,29 @@ export function TicketScreen({ classId, fromClose = false }: { classId: string; 
         <button class="link-btn" onClick={() => card.current?.fling('up')}>Partly</button>
         <button class="link-btn" onClick={() => { setSkipped((k) => [...k.filter((x) => x !== s.id), s.id]); setActiveId(null); }}><Icon name="skip" /> Skip</button>
       </div>
-      {previousBtn}
+      <div class="row between">{previousBtn}{showAgain}</div>
       <p class="hold-hint">Swipe {sideOf('good')} for got it, {sideOf('issue')} for not yet, up for partly</p>
       {absentStrip}
     </div>
+  );
+}
+
+/** The ticket on the board: the questions only, big, with an optional countdown. */
+export function TicketPresent({ classId, checkId, seconds, fromClose }: { classId: string; checkId: string; seconds: number; fromClose: boolean }) {
+  const check = useLive(() => svc.getCfuCheck(checkId), [checkId]);
+  if (check === undefined) return null;
+  const qs = check ? ticketQuestions(check) : [];
+  return (
+    <Present
+      title={check?.kind === 'entry' ? 'Entry ticket' : 'Exit ticket'}
+      countdown={seconds > 0 ? seconds : undefined}
+      closeHref={check ? ticketHash(classId, checkId, fromClose) : `#/class/${classId}`}
+      body={qs.length ? (
+        <>
+          {qs.length > 1 ? <ol class="present-qs">{qs.map((q) => <li key={q}>{q}</li>)}</ol> : <p class="present-q">{qs[0]}</p>}
+          <p class="present-hint">Write your answer on paper.</p>
+        </>
+      ) : <p>This ticket was removed.</p>}
+    />
   );
 }

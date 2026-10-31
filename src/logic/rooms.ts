@@ -21,8 +21,8 @@ const cell = (k: RoomCellKind, t?: number): RoomCell => (t === undefined ? { k }
 export function roomTemplate(id: RoomTemplateId, students = 28): RoomLayout {
   const n = Math.max(2, students);
   if (id === 'ushape') return uShape(n);
-  const block = { pairs: [2, 1], singles: [1, 1], fours: [2, 2], sixes: [3, 2] }[id] as [number, number];
-  const perRow = { pairs: 4, singles: 6, fours: 3, sixes: 3 }[id] as number;
+  const block = { pairs: [2, 1], threes: [3, 1], singles: [1, 1], fours: [2, 2], sixes: [3, 2] }[id] as [number, number];
+  const perRow = { pairs: 4, threes: 3, singles: 6, fours: 3, sixes: 3 }[id] as number;
   const rowGap = id === 'fours' || id === 'sixes' ? 1 : 0;
   const size = block[0] * block[1];
   const blocks = Math.ceil(n / size);
@@ -187,3 +187,129 @@ export function renumberTables(room: RoomLayout): RoomLayout {
   const to = new Map(order.map((t, i) => [t, i + 1]));
   return { ...room, cells: room.cells.map((x) => (x.k === 'desk' && x.t && to.has(x.t) ? { k: 'desk', t: to.get(x.t) } : x)) };
 }
+
+/* ---------------- Quick wall setup ---------------- */
+
+export type Wall = 'top' | 'bottom' | 'left' | 'right';
+
+/** The wall nearest a tapped cell. */
+export function wallOf(room: Pick<RoomLayout, 'rows' | 'cols'>, index: number): Wall {
+  const r = Math.floor(index / room.cols), c = index % room.cols;
+  const d: Record<Wall, number> = { top: r, bottom: room.rows - 1 - r, left: c, right: room.cols - 1 - c };
+  return (Object.keys(d) as Wall[]).reduce((a, b) => (d[b] < d[a] ? b : a));
+}
+
+/** Cells along a wall (corners left out), and the row or column one step into the room. */
+function wallCells(room: RoomLayout, wall: Wall, inset = 0): number[] {
+  const { rows, cols } = room;
+  if (wall === 'top' || wall === 'bottom') { const r = wall === 'top' ? inset : rows - 1 - inset; return Array.from({ length: cols - 2 }, (_, i) => r * cols + i + 1); }
+  const c = wall === 'left' ? inset : cols - 1 - inset;
+  return Array.from({ length: rows - 2 }, (_, i) => (i + 1) * cols + c);
+}
+
+const clear = (room: RoomLayout, k: RoomCellKind) => room.cells.map((x) => (x.k === k ? cell('empty') : x));
+
+/** Board on the middle of a wall, with the teacher's desk just inside it. Desks never move. */
+export function placeBoard(room: RoomLayout, wall: Wall): RoomLayout {
+  const cells = clear({ ...room, cells: clear(room, 'board') }, 'teacher');
+  const line = wallCells(room, wall);
+  const mid = Math.floor(line.length / 2);
+  line.forEach((i, j) => { if (Math.abs(j - mid) <= 2 && cells[i].k !== 'desk') cells[i] = cell('board'); });
+  // Teacher: one step in from the board, near its far end; the nearest free cell along that line.
+  const inner = wallCells(room, wall, 1);
+  const want = Math.min(inner.length - 1, mid + 3);
+  const free = inner.map((i, j) => ({ i, d: Math.abs(j - want) })).filter((x) => cells[x.i].k === 'empty').sort((a, b) => a.d - b.d)[0];
+  if (free) cells[free.i] = cell('teacher');
+  return { ...room, cells };
+}
+
+/** Door on the wall cell nearest the tap (or the nearest free cell on that wall). */
+export function placeDoor(room: RoomLayout, index: number): RoomLayout {
+  const cells = clear(room, 'door');
+  const wall = wallOf(room, index);
+  const r = Math.floor(index / room.cols), c = index % room.cols;
+  const line = wallCells(room, wall);
+  const pos = (i: number) => ({ r: Math.floor(i / room.cols), c: i % room.cols });
+  const free = line.filter((i) => cells[i].k === 'empty' || cells[i].k === 'window')
+    .sort((a, b) => cheb(pos(a), { r, c }) - cheb(pos(b), { r, c }))[0];
+  if (free !== undefined) cells[free] = cell('door');
+  return { ...room, cells };
+}
+
+/** Windows (every other cell) on each chosen wall, in free cells only. */
+export function placeWindows(room: RoomLayout, walls: Wall[]): RoomLayout {
+  const cells = clear(room, 'window');
+  for (const w of walls) wallCells(room, w).forEach((i, j) => { if (j % 2 === 0 && cells[i].k === 'empty') cells[i] = cell('window'); });
+  return { ...room, cells };
+}
+
+/** Walls that have windows on them. */
+export const windowWalls = (room: RoomLayout): Wall[] =>
+  [...new Set(room.cells.flatMap((x, i) => (x.k === 'window' ? [wallOf(room, i)] : [])))];
+
+/** A new desk joins the table of a desk right next to it in the same row (desks touching in a line are one table). */
+export function deskTableAt(room: RoomLayout, index: number): number {
+  const c = index % room.cols;
+  for (const j of [c > 0 ? index - 1 : -1, c < room.cols - 1 ? index + 1 : -1]) {
+    const x = j >= 0 ? room.cells[j] : undefined;
+    if (x?.k === 'desk' && x.t) return x.t;
+  }
+  return Math.max(0, ...room.cells.map((x) => x.t ?? 0)) + 1;
+}
+
+/* ---------------- Switching a class to a different room ---------------- */
+
+type PlanSeats = Record<string, { studentId: string; locked?: boolean }>;
+
+/**
+ * What stays when a class moves to a different room: locked students keep the desk at the same spot
+ * (or another free desk at the same table), and students whose whole table is still there, at the same
+ * spots, stay put. Everyone else is re-planned. `keep` is the seats to hold while planning.
+ */
+export function refitSeats(oldRoom: RoomLayout, seats: PlanSeats, newRoom: RoomLayout): { keep: PlanSeats; replan: string[] } {
+  const rc = (room: RoomLayout, seat: string) => ({ r: Math.floor(Number(seat) / room.cols), c: Number(seat) % room.cols });
+  const at = (r: number, c: number) => (r < newRoom.rows && c < newRoom.cols ? r * newRoom.cols + c : -1);
+  const newDesk = (r: number, c: number) => { const i = at(r, c); return i >= 0 && newRoom.cells[i].k === 'desk' ? i : -1; };
+  // A table survives when all its desks are desks of one table in the new room, and that table has no extra desks.
+  const survives = new Map<number, boolean>();
+  for (const s of seatsOf(oldRoom)) {
+    if (survives.has(s.table)) continue;
+    const mine = seatsOf(oldRoom).filter((o) => o.table === s.table).map((o) => newDesk(o.r, o.c));
+    const t = mine[0] >= 0 ? newRoom.cells[mine[0]].t : undefined;
+    const size = newRoom.cells.filter((x) => x.k === 'desk' && x.t === t).length;
+    survives.set(s.table, mine.every((i) => i >= 0 && newRoom.cells[i].t === t) && t !== undefined && size === mine.length);
+  }
+  const keep: PlanSeats = {};
+  const taken = new Set<number>();
+  const replan: string[] = [];
+  const entries = Object.entries(seats).sort(([, a], [, b]) => Number(!!b.locked) - Number(!!a.locked));
+  for (const [seat, v] of entries) {
+    const { r, c } = rc(oldRoom, seat);
+    const oldTable = oldRoom.cells[Number(seat)]?.t ?? -1;
+    let to = newDesk(r, c);
+    if (to >= 0 && taken.has(to)) to = -1;
+    if (v.locked && to < 0) {
+      // Another free desk at the same table, if the table is still there.
+      const same = seatsOf(oldRoom).filter((o) => o.table === oldTable).map((o) => newDesk(o.r, o.c)).filter((i) => i >= 0 && !taken.has(i));
+      to = same[0] ?? -1;
+    }
+    if (to >= 0 && (v.locked || survives.get(oldTable))) { keep[String(to)] = v; taken.add(to); }
+    else replan.push(v.studentId);
+  }
+  return { keep, replan };
+}
+
+/** Students now at a different spot (row and column) than in the old plan. */
+export function movedCount(oldRoom: RoomLayout, oldSeats: PlanSeats, newRoom: RoomLayout, newSeats: PlanSeats): number {
+  const spot = (room: RoomLayout, seats: PlanSeats) => new Map(Object.entries(seats).map(([k, v]) => [v.studentId, `${Math.floor(Number(k) / room.cols)},${Number(k) % room.cols}`]));
+  const before = spot(oldRoom, oldSeats), after = spot(newRoom, newSeats);
+  return [...before].filter(([id, p]) => after.get(id) !== p).length;
+}
+
+/** Names of classes whose active plan uses a saved room (it can't be deleted while any do). */
+export const roomUsers = (roomId: string, plans: { roomId?: string; active: boolean; classId: string }[], classes: { id: string; name: string }[]) =>
+  [...new Set(plans.filter((p) => p.active && p.roomId === roomId).map((p) => classes.find((c) => c.id === p.classId)?.name ?? 'another class'))].sort();
+
+/** Same desks, tables and walls. */
+export const sameLayout = (a: RoomLayout, b: RoomLayout) =>
+  a.rows === b.rows && a.cols === b.cols && a.cells.every((x, i) => x.k === b.cells[i]?.k && (x.t ?? 0) === (b.cells[i]?.t ?? 0));

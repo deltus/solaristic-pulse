@@ -29,7 +29,7 @@ Give each mode its own icon and colour, so each button feels made for that exact
   - the Coping with work → content suggestion
   - the "support right now" suggestion (round 7)
 - **Per lesson:** a CFU score (% got it). It shows in the lesson timeline and the class graphs. My teaching gains an insight, e.g. "Lessons where you got through the plan averaged 82% on exit tickets, vs 61% when you didn't."
-- **Thumbs checks** are whole-class only and don't affect individual students.
+- **Whole class "Not yet"** counts as a content signal for that student, like a ticket "Not yet".
 
 ---
 

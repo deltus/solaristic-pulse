@@ -986,3 +986,13 @@ body.projector-mode .content-col { margin: 0; max-width: none; }
 .fu-row.closed { opacity: .6; }
 .follow-ups-home { margin-bottom: 12px; }
 .student-incidents .list-row { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.close-day .step-dots { display: flex; gap: 6px; margin: 10px 0 4px; }
+.close-day .dot { width: 10px; height: 10px; border-radius: 50%; border: 0; padding: 0; background: var(--line-strong); }
+.close-day .dot.past { background: var(--blue-50); }
+.close-day .dot.on { background: var(--blue); }
+.close-day .list-row { display: flex; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.close-day-prompt { margin-bottom: 12px; border-color: var(--blue); }
+.dump-text { min-height: 180px; font-size: 15px; }
+.dump-chunk { margin: 8px 0; }
+.dump-ask { margin: 4px 0 8px; padding: 6px 8px; border-radius: 8px; background: var(--some-50); }

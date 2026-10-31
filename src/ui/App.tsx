@@ -24,6 +24,8 @@ import { ReportsScreen } from './screens/Reports';
 import { SettingsScreen } from './screens/Settings';
 import { useReminders, type ReminderState } from './reminders';
 import { IncidentForm, IncidentView } from './Incident';
+import { CloseDayScreen } from './CloseDay';
+import { BrainDumpScreen } from './BrainDump';
 import { db, saveSettings } from '../db';
 import { FileSavedHost } from './Files';
 import { openFile } from '../files';
@@ -111,6 +113,8 @@ export function App() {
     case 'blitz': screen = <BlitzScreen classId={id} />; break;
     case 'teaching': screen = <TeachingScreen />; break;
     case 'incident': screen = id ? <IncidentView id={id} /> : <HomeScreen reminder={reminder} />; break;
+    case 'closeday': screen = <CloseDayScreen key={id ?? ''} date={id} />; break;
+    case 'braindump': screen = <BrainDumpScreen key={id ?? ''} classId={id} />; break;
     case 'checkout': screen = id ? <CheckoutScreen classId={id} timetableId={sub} /> : <HomeScreen reminder={reminder} />; break;
     default: screen = <HomeScreen reminder={reminder} />;
   }

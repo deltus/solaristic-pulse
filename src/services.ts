@@ -1189,3 +1189,34 @@ export async function logWellbeingFlag(studentId: string, classId: string, note:
 
 /** Leftovers from a Brain dump become one dated journal entry. */
 export const saveDumpLeftovers = (text: string, classId?: string) => (text.trim() ? saveJournalEntry({ classId: classId ?? '', text, tags: ['Brain dump'] }) : Promise.resolve(null));
+
+export type DumpAction = 'note' | 'followup' | 'home' | 'wellbeing' | 'positive' | 'skip';
+export interface DumpChunkChoice { text: string; studentIds: string[]; action?: DumpAction; due?: DueChip | number }
+
+/**
+ * Turns sorted Brain dump chunks into records: a note, a follow-up, a contact-home task (with an
+ * email draft), a Wellbeing flag or a positive note, for each student in the chunk. Chunks with
+ * no student, skipped ones and ones left without a choice go into one journal entry.
+ */
+export async function applyDumpChunks(dumpId: string, chunks: DumpChunkChoice[], classId?: string) {
+  const counts: Record<DumpAction | 'journal', number> = { note: 0, followup: 0, home: 0, wellbeing: 0, positive: 0, skip: 0, journal: 0 };
+  const leftovers: string[] = [];
+  for (const c of chunks) {
+    const action = c.studentIds.length ? c.action ?? 'skip' : 'skip';
+    if (action === 'skip') { leftovers.push(c.text); counts.skip++; continue; }
+    for (const sid of c.studentIds) {
+      const s = await db.students.get(sid);
+      if (!s) continue;
+      const who = s.preferredName || s.firstName;
+      if (action === 'note') await addNote(sid, c.text);
+      else if (action === 'positive') await addTaggedNote(sid, c.text, ['positive']);
+      else if (action === 'wellbeing') await logWellbeingFlag(sid, s.classId, c.text, dumpId);
+      else if (action === 'followup') await addFollowUp({ kind: 'custom', title: `Follow up: ${who}`, about: c.text, due: c.due ?? 'morning', studentId: sid, classId: s.classId });
+      else if (action === 'home') await addFollowUp({ kind: 'home', title: `Contact home: ${who}`, about: c.text, due: c.due ?? 'eod', studentId: sid, classId: s.classId, draft: 'home' });
+      counts[action]++;
+    }
+  }
+  if (leftovers.length) { await saveDumpLeftovers(leftovers.join('\n'), classId); counts.journal = leftovers.length; }
+  await markDumpSorted(dumpId);
+  return counts;
+}
